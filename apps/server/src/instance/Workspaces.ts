@@ -82,6 +82,8 @@ export class Workspaces extends Context.Service<
       readonly message: string | null;
     }>;
     readonly instanceUrl: Effect.Effect<string | null>;
+    /** Waits for in-flight workspace actions, such as a container being created. */
+    readonly drain: Effect.Effect<void>;
   }
 >()("t3/instance/Workspaces") {}
 
@@ -104,7 +106,9 @@ const make = Effect.gen(function* () {
   const config = yield* InstanceConfig;
   const runtime = yield* WorkspaceRuntime;
   const tailscale = yield* TailscaleKeys;
-  const background = yield* FiberSet.make<unknown, never>();
+  // Loops never finish; per-user actions do, so `drain` can wait on them alone.
+  const loops = yield* FiberSet.make<unknown, never>();
+  const actions = yield* FiberSet.make<unknown, never>();
   const locks = yield* Ref.make(new Map<string, Semaphore.Semaphore>());
   const discoveredInstanceUrl = yield* Ref.make<string | null>(null);
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -227,7 +231,7 @@ const make = Effect.gen(function* () {
     userId: string,
     effect: Effect.Effect<unknown, string | { readonly message: string }>,
   ) =>
-    FiberSet.run(background)(
+    FiberSet.run(actions)(
       serialized(userId)(
         effect.pipe(
           Effect.andThen(reconcileOne(userId)),
@@ -302,10 +306,10 @@ const make = Effect.gen(function* () {
     Effect.catch((cause) => Effect.logDebug("Workspace disk usage refresh failed.", { cause })),
   );
 
-  yield* FiberSet.run(background)(
+  yield* FiberSet.run(loops)(
     reconcileAll.pipe(Effect.repeat(Schedule.spaced(RECONCILE_INTERVAL)), Effect.asVoid),
   );
-  yield* FiberSet.run(background)(
+  yield* FiberSet.run(loops)(
     refreshDiskUsage.pipe(Effect.repeat(Schedule.spaced(DISK_USAGE_INTERVAL)), Effect.asVoid),
   );
 
@@ -531,6 +535,7 @@ const make = Effect.gen(function* () {
       ),
     ),
     instanceUrl: resolveInstanceUrl,
+    drain: FiberSet.awaitEmpty(actions),
   });
 });
 
