@@ -414,6 +414,9 @@ export function installFakeEnvironment(fixtures: ReadonlyArray<FakeThread>): Dis
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
     if (url.origin !== window.location.origin) return realFetch(input, init);
     if (url.pathname === "/.well-known/t3/environment") return json(encodedDescriptor);
+    if (url.pathname === "/o3/api/auth/me") {
+      return json({ user: instanceUser, workspace: instanceWorkspace(), sessionId: "session-1" });
+    }
     if (url.pathname === "/api/auth/session") {
       return json({
         authenticated: true,
@@ -433,6 +436,98 @@ export function installFakeEnvironment(fixtures: ReadonlyArray<FakeThread>): Dis
       threads = [];
     },
   };
+}
+
+const instanceUser = {
+  id: "user-render",
+  email: "render@o3.test",
+  name: "Render",
+  role: "member",
+  disabled: false,
+  mustChangePassword: false,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  lastLoginAt: null,
+};
+
+const instanceWorkspace = () => ({
+  userId: instanceUser.id,
+  slug: "render",
+  status: "running",
+  statusMessage: null,
+  tailnetHostname: window.location.host,
+  httpBaseUrl: window.location.origin,
+  wsBaseUrl: window.location.origin.replace(/^http/, "ws"),
+  image: "o3code/workspace:test",
+  tools: [],
+  limits: { cpus: 2, memoryMb: 2048, pids: 1024 },
+  diskUsageBytes: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+});
+
+/**
+ * Saves what signing in to an O3 instance leaves behind: the instance session and the workspace
+ * connection. The page's origin plays both, and its workspace token is valid for good.
+ */
+export async function signInToFakeWorkspace(): Promise<void> {
+  // Imported here: the driver mock's factory loads this file, and the runtime loads the driver.
+  const [
+    {
+      BearerConnectionCredential,
+      BearerConnectionProfile,
+      BearerConnectionRegistration,
+      BearerConnectionTarget,
+      EnvironmentRegistry,
+    },
+    { INSTANCE_WORKSPACE_CONNECTION_PREFIX, InstanceSessionStore },
+    { executeAtomQuery },
+    { Atom },
+    { connectionAtomRuntime },
+    { appAtomRegistry },
+  ] = await Promise.all([
+    import("@t3tools/client-runtime/connection"),
+    import("@t3tools/client-runtime/instance"),
+    import("@t3tools/client-runtime/state/runtime"),
+    import("effect/reactivity"),
+    import("~/connection/runtime"),
+    import("~/rpc/atomRegistry"),
+  ]);
+  const connectionId = `${INSTANCE_WORKSPACE_CONNECTION_PREFIX}${ENVIRONMENT_ID}`;
+  const httpBaseUrl = window.location.origin;
+  const signIn = Effect.gen(function* () {
+    yield* (yield* EnvironmentRegistry.EnvironmentRegistry).register(
+      new BearerConnectionRegistration({
+        target: new BearerConnectionTarget({
+          environmentId: ENVIRONMENT_ID,
+          label: descriptor.label,
+          connectionId,
+        }),
+        profile: new BearerConnectionProfile({
+          connectionId,
+          environmentId: ENVIRONMENT_ID,
+          label: descriptor.label,
+          httpBaseUrl,
+          wsBaseUrl: httpBaseUrl.replace(/^http/, "ws"),
+        }),
+        credential: new BearerConnectionCredential({ token: "o3w_render" }),
+      }),
+    );
+    yield* (yield* InstanceSessionStore).set({
+      url: httpBaseUrl,
+      name: "Render scenarios",
+      sessionToken: "o3s_render",
+      userId: instanceUser.id,
+      email: instanceUser.email,
+      environmentId: ENVIRONMENT_ID,
+      workspaceTokenExpiresAt: "2099-01-01T00:00:00.000Z",
+      workspaceHttpBaseUrl: httpBaseUrl,
+    });
+  });
+  const result = await executeAtomQuery(
+    appAtomRegistry,
+    connectionAtomRuntime.atom(signIn).pipe(Atom.withLabel("test:sign-in")),
+  );
+  if (result._tag !== "Success") throw new Error("Could not sign in to the fake workspace.");
 }
 
 type ThreadEvent = Extract<OrchestrationV2ThreadStreamItem, { readonly kind: "event" }>["event"];

@@ -19,6 +19,7 @@ import {
   assistantItem,
   emitThreadEvent,
   installFakeEnvironment,
+  signInToFakeWorkspace,
   isThreadSubscribed,
   runningRun,
   threadWithHistory,
@@ -62,6 +63,7 @@ const [WARM, A, B, LIVE] = THREADS.map((thread) => thread.id) as [
 ];
 
 installFakeEnvironment(THREADS);
+await signInToFakeWorkspace();
 // Desktop-sized, so the sidebar, composer and right panel lay out as they do in the app.
 await page.viewport(1400, 900);
 // A returning user: the first-run gate would otherwise wait on onboarding evidence.
