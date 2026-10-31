@@ -2,7 +2,7 @@
 
 ## Using O3 Code
 
-- [Install O3 Code](./user/install.md)
+- [Get started](./user/install.md)
 - [Run an O3 instance](./user/instance-admin.md)
 - [Messages and context](./user/composer.md)
 - [Working with threads](./user/thread-sidebar.md)
@@ -19,7 +19,7 @@
 - [Devices](./user/devices.md)
 - [Usage and limits](./user/usage.md)
 - [Product usage data](./user/telemetry.md)
-- [Remote access](./user/remote-access.md)
+- [Access and sharing](./user/remote-access.md)
 - [Guest links](./user/guest-links.md)
 - [Outside agents (MCP)](./user/outside-agents.md)
 - [Running in the background](./user/background-service.md)

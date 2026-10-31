@@ -1,145 +1,55 @@
-# Install O3 Code
+# Get started
 
-O3 Code runs coding agents on your computer and lets you control them from its
-desktop or web app. Set up the machine where the agents will work first.
+O3 Code runs coding agents in a workspace your organization hosts and lets you
+control them from the web or desktop app. Your administrator gives you an account
+on your organization's O3 instance. To run an instance, see
+[Run an O3 instance](./instance-admin.md).
 
-> [!NOTE]
-> This fork does not publish builds yet. The installer scripts, GitHub Releases, and package-manager
-> entries below belong to upstream [T3 Code](https://github.com/pingdotgg/t3code) and install that
-> product, not O3 Code. To run O3 Code, [build it from source](#build-from-source).
+## Sign in
 
-## Requirements
+You need [Tailscale](https://tailscale.com/download) on your device, signed in to
+your organization's tailnet.
 
-You need an installed, authenticated provider before starting a thread. You can
-launch O3 Code and configure providers afterwards.
+- **Web:** open your instance's address, such as `https://o3.your-tailnet.ts.net`.
+- **Desktop:** open the app and enter the instance's address.
 
-## Command line
+Sign in with the email and temporary password your administrator gave you, then
+choose your own password. The first time, your workspace may take a few minutes
+to start while its tools install. You stay signed in until you sign out or the
+sign-in expires, which your administrator sets.
 
-```bash
-curl -fsSL https://t3.codes/install.sh | sh
-```
+If O3 Code says it can't reach your workspace, check that Tailscale is connected.
 
-On Windows, in PowerShell:
+**Settings → Account** shows your workspace's status and lets you restart it,
+change your password, and sign out other devices.
 
-```powershell
-irm https://t3.codes/install.ps1 | iex
-```
+## Your workspace
 
-This installs the `t3` binary to `~/.local/bin`. If your shell reports `command not found`
-afterwards, that directory is not on your `PATH` yet; the installer prints the
-line to add. Set `T3CODE_CHANNEL=nightly` to install the nightly train, or
-`T3CODE_VERSION` to pin an exact version.
+Your workspace is a Linux container with your own home folder. Clone projects
+into it from O3 Code or its terminal. Files, settings, and agent sign-ins in your
+home folder survive restarts and upgrades. Software installed outside your home
+folder, such as with `apt`, may not.
 
-| Task                                             | Command                                                                 |
-| ------------------------------------------------ | ----------------------------------------------------------------------- |
-| Start the server and open the web app            | `t3`                                                                    |
-| Start the server without a browser               | `t3 serve`                                                              |
-| Use it from your other devices                   | `t3 up` ([details](./remote-access.md))                                 |
-| Keep it running in the background (macOS, Linux) | `t3 service install` ([details](./background-service.md))               |
-| Move to the newest release                       | `t3 update`                                                             |
-| Reclaim database space                           | `t3 doctor` ([details](./background-service.md#reclaim-database-space)) |
-| Remove it again                                  | `t3 uninstall`                                                          |
-
-Run `t3 help` or `t3 --help` for the full reference. To start in a new working
-directory, use an explicit path such as `t3 ./my-project`. A bare directory name
-is accepted only if it already exists.
-
-If `t3` or `t3 start` reports an already running server, connect to that server
-instead. Stop it before starting a replacement, or use a different `--base-dir`
-for an independent server.
-
-To try O3 Code once without installing it, run `npx t3@latest` instead (needs
-Node.js for `npx`).
-
-### Build from source
-
-Build the server with `vp`, which provides the Node version it needs
-([Install vp](https://github.com/owenqwenstarsky/o3code#install-vp)):
-
-```bash
-git clone https://github.com/owenqwenstarsky/o3code
-cd o3code && vp i && vp run build:desktop
-node apps/server/dist/bin.mjs
-```
-
-`t3 update` and the background service do not apply to a server run this way;
-update it with `git pull` and a rebuild.
+The `t3` command is available in workspace terminals; run `t3 --help` for project
+and thread commands.
 
 ## Desktop app
 
-Download a release from [GitHub Releases](https://github.com/pingdotgg/t3code/releases),
-or use a package manager:
-
-| Platform           | Install                                                      |
-| ------------------ | ------------------------------------------------------------ |
-| Windows            | `winget install T3Tools.T3Code`                              |
-| macOS              | `brew install --cask t3-code`                                |
-| Debian, Ubuntu     | `sudo apt install ./T3-Code-*.deb`                           |
-| Arch Linux         | `yay -S t3code-bin`                                          |
-| Arch Linux nightly | `yay -S t3code-nightly-bin`                                  |
-| Nix                | `nix profile add github:NixOS/nixpkgs/nixos-unstable#t3code` |
-
-The `.deb` updates itself like the other desktop builds. It asks for your
-password to install each update. If your desktop has no password prompt, the
-update fails. Download the new `.deb` and install it the same way.
-
-### Nix (nixpkgs)
-
-O3 Code is maintained in [nixpkgs](https://github.com/NixOS/nixpkgs/tree/nixos-unstable/pkgs/by-name/t3/t3code).
-The command above installs from `nixos-unstable` and requires Nix 2.30 or later with
-`nix-command` and `flakes` enabled. Launch the desktop app with `t3code-desktop`;
-the package also includes the `t3` command.
-
-On NixOS, you can instead add the package to your system configuration, using
-a nixpkgs revision that includes `t3code`:
-
-```nix
-environment.systemPackages = [ pkgs.t3code ];
-```
-
-Apply the change with `sudo nixos-rebuild switch`. For Home Manager, add
-`pkgs.t3code` to `home.packages` and run `home-manager switch`.
-
-Update a profile installation with `nix profile upgrade t3code`. For NixOS or
-Home Manager, update your configuration's nixpkgs input or channel and rebuild.
-Nix manages both the desktop app and the bundled
-`t3` command; use Nix to update them instead of the in-app updater or `t3 update`.
-
-### The `t3` command
-
-The desktop app includes the `t3` command-line tool. To run it from any
-terminal, open **Settings → About** and choose **Install** next to
-**t3 command**. On macOS and Linux it adds a `t3` link to a folder on your
-`PATH`; on Windows it adds the app's command folder to your `PATH`. Open a new
-terminal afterwards. **Remove** takes it off again. If you already have `t3`
-from npm, it stays as it is.
-
-### Windows Subsystem for Linux
-
-Choose a WSL distro in **Settings → Sharing & access** to run agents and projects
-there. Install the provider CLIs inside that distro. O3 Code installs its own
-server runtime there automatically; the first launch after an app update can
-take longer.
-
-### Open a project from a terminal
-
-With the desktop app already running on the same machine:
+This fork does not publish builds yet. Build the desktop app from source with
+`vp` ([Install vp](https://github.com/owenqwenstarsky/o3code#install-vp)):
 
 ```bash
-t3 app
+git clone https://github.com/owenqwenstarsky/o3code
+cd o3code && vp i && vp run dist:desktop:artifact
 ```
-
-This opens a new thread for the current directory, adding the project if needed.
-Pass a path, such as `t3 app ../my-project`, to open another directory. It requires
-the desktop app, so a standalone server or an SSH session is not enough. If the
-command cannot reach the app, start or update the desktop app and try again.
 
 ## Providers
 
-Open **Settings → Providers** in the web or desktop app, select the environment,
-and enable the provider you want. Installation, login, and configuration belong
-to that environment's machine, even when you connect from another
-computer.
+Your administrator chooses which coding agents are installed in your workspace.
+Open **Settings → Providers** to enable one and sign in. Sign-ins and
+configuration stay in your workspace, so every device you use sees them. To
+install something your administrator didn't, run its installer in a workspace
+terminal; installs in your home folder survive workspace restarts.
 
 | Provider    | Install and authenticate                                                                                                                                  |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -153,7 +63,7 @@ computer.
 | Muse Code   | Install [Muse Code](https://dev.meta.ai/docs/muse-code) on the server, run `muse login`, then enable it in Settings → Providers.                          |
 | fx          | Install [fx](https://fx.sh) with `curl -fsSL https://fx.sh/setup.sh \| bash`, then run `fx login`.                                                        |
 
-Provider CLIs must be on the server's `PATH`. If O3 Code cannot find one, set its
+Provider CLIs must be on your workspace's `PATH`. If O3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
 Cursor's executable is `cursor-agent`, although its login command is
 `agent login`. Codex connected through ChatGPT and Antigravity can use their
@@ -163,7 +73,7 @@ O3 Code warns when a provider version has known compatibility problems with your
 release. Check **Settings → Providers** on that environment for the recommended
 version or range. When its package manager supports installing a specific version,
 you can install the recommendation there. Otherwise use the provider's installer
-on the environment's machine. An unlisted version is unverified.
+in a workspace terminal. An unlisted version is unverified.
 
 When a provider CLI is behind its latest release, its provider card shows the
 available version. **Update now** runs the installer that owns the CLI
@@ -187,6 +97,4 @@ For provider-specific setup and accounts, see [Codex](./providers-codex.md),
 
 - [Working with threads](./thread-sidebar.md): start tasks and organize parallel work.
 - [Permission modes](./permission-modes.md): choose when agents ask before acting.
-- [Remote access](./remote-access.md): connect from another device.
-- [Running in the background](./background-service.md): keep a Linux or macOS host available.
-- [Updating O3 Code](./updating.md): update the app and connected servers.
+- [Access and sharing](./remote-access.md): devices, outside agents, and guests.
