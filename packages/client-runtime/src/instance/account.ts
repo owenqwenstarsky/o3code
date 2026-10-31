@@ -43,6 +43,8 @@ export const StoredInstanceSession = Schema.Struct({
   /** The workspace environment this client registered, so sign-out can remove it. */
   environmentId: Schema.optionalKey(EnvironmentId),
   workspaceTokenExpiresAt: Schema.optionalKey(Schema.String),
+  /** Where the workspace was registered; a recreated workspace can come back elsewhere. */
+  workspaceHttpBaseUrl: Schema.optionalKey(Schema.String),
 });
 export type StoredInstanceSession = typeof StoredInstanceSession.Type;
 
@@ -279,6 +281,7 @@ const make = Effect.gen(function* () {
       ...session,
       environmentId: descriptor.environmentId,
       workspaceTokenExpiresAt: issued.expiresAt,
+      workspaceHttpBaseUrl: httpBaseUrl,
     });
     return workspace;
   }).pipe(Effect.withSpan("clientRuntime.instance.connectWorkspace"));
@@ -350,8 +353,8 @@ const make = Effect.gen(function* () {
         expiresAt - now > WORKSPACE_TOKEN_REFRESH_MARGIN_MS
       ) {
         // Still notices a revoked session or disabled account without touching the connection.
-        yield* me;
-        return;
+        const current = yield* me;
+        if (current.workspace?.httpBaseUrl === session.workspaceHttpBaseUrl) return;
       }
       yield* connectWorkspace;
     }).pipe(Effect.withSpan("clientRuntime.instance.refreshWorkspace")),
