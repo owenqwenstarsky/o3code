@@ -100,6 +100,15 @@ function describeInstanceError(cause: unknown): string {
   return "The O3 instance request failed.";
 }
 
+export const LAST_INSTANCE_URL_KEY = "o3:last-instance-url";
+
+/** Where this client's O3 instance serves the web app, for links others can open. */
+export function instanceAppOrigin(): string {
+  // The instance serves the web app, so a browser is already on its origin.
+  if (window.desktopBridge === undefined) return window.location.origin;
+  return window.localStorage.getItem(LAST_INSTANCE_URL_KEY) ?? window.location.origin;
+}
+
 /** Route guard for admin pages; the instance enforces the same rule on every admin request. */
 export async function requireInstanceAdmin() {
   const me = await runInstance(InstanceAccount.pipe(Effect.flatMap((account) => account.me))).catch(

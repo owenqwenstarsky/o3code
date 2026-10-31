@@ -3,13 +3,12 @@ import type { InstanceDescriptor } from "@t3tools/contracts/instance";
 import * as Effect from "effect/Effect";
 import React, { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { instanceRequest, runInstance } from "../../instance/instanceState";
+import { instanceRequest, LAST_INSTANCE_URL_KEY, runInstance } from "../../instance/instanceState";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { StandalonePage, StandalonePageHeader } from "../ui/standalone-page";
 
-const LAST_INSTANCE_URL_KEY = "o3:last-instance-url";
 const WORKSPACE_POLL_MS = 3000;
 // Pulling the workspace image and installing tools on first start can take a while.
 const WORKSPACE_WAIT_MS = 10 * 60 * 1000;

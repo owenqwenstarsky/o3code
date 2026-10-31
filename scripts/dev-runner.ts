@@ -63,17 +63,20 @@ export const DEFAULT_T3_HOME = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(NodeOS.homedir(), ".t3"),
 );
 
+// Clients only sign in through an O3 instance, so browser dev runs an instance plus a stand-in
+// workspace (apps/server/scripts/dev-instance.ts) behind Vite.
+const INSTANCE_DEV_ARGS = [
+  "run",
+  "--filter=@t3tools/contracts",
+  "--filter=@t3tools/web",
+  "--filter=t3",
+  "--parallel",
+  "dev:instance",
+] as const;
+
 const MODE_ARGS = {
-  dev: [
-    "run",
-    "--filter=@t3tools/contracts",
-    "--filter=@t3tools/web",
-    "--filter=t3",
-    "--parallel",
-    "dev",
-  ],
-  // An O3 instance plus a stand-in workspace (apps/server/scripts/dev-instance.ts) behind Vite.
-  "dev:instance": ["run", "--filter=@t3tools/web", "--filter=t3", "--parallel", "dev:instance"],
+  dev: INSTANCE_DEV_ARGS,
+  "dev:instance": INSTANCE_DEV_ARGS,
   "dev:server": ["run", "--filter=t3", "dev"],
   "dev:web": ["run", "--filter=@t3tools/web", "dev"],
   "dev:desktop": ["run", "--filter=@t3tools/desktop", "--filter=@t3tools/web", "dev"],

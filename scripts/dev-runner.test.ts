@@ -577,7 +577,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       it.effect("without --built keeps Vite behind the tailnet URL", () =>
         Effect.gen(function* () {
           const { env, vpArgs, tailscaleCalls } = yield* shareSpawned({});
-          assert.include(vpArgs, "dev");
+          assert.include(vpArgs, "dev:instance");
           assert.notInclude(vpArgs, "dev:built");
           assert.equal(env?.T3CODE_BUNDLED_DEV, "1");
           const serve = tailscaleCalls.find((args) => args.includes("--bg"));

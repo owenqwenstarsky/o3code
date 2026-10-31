@@ -1,6 +1,6 @@
 ---
 name: test-t3-app
-description: Test O3 Code's web and desktop UI through its built-in Browser panel against isolated development state. Use for browser verification, browser pairing recovery, and test fixtures.
+description: Test O3 Code's web and desktop UI through its built-in Browser panel against isolated development state. Use for browser verification, dev sign-in, and test fixtures.
 ---
 
 # Test T3 web and desktop
@@ -13,7 +13,7 @@ Do not install or switch to another automation system.
 
 Reuse this task's healthy dev server. Otherwise run `vp run dev` from the
 repository root and retain its terminal session. Use the worktree's ignored
-`.t3` state and read the actual ports and pairing URL from the dev-runner output.
+`.t3` state and read the actual web port from the dev-runner output.
 Never run against `~/.t3/userdata` or set `VITE_HTTP_URL` or `VITE_WS_URL`.
 
 Test with meaningful project and thread data. Read
@@ -36,10 +36,11 @@ model, such as Haiku for Claude or Luna for Codex.
 ## Use the Browser panel
 
 Call `preview_status`, then `preview_open` if the Browser panel is
-closed. Navigate to the complete startup pairing URL once with
-`preview_navigate`, then use `preview_snapshot` and T3's interaction tools.
-If the token was consumed or expired, run `node apps/server/src/bin.ts pair`
-for a fresh one. Keep using the same tab.
+closed. Navigate to the web port with `preview_navigate`; it opens the sign-in
+page. Sign in as `admin@o3.test` / `o3-dev-password`, choosing a new password the
+first time (later runs keep it in `.t3/o3-instance`; if you lost it, run
+`node apps/server/src/bin.ts instance admin reset-password --base-dir .t3/o3-instance --email admin@o3.test`).
+Then use `preview_snapshot` and T3's interaction tools. Keep using the same tab.
 
 ## Verify and retain
 
@@ -49,5 +50,5 @@ An assistant turn ending is not teardown. Stop only processes you started,
 using retained terminal sessions or captured PIDs.
 
 When sharing is requested, start with `vp run dev --share` and give the user
-a fresh complete pairing URL that you have not consumed. Keep other credentials
-out of screenshots, commits, and replies.
+the `shared on tailnet:` URL; they sign in like any client. Keep credentials out
+of screenshots, commits, and replies.

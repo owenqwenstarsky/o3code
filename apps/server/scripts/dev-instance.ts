@@ -43,7 +43,30 @@ if (home === undefined) {
 }
 const secret = NodeCrypto.randomBytes(24).toString("base64url");
 const instanceUrl = `http://127.0.0.1:${instancePort}`;
-const workspaceUrl = `http://127.0.0.1:${workspacePort}`;
+
+// `--share` serves Vite on the tailnet; a remote browser can't reach the workspace's loopback
+// port, so publish it the same way for as long as this runs.
+const sharedHost = (() => {
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  if (!devUrl) return null;
+  const url = new URL(devUrl);
+  return url.protocol === "https:" && url.hostname.endsWith(".ts.net") ? url.hostname : null;
+})();
+if (sharedHost !== null) {
+  NodeChildProcess.execFileSync("tailscale", [
+    "serve",
+    "--bg",
+    `--https=${workspacePort}`,
+    `http://127.0.0.1:${workspacePort}`,
+  ]);
+  process.on("exit", () => {
+    NodeChildProcess.spawnSync("tailscale", ["serve", `--https=${workspacePort}`, "off"]);
+  });
+}
+const workspaceUrl =
+  sharedHost === null
+    ? `http://127.0.0.1:${workspacePort}`
+    : `https://${sharedHost}:${workspacePort}`;
 
 const watch = [
   "--watch",
@@ -61,8 +84,8 @@ const children = [
       stdio: "inherit",
       env: {
         ...process.env,
-        // The workspace is reached directly by the browser, never through Vite.
-        VITE_DEV_SERVER_URL: undefined,
+        // Keeps VITE_DEV_SERVER_URL: it registers the Replay (dev) provider and lets the
+        // Vite origin call the workspace. Sign-in goes through the instance, not a dev token.
         T3CODE_DEV_AUTH_TOKEN: undefined,
         T3CODE_PORT: String(workspacePort),
         T3CODE_O3_INSTANCE_URL: instanceUrl,
