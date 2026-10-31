@@ -183,10 +183,11 @@ function RootRouteBranch() {
   return (
     <>
       <ChatGptWelcomeCoordinator />
+      {/* Outside the gate: the gate waits on the workspace this keeps registered. */}
+      <InstanceWorkspaceCoordinator />
       <FirstRunGate enabled={primaryEnvironmentReady} hostedStatic={!primaryEnvironmentReady}>
         <DesktopWebLinkCoordinator />
         {isElectron ? <RunningThreadKeepAlive /> : null}
-        <InstanceWorkspaceCoordinator />
         {import.meta.env.DEV && primaryEnvironmentReady ? <DevReplayHost /> : null}
         {primaryEnvironmentReady ? (
           <EventRouter skipInitialBootstrapNavigation={returningFromWelcome} />

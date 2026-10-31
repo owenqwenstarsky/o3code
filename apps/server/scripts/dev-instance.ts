@@ -133,6 +133,8 @@ const stop = (signal: NodeJS.Signals) => {
 };
 process.on("SIGINT", () => stop("SIGINT"));
 process.on("SIGTERM", () => stop("SIGTERM"));
+// `node --watch` children outlive a parent that exits without signalling them.
+process.on("exit", () => stop("SIGTERM"));
 for (const child of children) {
   child.on("exit", (code) => {
     stop("SIGTERM");
