@@ -13,16 +13,11 @@ import { Command, Flag } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
-// Release notes cover web, desktop, and server. Mobile ships its own store notes.
-const MOBILE_SCOPES = new Set(["mobile", "android", "ios"]);
-const COMMIT_SCOPES = /^[a-z]+\(([^)]*)\)!?:/i;
 const PULL_REQUEST_NUMBER = /\(#(\d+)\)$/;
 const PULL_REQUEST_BODY_LIMIT = 300;
 const SUMMARY_MODEL = "gpt-6.1-terra";
 
 const SUMMARY_INSTRUCTIONS = `You write release notes for T3 Code, a GUI for coding agents (web and desktop apps backed by a server; providers like Codex, Claude, Cursor, OpenCode).
-
-These notes cover the web app, desktop app, and server only. The mobile app has its own release notes, so leave out anything only about mobile, iOS, or Android.
 
 You get the commit subjects merged since the last release, oldest first. Most end with a PR number like (#1234). Each commit shows lines added and removed and files changed, then a trimmed PR description on the next line starting with ">". Use the descriptions to understand what changed for users and why it matters. Line counts hint at size, but a small change can still matter most.
 
@@ -105,12 +100,6 @@ const pullRequestNumber = (subject: string) => {
   const match = PULL_REQUEST_NUMBER.exec(subject);
   return match ? Number(match[1]) : undefined;
 };
-
-/** Drops a commit only when every scope is mobile, so `fix(web,mobile)` stays. */
-export function isReleaseNoteCommit(commit: ReleaseCommit): boolean {
-  const scopes = COMMIT_SCOPES.exec(commit.subject)?.[1]?.split(",");
-  return !scopes?.every((scope) => MOBILE_SCOPES.has(scope.trim().toLowerCase()));
-}
 
 /** Keeps the prose of a PR body: no images, tables, headings, HTML, or verification sections. */
 function trimPullRequestBody(body: string, limit = PULL_REQUEST_BODY_LIMIT): string {
@@ -311,15 +300,13 @@ const command = Command.make(
   },
   ({ repository, tag, ref, previousTag, version, output }) =>
     Effect.gen(function* () {
-      // The header counts every commit in the range; the summary skips mobile-only work.
-      const allCommits = yield* readCommits(previousTag, ref);
+      const commits = yield* readCommits(previousTag, ref);
       // The spawner ignores exit codes, so a failed git log shows up as an empty range.
-      if (allCommits.length === 0) {
+      if (commits.length === 0) {
         return yield* new EmptyReleaseRangeError({ range: `${previousTag}..${ref}` });
       }
-      const commits = allCommits.filter(isReleaseNoteCommit);
       const numbers = [
-        ...new Set(allCommits.flatMap(({ subject }) => pullRequestNumber(subject) ?? [])),
+        ...new Set(commits.flatMap(({ subject }) => pullRequestNumber(subject) ?? [])),
       ];
       const [pullRequests, fullChangelog] = yield* Effect.all(
         [
@@ -330,14 +317,11 @@ const command = Command.make(
       );
       const header = buildReleaseHeader(
         version,
-        allCommits.length,
-        countContributors(allCommits, pullRequests),
+        commits.length,
+        countContributors(commits, pullRequests),
       );
       // With no summary, write nothing: the release falls back to GitHub's generated notes.
-      const summary =
-        commits.length === 0
-          ? Option.none<string>()
-          : yield* summarize(buildSummaryInput(commits, pullRequests));
+      const summary = yield* summarize(buildSummaryInput(commits, pullRequests));
       if (Option.isNone(summary)) {
         return yield* Effect.logWarning("no release summary, leaving GitHub's notes in place");
       }

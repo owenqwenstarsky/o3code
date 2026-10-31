@@ -4,8 +4,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaGetter from "effect/SchemaGetter";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
-// Hermes copies the string on every `trim()`, even when nothing changes.
-// Returning the original keeps repeated IDs shared after decode.
+// Returning the original when nothing changes keeps repeated IDs shared after decode.
 const trim = (value: string) => {
   const trimmed = value.trim();
   return trimmed.length === value.length ? value : trimmed;

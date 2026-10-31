@@ -42,7 +42,6 @@ jobs:
           sparse-checkout: |
             /*
             !/.repos/
-            !/apps/mobile/modules/t3-terminal/Vendor/**/*.a
           sparse-checkout-cone-mode: false
 
       # Gives the agent a working `vp` so it can run the checks AGENTS.md asks for.

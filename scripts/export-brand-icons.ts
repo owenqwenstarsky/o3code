@@ -44,7 +44,6 @@ const decodeIconComposerVersion = Schema.decodeUnknownEffect(
 type IconPlatform = "iOS";
 
 interface VariantOutputs {
-  readonly ios: string;
   readonly macos: string;
   readonly universal: string;
   readonly appleTouch: string;
@@ -207,7 +206,6 @@ const ICON_VARIANTS = [
     label: "development",
     source: BRAND_ASSET_PATHS.developmentIconComposerProject,
     outputs: {
-      ios: BRAND_ASSET_PATHS.developmentIosIconPng,
       macos: BRAND_ASSET_PATHS.developmentDesktopIconPng,
       universal: BRAND_ASSET_PATHS.developmentUniversalIconPng,
       appleTouch: BRAND_ASSET_PATHS.developmentWebAppleTouchIconPng,
@@ -221,7 +219,6 @@ const ICON_VARIANTS = [
     label: "preview",
     source: BRAND_ASSET_PATHS.nightlyIconComposerProject,
     outputs: {
-      ios: BRAND_ASSET_PATHS.nightlyIosIconPng,
       macos: BRAND_ASSET_PATHS.nightlyMacIconPng,
       universal: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
       appleTouch: BRAND_ASSET_PATHS.nightlyWebAppleTouchIconPng,
@@ -235,7 +232,6 @@ const ICON_VARIANTS = [
     label: "production",
     source: BRAND_ASSET_PATHS.productionIconComposerProject,
     outputs: {
-      ios: BRAND_ASSET_PATHS.productionIosIconPng,
       macos: BRAND_ASSET_PATHS.productionMacIconPng,
       universal: BRAND_ASSET_PATHS.productionLinuxIconPng,
       appleTouch: BRAND_ASSET_PATHS.productionWebAppleTouchIconPng,
@@ -577,7 +573,7 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
     return contents;
   });
 
-  const ios = yield* render("iOS", 1024);
+  const universal = yield* render("iOS", 1024);
   const icoRenditions = yield* Effect.forEach(
     WINDOWS_ICON_SIZES,
     (size) => render("iOS", size).pipe(Effect.map((contents) => ({ size, contents }))),
@@ -589,8 +585,7 @@ const renderVariant = Effect.fn("iconExport.renderVariant")(function* (
   });
 
   return new Map<string, Buffer>([
-    [variant.outputs.ios, ios],
-    [variant.outputs.universal, ios],
+    [variant.outputs.universal, universal],
     [variant.outputs.appleTouch, yield* render("iOS", 180)],
     [variant.outputs.favicon16, yield* render("iOS", 16)],
     [variant.outputs.favicon32, yield* render("iOS", 32)],

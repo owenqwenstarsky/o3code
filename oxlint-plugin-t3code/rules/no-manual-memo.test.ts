@@ -35,19 +35,3 @@ describe("t3code/no-manual-memo", () => {
 
   rule.valid("allows the same text as a string value", `const label = "use no memo";`);
 });
-
-const ratchet = createOxlintRuleHarness("t3code/no-manual-memo", {
-  filename: "fixture.tsx",
-  ruleOptions: [{ allowMemoHooks: true }],
-});
-
-describe("t3code/no-manual-memo with allowMemoHooks", () => {
-  ratchet.valid("allows useMemo", `const total = useMemo(() => items.length, [items]);`);
-
-  ratchet.valid("allows useCallback", `const onClick = useCallback(() => save(), []);`);
-
-  ratchet.invalid(
-    'still reports "use no memo"',
-    `function Panel() { "use no memo"; return null; }`,
-  );
-});

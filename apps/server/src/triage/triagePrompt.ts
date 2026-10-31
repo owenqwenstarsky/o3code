@@ -41,8 +41,7 @@ instead of this one. The user may be on an old release with an old copy.
 ## 4. Get the source
 
 Before cloning, ask the user which version, device, and surface the bug happened
-on. The bug may have happened on another machine, a remote server, the mobile app,
-or an older build they have since updated. Check their answer against local facts
+on. The bug may have happened on another machine, a remote server, or an older build they have since updated. Check their answer against local facts
 where they apply: the server version in the context file, or \`serverVersion\` from
 \`<origin>/.well-known/t3/environment\` when a local server is running. If neither
 the user nor the machine can tell you the version, say it is unknown. Do not guess.
@@ -72,8 +71,7 @@ different code depending on it:
 - How is O3 Code running on this machine: \`npx t3 serve\` in a terminal, the
   background service, or the desktop app?
 - Which surface is the user connecting from: the hosted web app, the
-  desktop app against a local server, the desktop app against a remote server,
-  or the mobile app?
+  desktop app against a local server, or the desktop app against a remote server?
 
 Then work from evidence, not assumption. In rough order of value:
 

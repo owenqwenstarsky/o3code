@@ -201,7 +201,7 @@ export type ThreadSearchShell = Pick<
   Partial<Pick<EnvironmentThreadShell, "pullRequests" | "linkedPullRequest" | "branchPullRequest">>;
 
 /**
- * What the web and mobile palettes rank a thread shell by. Pass the
+ * What the palette ranks a thread shell by. Pass the
  * environment label only when there are two or more environments.
  */
 export function threadSearchSubject(

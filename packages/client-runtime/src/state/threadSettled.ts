@@ -290,17 +290,14 @@ export function resolveSnoozePresets(
   // minute tie, and the stable sort keeps whichever comes first in settings.
   const wakeMinute = (preset: SnoozePreset) => Math.floor(Date.parse(preset.snoozedUntil) / 60_000);
   const seen = new Set<number>();
-  return (
-    (options.presets ?? DEFAULT_SNOOZE_PRESETS)
-      .flatMap((setting) => resolveSnoozePreset(setting, now, options.formatTime) ?? [])
-      // flatMap returned a new array; Hermes has no `toSorted`.
-      .sort((a, b) => wakeMinute(a) - wakeMinute(b))
-      .filter((preset) => {
-        if (seen.has(wakeMinute(preset))) return false;
-        seen.add(wakeMinute(preset));
-        return true;
-      })
-  );
+  return (options.presets ?? DEFAULT_SNOOZE_PRESETS)
+    .flatMap((setting) => resolveSnoozePreset(setting, now, options.formatTime) ?? [])
+    .sort((a, b) => wakeMinute(a) - wakeMinute(b))
+    .filter((preset) => {
+      if (seen.has(wakeMinute(preset))) return false;
+      seen.add(wakeMinute(preset));
+      return true;
+    });
 }
 
 /**

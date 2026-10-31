@@ -178,7 +178,7 @@ function threadCreatedAtMillis(node: ThreadRelationshipNode | undefined): number
 
 /**
  * Web pins the parent and distinct merge-back target before newest-created-first ordering.
- * Mobile does not share this exception; do not reuse it as the canonical relationship order.
+ * Do not reuse it as the canonical relationship order.
  */
 export function orderWebThreadLineageRows(input: {
   readonly graph: ThreadRelationshipGraph;

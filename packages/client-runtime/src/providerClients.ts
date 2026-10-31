@@ -2,7 +2,6 @@ import {
   AntigravitySettings,
   ClaudeSettings,
   CodexSettings,
-  isProviderDriverKind,
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
@@ -45,10 +44,6 @@ export const providerClients = makeProviderClientRegistry([
   piClient,
   acpRegistryClient,
 ]);
-
-export function getProviderClient(driver: string | null | undefined) {
-  return isProviderDriverKind(driver) ? providerClients.get(driver) : undefined;
-}
 
 export function resolveModelShortName(
   model: { readonly name: string; readonly shortName?: string | undefined },

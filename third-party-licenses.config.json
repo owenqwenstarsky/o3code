@@ -77,7 +77,7 @@
     },
     {
       "bundles": ["device-tools"],
-      "includeInBundles": ["mobile", "web"],
+      "includeInBundles": ["web"],
       "license": "MIT",
       "name": "agent-device",
       "sourceUrl": "https://github.com/callstack/agent-device",
@@ -90,7 +90,7 @@
     },
     {
       "bundles": ["device-tools"],
-      "includeInBundles": ["mobile", "web"],
+      "includeInBundles": ["web"],
       "license": "MIT AND Apache-2.0 AND BSD-3-Clause",
       "name": "expo-device-hub",
       "sourceUrl": "https://github.com/expo/expo-device-hub",
@@ -112,7 +112,7 @@
       ]
     },
     {
-      "bundles": ["android", "assets", "mobile", "web"],
+      "bundles": ["assets", "web"],
       "license": "MIT",
       "name": "libghostty-vt",
       "noticeFile": "native/libghostty-vt/LICENSE",
@@ -126,78 +126,7 @@
       "sourceUrl": "https://github.com/ryanoasis/nerd-fonts"
     },
     {
-      "bundles": ["ios", "mobile"],
-      "license": "MIT",
-      "name": "GhosttyKit",
-      "sourceUrl": "https://github.com/Yash-Singh1/ghostty/tree/t3code/custom-io-ordered-feed",
-      "generatedNotices": [
-        {
-          "licenseId": "MIT",
-          "copyrights": ["Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors"],
-          "preamble": [
-            "GhosttyKit\n\nThe iOS terminal renderer vendors GhosttyKit.xcframework, a libghostty build produced from VVTerm's custom-I/O and live-padding Ghostty branch.\n\nUpstream project: https://github.com/ghostty-org/ghostty\nBased on: https://github.com/wiedymi/ghostty/tree/vvterm/custom-io-padding\nVendored source branch: https://github.com/Yash-Singh1/ghostty/tree/t3code/custom-io-ordered-feed\nVendored revision: cf8edc23f3a6a87a96e41a90013e89e987d34980\nReference integration: https://github.com/vivy-company/vvterm"
-          ]
-        }
-      ]
-    },
-    {
-      "bundles": ["android", "assets", "mobile"],
-      "license": "Apache-2.0",
-      "name": "MesloLGS NF",
-      "sourceUrl": "https://github.com/romkatv/powerlevel10k-media",
-      "generatedNotices": [
-        {
-          "licenseId": "Apache-2.0",
-          "copyrights": ["Copyright 2009, 2010, 2013 Andr\u00e9 Berg"]
-        }
-      ]
-    },
-    {
-      "bundles": ["mobile"],
-      "license": "MIT",
-      "name": "react-native-uitextview",
-      "noticeFile": "apps/mobile/modules/t3-source-text/LICENSE",
-      "sourceUrl": "https://github.com/bluesky-social/react-native-uitextview",
-      "version": "2.2.0"
-    },
-    {
-      "bundles": ["mobile"],
-      "license": "MIT",
-      "name": "Expo text editor implementation",
-      "noticeFile": "apps/mobile/modules/t3-composer-editor/LICENSE",
-      "sourceUrl": "https://github.com/expo/expo"
-    },
-    {
-      "bundles": ["ios", "android", "mobile"],
-      "license": "Apache-2.0",
-      "name": "wasm2c runtime (WABT)",
-      "version": "1.0.42",
-      "noticeFile": "apps/mobile/modules/t3-highlights/Vendor/wasm2c/LICENSE",
-      "sourceUrl": "https://github.com/WebAssembly/wabt/tree/1.0.42/wasm2c"
-    },
-    {
-      "bundles": ["ios", "android", "mobile"],
-      "license": "MIT",
-      "name": "SIMD Everywhere",
-      "version": "0.8.2",
-      "noticeFile": "apps/mobile/modules/t3-highlights/Vendor/simde/LICENSE",
-      "sourceUrl": "https://github.com/simd-everywhere/simde/tree/v0.8.2"
-    },
-    {
-      "bundles": ["ios", "android", "mobile"],
-      "license": "MIT",
-      "name": "RaTeX",
-      "version": "0.1.15",
-      "sourceUrl": "https://github.com/erweixin/RaTeX/tree/v0.1.15",
-      "generatedNotices": [
-        {
-          "licenseId": "MIT",
-          "copyrights": ["Copyright (c) erweixin"]
-        }
-      ]
-    },
-    {
-      "bundles": ["ios", "android", "mobile", "web", "desktop"],
+      "bundles": ["web", "desktop"],
       "license": "MIT",
       "name": "micromark-extension-llm-math",
       "version": "3.1.0",
@@ -210,7 +139,7 @@
       ]
     },
     {
-      "bundles": ["ios", "android", "mobile", "web", "desktop"],
+      "bundles": ["web", "desktop"],
       "license": "OFL-1.1",
       "name": "KaTeX mathematical fonts",
       "sourceUrl": "https://github.com/KaTeX/KaTeX",
@@ -321,7 +250,9 @@
       "version": "0.4.0",
       "license": "Apache-2.0 AND OFL-1.1",
       "generatedNotices": [
-        { "licenseId": "Apache-2.0" },
+        {
+          "licenseId": "Apache-2.0"
+        },
         {
           "licenseId": "OFL-1.1",
           "copyrights": [
@@ -337,33 +268,6 @@
       "generatedNotice": {
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) Junyoung Choi <fluke8259@gmail.com>"]
-      }
-    },
-    {
-      "name": "@react-native-async-storage/async-storage",
-      "version": "3.1.1",
-      "sourceUrl": "https://github.com/react-native-async-storage/async-storage",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2025 Krzysztof Borowy"]
-      }
-    },
-    {
-      "name": "deprecated-react-native-prop-types",
-      "version": "2.3.0",
-      "sourceUrl": "https://github.com/facebookarchive/react-native-deprecated-modules",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Meta Platforms, Inc. and affiliates."]
-      }
-    },
-    {
-      "name": "@react-native/normalize-color",
-      "version": "2.1.0",
-      "sourceUrl": "https://github.com/facebook/react-native",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Meta Platforms, Inc. and affiliates."]
       }
     },
     {
@@ -595,126 +499,10 @@
       }
     },
     {
-      "repositoryUrl": "https://github.com/facebook/metro",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Meta Platforms, Inc. and affiliates."]
-      }
-    },
-    {
-      "repositoryUrl": "https://github.com/react/metro",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Meta Platforms, Inc. and affiliates."]
-      }
-    },
-    {
-      "name": "@react-native-ai/apple",
-      "sourceUrl": "https://github.com/callstackincubator/ai",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": [
-          "Copyright (c) 2024-2025 Szymon Rybczak",
-          "Copyright (c) 2025-present Callstack"
-        ]
-      }
-    },
-    {
       "name": "react-remove-scroll-bar",
       "generatedNotice": {
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) Anton Korzunov <thekashey@gmail.com>"]
-      }
-    },
-    {
-      "name": "standard-navigation",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2026 React Navigation Contributors"]
-      }
-    },
-    {
-      "name": "@expo/sdk-runtime-versions",
-      "noticeFile": "apps/mobile/modules/t3-composer-editor/LICENSE"
-    },
-    {
-      "name": "@expo/ws-tunnel",
-      "noticeFile": "apps/mobile/modules/t3-composer-editor/LICENSE"
-    },
-    {
-      "name": "stream-buffers",
-      "generatedNotice": {
-        "licenseId": "Unlicense"
-      }
-    },
-    {
-      "name": "bplist-parser",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2012 Near Infinity Corporation"]
-      }
-    },
-    {
-      "name": "@expo/devcert",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Dave Wasmer"]
-      }
-    },
-    {
-      "name": "jimp-compact",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2018 Oliver Moran"]
-      }
-    },
-    {
-      "name": "fb-watchman",
-      "generatedNotice": {
-        "licenseId": "Apache-2.0"
-      }
-    },
-    {
-      "name": "bser",
-      "generatedNotice": {
-        "licenseId": "Apache-2.0"
-      }
-    },
-    {
-      "name": "@expo/xcpretty",
-      "generatedNotice": {
-        "licenseId": "BSD-3-Clause",
-        "copyrights": ["Copyright (c) 2016-present, 650 Industries, Inc. (Expo)"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "fb-dotslash",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Meta Platforms, Inc. and affiliates."]
-      }
-    },
-    {
-      "name": "structured-headers",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2018 Evert Pot"]
-      }
-    },
-    {
-      "name": "badgin",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) Julian Hundeloh and Tinycon contributors"],
-        "preamble": ["badgin is a refactored fork of Tinycon."]
-      }
-    },
-    {
-      "name": "react-native-nitro-modules",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2024 Marc Rousavy"]
       }
     },
     {
@@ -744,87 +532,6 @@
       "generatedNotice": {
         "licenseId": "MIT",
         "copyrights": ["Copyright (c) 2025 opencode"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "noxcturnal",
-      "sourceUrl": "https://github.com/expo/noxcturnal",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "@noxcturnal/noxcturnal-linux-x64-gnu",
-      "sourceUrl": "https://github.com/expo/noxcturnal",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "@noxcturnal/noxcturnal-darwin-x64",
-      "sourceUrl": "https://github.com/expo/noxcturnal",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "@noxcturnal/noxcturnal-linux-arm64-gnu",
-      "sourceUrl": "https://github.com/expo/noxcturnal",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "@noxcturnal/noxcturnal-darwin-arm64",
-      "sourceUrl": "https://github.com/expo/noxcturnal",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "@noxcturnal/noxcturnal-linux-arm64-musl",
-      "sourceUrl": "https://github.com/expo/noxcturnal",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "@noxcturnal/noxcturnal-linux-x64-musl",
-      "sourceUrl": "https://github.com/expo/noxcturnal",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "@noxcturnal/noxcturnal-win32-arm64-msvc",
-      "sourceUrl": "https://github.com/expo/noxcturnal",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
-      }
-    },
-    {
-      "license": "MIT",
-      "name": "@noxcturnal/noxcturnal-win32-x64-msvc",
-      "sourceUrl": "https://github.com/expo/noxcturnal",
-      "generatedNotice": {
-        "licenseId": "MIT",
-        "copyrights": ["Copyright (c) 2015-present 650 Industries, Inc. (aka Expo)"]
       }
     },
     {
