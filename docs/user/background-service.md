@@ -47,7 +47,7 @@ under T3 home. Pass `--yes` from a script.
 A new service answers only on this machine. Other devices reach it through
 T3 Connect, or directly once you choose the local network in `t3 up` (or run
 `t3 up --lan`, which sets `T3CODE_LAN=true` in `service.env`). It then listens on
-your local network and Tailscale addresses, so the desktop and mobile apps on
+your local network and Tailscale addresses, so desktop apps on
 the same network connect directly instead of through T3 Connect. It still does
 not answer on public addresses. Anyone on the same network can reach the port,
 so a pairing code is all that keeps them out. The hosted web app at app.t3.codes
@@ -164,8 +164,7 @@ For failures after signing in to T3 Connect, see
 O3 Code removes superseded internal history on its own while it runs; your
 conversations are kept. Databases created before this shrank automatically
 still hold the freed space on disk until a one-time offline repair returns it
-and turns on automatic shrinking. Settings > Maintenance (web and desktop) or
-Settings > Maintenance (mobile) suggests the repair when at least 1 GiB can be
+and turns on automatic shrinking. Settings > Maintenance suggests the repair when at least 1 GiB can be
 reclaimed.
 
 Run `t3 doctor` on the machine that hosts the environment. It reports the

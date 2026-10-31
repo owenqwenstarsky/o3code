@@ -1,6 +1,6 @@
 # O3 Code
 
-O3 Code is an "agent harness control surface". It enables control of the agents on your machine from a web app, an Electron-based desktop app, and a mobile app.
+O3 Code is an "agent harness control surface". It enables control of the agents on your machine from a web app and an Electron-based desktop app.
 
 It is a fork of [T3 Code](https://github.com/pingdotgg/t3code), and keeps its focus: performant, remote-ready, and truly open.
 
@@ -32,7 +32,7 @@ Full docs live in [docs/](./docs). There's no docs site yet.
 - [Keyboard shortcuts](./docs/user/keybindings.md)
 - [Project settings](./docs/user/project-settings.md)
 - [Appearance preferences](./docs/user/appearance.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
+- [Remote access from another machine](./docs/user/remote-access.md)
 - [Connect Claude Code, Codex, ChatGPT and other agents over MCP](./docs/user/outside-agents.md)
 - [Keeping app and server in sync](./docs/user/updating.md)
 - [Source control integrations](./docs/user/source-control.md)

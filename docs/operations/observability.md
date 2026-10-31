@@ -630,14 +630,13 @@ process, both in `service.namespace` `t3code`. `OTEL_SERVICE_NAME` and a `servic
 resource attributes, such as `OTEL_RESOURCE_ATTRIBUTES=deployment.environment.name=staging`.
 
 Each process reports its own build, not the one it talks to: the server, the desktop main process,
-the UI, and the mobile app each carry `t3code.release.channel` (`dev`, `stable`, `nightly`, or
+and the UI each carry `t3code.release.channel` (`dev`, `stable`, `nightly`, or
 `preview`, from their own version; desktop PR builds count as `preview`, and a server not built by a
 release workflow reports `dev`) and `deployment.environment.name` (`development`, `production`, or
 `staging` for `preview`). On the server and the desktop main process either key in
-`OTEL_RESOURCE_ATTRIBUTES` wins. The UI and mobile app never read that variable: Vercel PR previews
+`OTEL_RESOURCE_ATTRIBUTES` wins. The UI never reads that variable: Vercel PR previews
 set `VITE_RELEASE_CHANNEL=preview` because their `APP_VERSION` must stay comparable with the
-server's, and the mobile app maps its build variant (`development`, `preview`, `production`), or
-reports `dev` from a development bundle.
+server's.
 
 Attributes specific to O3 Code use the `t3code.` prefix. The UI runs as `t3code-web` in both a
 browser and the desktop window, since it is the same code, and `t3code.client.surface` is `desktop`
@@ -649,7 +648,7 @@ also report the semantic `process.runtime.name`, `process.runtime.version`, and
 in Chromium, `browser.platform`, `browser.mobile`, and `browser.brands`.
 
 Every resource also carries a `service.instance.id`: random per process for the server and desktop,
-per page load for the UI, and the Expo session on mobile. A `service.instance.id` in
+and per page load for the UI. A `service.instance.id` in
 `OTEL_RESOURCE_ATTRIBUTES` replaces the generated one on the server and desktop.
 
 If the OTLP URLs are unset, local tracing still works, metrics stay in-process only, and logs stay

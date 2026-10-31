@@ -1,6 +1,6 @@
 # Connection runtime
 
-Web, the desktop renderer, and mobile share one connection owner per environment
+Web and the desktop renderer share one connection owner per environment
 in `packages/client-runtime`. Platform code supplies storage, credentials, network
 signals, and application lifecycle events. React views consume the runtime.
 Keeping retries and session lifetime here prevents competing reconnect loops when
@@ -25,7 +25,7 @@ answers. If the host answers while the socket delivers no frame, the socket is
 dead and is replaced, even while the network reports offline: at once on
 loopback and LAN, and 2.5 seconds after the check starts elsewhere, where one
 lost packet can stall a live socket. Without that evidence the probe deadline
-decides: 3 seconds on loopback and LAN routes and after a long mobile
+decides: 3 seconds on loopback and LAN routes and after a long
 suspension, when the data on screen is stale; 15 seconds elsewhere, because a
 tailnet over DERP or a VPN can be slower than that on a live socket. A long
 suspension's probe that times out also replaces the socket regardless of the
@@ -117,7 +117,7 @@ thread then needs no replay. The shell and detail streams are independent, so
 the shell can report a stop before the detail loads or catches up. A stopped
 thread stays mounted until its own stream is live and shows the stop, and the
 stream then closes and saves the settled state.
-Web and mobile do not keep threads alive.
+Web does not keep threads alive.
 
 Retain state and cursor together only after an update finishes. Cancellation must
 not advance the cached cursor beyond the applied data, and an old scope must not

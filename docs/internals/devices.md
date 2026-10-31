@@ -155,7 +155,7 @@ AVCC with a 409 naming the transport. The viewer still asks for AVCC first, so
 hubs that serve it pay nothing, and switches on that 409, or when its MJPEG
 image fails in a browser that has `RTCPeerConnection`. Offers are not trickled:
 serve-sim takes one offer with every candidate. The video element only feeds
-the same canvas sink, so the panel and the mobile WebView keep one surface.
+the same canvas sink, so the panel keeps one surface.
 Android asks serve-emu's `/api` before opening its video socket and streams
 WebRTC when it is advertised (EAS Simulator), keeping a separate `video=0`
 socket for input so input can reconnect without restarting video.
