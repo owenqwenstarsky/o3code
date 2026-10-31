@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, "../..");
 
 const INERT = [
   /^docs\//,
-  /^\.(agents|cursor|vscode|devcontainer|macroscope|repos)\//,
+  /^\.(agents|cursor|vscode|devcontainer|repos)\//,
   /^[^/]+\.md$/,
   /^LICENSE$/,
 ];
