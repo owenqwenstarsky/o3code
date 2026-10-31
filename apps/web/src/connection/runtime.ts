@@ -1,4 +1,5 @@
 import { Connection } from "@t3tools/client-runtime/connection";
+import * as InstanceAccount from "@t3tools/client-runtime/instance";
 import { ShellSnapshotLoader } from "@t3tools/client-runtime/state/shell";
 import {
   BoundedThreadSnapshotLoader,
@@ -30,7 +31,8 @@ type ConnectionLayerSource =
   | typeof Runtime.layer
   | typeof ConnectionPlatform.layer
   | typeof BackgroundActivityReporter.layerObserver
-  | typeof BackgroundActivityReporter.layer;
+  | typeof BackgroundActivityReporter.layer
+  | typeof InstanceAccount.layer;
 
 const layerProvidedClientConnection = layerSnapshotLoader.pipe(
   Layer.provideMerge(
@@ -50,6 +52,7 @@ const layerProvidedClientConnection = layerSnapshotLoader.pipe(
 );
 
 const layerConnection = BackgroundActivityReporter.layer.pipe(
+  Layer.provideMerge(InstanceAccount.layer),
   Layer.provideMerge(layerProvidedClientConnection),
 );
 

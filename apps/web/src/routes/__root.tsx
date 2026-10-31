@@ -11,6 +11,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { Check, Copy } from "lucide";
+import * as Option from "effect/Option";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
@@ -26,7 +27,6 @@ import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDi
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { SnapShotCoordinator } from "../components/desktop/SnapShotCoordinator";
-import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAppActivationCoordinator";
 import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkCoordinator";
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ReopenClosedViewShortcut } from "../components/ReopenClosedViewShortcut";
@@ -48,11 +48,11 @@ import {
 } from "@t3tools/client-runtime/state/project-grouping";
 import { useUiStateStore } from "../uiStateStore";
 import { configureClientTracing } from "../observability/clientTracing";
-import { resolveInitialServerAuthGateState } from "../environments/primary";
+import { InstanceWorkspaceCoordinator } from "../instance/InstanceWorkspaceCoordinator";
+import { readInstanceSession } from "../instance/instanceState";
+import { usePrimaryEnvironmentId } from "../state/environments";
 import { GUEST_PAGE_PATH } from "../guestPage";
-import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { useHostedPromptLinkLanding } from "../components/promptLinks/HostedPromptLinkLanding";
-import { isLocalEnvironmentDisabled } from "../localEnvironment";
 import { useAtomValue } from "@effect/atom-react";
 import { primaryServerConfigAtom, primaryServerWelcomeAtom } from "../state/server";
 import { readProject } from "../state/entities";
@@ -72,29 +72,22 @@ export const Route = createRootRoute({
       };
     }
 
-    if (location.pathname === "/pair" && hasHostedPairingRequest(new URL(window.location.href))) {
+    if (location.pathname === "/login") {
       return {
         authGateState: {
-          status: "hosted-pairing",
+          status: "signed-out",
         } as const,
       };
     }
 
-    if (isLocalEnvironmentDisabled() || isHostedStaticApp(new URL(window.location.href))) {
-      return {
-        authGateState: {
-          status: "hosted-static",
-        } as const,
-      };
+    // Every client works through an O3 instance: no sign-in, no app.
+    const session = await readInstanceSession();
+    if (Option.isNone(session)) {
+      throw redirect({ to: "/login", replace: true });
     }
-
-    const authGateState = await resolveInitialServerAuthGateState();
-    if (authGateState.status === "authenticated") {
-      // Idempotent, so every navigation can ask for it.
-      void configureClientTracing();
-    }
+    void configureClientTracing();
+    const authGateState = { status: "hosted-static" } as const;
     if (
-      authGateState.status === "authenticated" &&
       getDesktopSnapShotBridge() &&
       shouldResumeSnapShotSetupOnStartup() &&
       location.pathname !== "/settings/snap-shot"
@@ -143,9 +136,7 @@ function RootRouteView() {
 function RootRouteBranch() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const { authGateState } = Route.useRouteContext();
-  const primaryEnvironmentAuthenticated = authGateState.status === "authenticated";
-  // A sync IPC read; the setting only changes across a relaunch.
-  const [localEnvironmentDisabled] = useState(isLocalEnvironmentDisabled);
+  const primaryEnvironmentReady = usePrimaryEnvironmentId() !== null;
   // Once true, stays true: a visit to /welcome means the bootstrap already chose a route.
   const [returningFromWelcome, setReturningFromWelcome] = useState(pathname === "/welcome");
   if (pathname === "/welcome" && !returningFromWelcome) setReturningFromWelcome(true);
@@ -155,7 +146,12 @@ function RootRouteBranch() {
 
   if (pathname === GUEST_PAGE_PATH) return <Outlet />;
 
-  if (pathname === "/pair" || pathname === "/connect" || pathname === "/connect-agent") {
+  if (
+    pathname === "/login" ||
+    pathname === "/pair" ||
+    pathname === "/connect" ||
+    pathname === "/connect-agent"
+  ) {
     return <Outlet />;
   }
 
@@ -178,7 +174,7 @@ function RootRouteBranch() {
     );
   }
 
-  if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
+  if (authGateState.status !== "hosted-static") {
     return <Outlet />;
   }
 
@@ -193,15 +189,14 @@ function RootRouteBranch() {
   return (
     <>
       <ChatGptWelcomeCoordinator />
-      <FirstRunGate
-        enabled={primaryEnvironmentAuthenticated}
-        hostedStatic={authGateState.status === "hosted-static"}
-      >
-        {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
-        {primaryEnvironmentAuthenticated || localEnvironmentDisabled ? (
-          <DesktopWebLinkCoordinator />
-        ) : null}
+      <FirstRunGate enabled={primaryEnvironmentReady} hostedStatic={!primaryEnvironmentReady}>
+        <DesktopWebLinkCoordinator />
         {isElectron ? <RunningThreadKeepAlive /> : null}
+        <InstanceWorkspaceCoordinator />
+        {import.meta.env.DEV && primaryEnvironmentReady ? <DevReplayHost /> : null}
+        {primaryEnvironmentReady ? (
+          <EventRouter skipInitialBootstrapNavigation={returningFromWelcome} />
+        ) : null}
         <RelayClientInstallDialog />
         <ConnectOnboardingDialog />
         <SshPasswordPromptDialog />
@@ -212,10 +207,6 @@ function RootRouteBranch() {
         <GuestShareDialogHost />
         <ProjectCloneToastCoordinator />
         <AddProjectToMachineDialogHost />
-        {import.meta.env.DEV && primaryEnvironmentAuthenticated ? <DevReplayHost /> : null}
-        {primaryEnvironmentAuthenticated ? (
-          <EventRouter skipInitialBootstrapNavigation={returningFromWelcome} />
-        ) : null}
         {appShell}
         {/* Keep the theme editor above the router so drafts survive navigation. */}
         <ThemeEditorHost />

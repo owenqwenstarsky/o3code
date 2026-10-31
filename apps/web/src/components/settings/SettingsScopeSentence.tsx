@@ -42,13 +42,19 @@ import {
   settingsScopeProjectMachines,
 } from "./settingsScopeAxis";
 
-export const SETTINGS_DEVICE_ONLY_PATHS: ReadonlySet<string> = new Set([
+/** Instance admin pages act on the O3 instance, never on one environment. */
+export function isDeviceOnlySettingsPath(pathname: string): boolean {
+  return SETTINGS_DEVICE_ONLY_PATHS.has(pathname) || pathname.startsWith("/settings/admin/");
+}
+
+const SETTINGS_DEVICE_ONLY_PATHS: ReadonlySet<string> = new Set([
   "/settings/general",
   "/settings/appearance",
   "/settings/chat",
   "/settings/diffs",
   "/settings/snap-shot",
   "/settings/connections",
+  "/settings/account",
   // Network access and authorized clients belong to the environment serving this app.
   "/settings/access",
   "/settings/about",
@@ -66,7 +72,7 @@ export function SettingsScopeSentence() {
   const scope = useOptionalSettingsScope();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { environments } = useEnvironments();
-  if (scope === null || SETTINGS_DEVICE_ONLY_PATHS.has(pathname)) return null;
+  if (scope === null || isDeviceOnlySettingsPath(pathname)) return null;
   const props: SettingsScopeMenuProps = {
     value: scope.search,
     singleEnvironment: scope.singleEnvironment,

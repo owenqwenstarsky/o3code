@@ -1,0 +1,17 @@
+// Merge into your tailnet policy file (Tailscale admin console > Access controls).
+// Also turn on HTTPS certificates under DNS, which Tailscale Serve needs.
+{
+  "tagOwners": {
+    // Replace with the admins who manage the O3 instance.
+    "tag:o3-instance": ["autogroup:admin"],
+    "tag:o3-workspace": ["tag:o3-instance", "autogroup:admin"],
+  },
+  "grants": [
+    // Members reach the instance and workspaces over HTTPS only. O3 Code's own
+    // sign-in still decides which workspace a person can use.
+    { "src": ["autogroup:member"], "dst": ["tag:o3-instance"], "ip": ["tcp:443"] },
+    { "src": ["autogroup:member"], "dst": ["tag:o3-workspace"], "ip": ["tcp:443"] },
+    // Workspaces check sign-ins with the instance. They cannot reach each other.
+    { "src": ["tag:o3-workspace"], "dst": ["tag:o3-instance"], "ip": ["tcp:443"] },
+  ]
+}

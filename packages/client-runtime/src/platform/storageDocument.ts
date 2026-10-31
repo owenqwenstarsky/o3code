@@ -9,6 +9,7 @@ import {
 } from "../connection/catalog.ts";
 import { type ConnectionTarget, PersistedConnectionTarget } from "../connection/model.ts";
 import * as TokenStore from "../authorization/tokenStore.ts";
+import { StoredInstanceSession } from "../instance/account.ts";
 import { StoredPullRequestRoutingPermission } from "../connection/pullRequestRoutingPermissions.ts";
 
 export const StoredConnectionCredential = Schema.Struct({
@@ -29,6 +30,8 @@ export const ConnectionCatalogDocument = Schema.Struct({
   disabledEnvironmentIds: Schema.Array(EnvironmentId).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([])),
   ),
+  /** This client's O3 instance sign-in. */
+  instanceSession: Schema.optionalKey(StoredInstanceSession),
 });
 export type ConnectionCatalogDocument = typeof ConnectionCatalogDocument.Type;
 

@@ -24,7 +24,7 @@ import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import type { BrowserViewportResizeDirection } from "~/browser/browserViewportLayout";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { rendersServerTabNatively } from "~/browser/previewRuntime";
-import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
+import { localEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import { type ServerBrowserHandle, ServerBrowserSurface } from "~/browser/ServerBrowserSurface";
 import {
   closeServerPictureInPicture,
@@ -137,7 +137,7 @@ function useBrowserMiniPlayerSource(threadRef: ScopedThreadRef | null, tabId: st
   const fittedSourceContent = useBrowserSurfaceStore((state) =>
     runtimeTabId === null ? null : (state.byTabId[runtimeTabId]?.fittedSourceContent ?? null),
   );
-  const primaryEnvironmentId = useAtomValue(primaryEnvironmentIdAtom);
+  const primaryEnvironmentId = useAtomValue(localEnvironmentIdAtom);
   const serverTab =
     threadRef !== null &&
     snapshot?.runtime === "server" &&

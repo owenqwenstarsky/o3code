@@ -4,7 +4,7 @@ import type { EnvironmentId, PreviewRuntime, PreviewSessionSnapshot } from "@t3t
 import { isElectron } from "~/env";
 import { isPreviewSupportedInRuntime } from "~/previewStateStore";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
-import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
+import { localEnvironmentIdAtom } from "~/state/primaryEnvironment";
 import {
   readEnvironmentSupportsServerBrowser,
   useEnvironmentSupportsServerBrowser,
@@ -14,7 +14,7 @@ export function previewRuntimeFor(environmentId: EnvironmentId): PreviewRuntime 
   if (!readEnvironmentSupportsServerBrowser(environmentId)) return undefined;
   if (
     isPreviewSupportedInRuntime() &&
-    environmentId !== appAtomRegistry.get(primaryEnvironmentIdAtom)
+    environmentId !== appAtomRegistry.get(localEnvironmentIdAtom)
   ) {
     return undefined;
   }
@@ -59,5 +59,5 @@ export function useRendersServerTabNatively(
   environmentId: EnvironmentId,
   snapshot: Pick<PreviewSessionSnapshot, "runtime" | "headless"> | null | undefined,
 ): boolean {
-  return rendersServerTabNatively(environmentId, useAtomValue(primaryEnvironmentIdAtom), snapshot);
+  return rendersServerTabNatively(environmentId, useAtomValue(localEnvironmentIdAtom), snapshot);
 }

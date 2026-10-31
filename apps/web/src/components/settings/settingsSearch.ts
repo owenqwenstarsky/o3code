@@ -32,6 +32,12 @@ export type SettingsPath =
   | "/settings/source-control"
   | "/settings/worktrees"
   | "/settings/connections"
+  | "/settings/account"
+  | "/settings/admin/overview"
+  | "/settings/admin/users"
+  | "/settings/admin/tools"
+  | "/settings/admin/instance"
+  | "/settings/admin/audit"
   | "/settings/access"
   | "/settings/secrets"
   | "/settings/maintenance"
@@ -102,6 +108,12 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/source-control": "Source control",
   "/settings/worktrees": "Worktrees",
   "/settings/connections": "Environments",
+  "/settings/account": "Account",
+  "/settings/admin/overview": "Overview",
+  "/settings/admin/users": "Users",
+  "/settings/admin/tools": "Tools & defaults",
+  "/settings/admin/instance": "Instance",
+  "/settings/admin/audit": "Audit log",
   "/settings/access": "Sharing & access",
   "/settings/secrets": "Secrets",
   "/settings/maintenance": "Maintenance",
@@ -109,6 +121,9 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/about": "About",
   "/settings/archived": "Archive",
 };
+
+/** Shown only to instance admins. */
+export const ADMIN_NAV_HEADING = "Admin";
 
 /** Sidebar order. A group without a heading is set apart by space alone. */
 export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
@@ -141,11 +156,21 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
     paths: ["/settings/projects", "/settings/source-control", "/settings/worktrees"],
   },
   {
-    heading: "Connections",
+    heading: "Account",
     paths: [
-      "/settings/connections",
+      "/settings/account",
       "/settings/access",
       ...(isSecretsFeatureEnabled ? (["/settings/secrets"] as const) : []),
+    ],
+  },
+  {
+    heading: ADMIN_NAV_HEADING,
+    paths: [
+      "/settings/admin/overview",
+      "/settings/admin/users",
+      "/settings/admin/tools",
+      "/settings/admin/instance",
+      "/settings/admin/audit",
     ],
   },
   {
@@ -1195,6 +1220,12 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/source-control": "environment-defaults",
   "/settings/worktrees": "project-defaults",
   "/settings/connections": "connections",
+  "/settings/account": null,
+  "/settings/admin/overview": null,
+  "/settings/admin/users": null,
+  "/settings/admin/tools": null,
+  "/settings/admin/instance": null,
+  "/settings/admin/audit": null,
   "/settings/access": "connections",
   "/settings/secrets": null,
   "/settings/scheduled-tasks": null,

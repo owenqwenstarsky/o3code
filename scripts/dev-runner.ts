@@ -72,6 +72,8 @@ const MODE_ARGS = {
     "--parallel",
     "dev",
   ],
+  // An O3 instance plus a stand-in workspace (apps/server/scripts/dev-instance.ts) behind Vite.
+  "dev:instance": ["run", "--filter=@t3tools/web", "--filter=t3", "--parallel", "dev:instance"],
   "dev:server": ["run", "--filter=t3", "dev"],
   "dev:web": ["run", "--filter=@t3tools/web", "dev"],
   "dev:desktop": ["run", "--filter=@t3tools/desktop", "--filter=@t3tools/web", "dev"],
@@ -145,7 +147,7 @@ export class DevRunnerProcessError extends Schema.TaggedError<DevRunnerProcessEr
   "DevRunnerProcessError",
   {
     operation: Schema.Literals(["spawn", "wait-for-exit"]),
-    mode: Schema.Literals(["dev", "dev:server", "dev:web", "dev:desktop"]),
+    mode: Schema.Literals(["dev", "dev:instance", "dev:server", "dev:web", "dev:desktop"]),
     executable: Schema.Literal("vp"),
     argumentCount: Schema.Number,
     shell: Schema.Boolean,
@@ -160,7 +162,7 @@ export class DevRunnerProcessError extends Schema.TaggedError<DevRunnerProcessEr
 export class DevRunnerProcessExitError extends Schema.TaggedError<DevRunnerProcessExitError>()(
   "DevRunnerProcessExitError",
   {
-    mode: Schema.Literals(["dev", "dev:server", "dev:web", "dev:desktop"]),
+    mode: Schema.Literals(["dev", "dev:instance", "dev:server", "dev:web", "dev:desktop"]),
     executable: Schema.Literal("vp"),
     argumentCount: Schema.Number,
     shell: Schema.Boolean,
@@ -175,7 +177,7 @@ export class DevRunnerProcessExitError extends Schema.TaggedError<DevRunnerProce
 export class DevRunnerHostNotProxiableError extends Schema.TaggedError<DevRunnerHostNotProxiableError>()(
   "DevRunnerHostNotProxiableError",
   {
-    mode: Schema.Literals(["dev", "dev:web"]),
+    mode: Schema.Literals(["dev", "dev:instance", "dev:web"]),
     host: Schema.String,
   },
 ) {
@@ -187,7 +189,7 @@ export class DevRunnerHostNotProxiableError extends Schema.TaggedError<DevRunner
 export class DevRunnerBuiltNeedsShareError extends Schema.TaggedError<DevRunnerBuiltNeedsShareError>()(
   "DevRunnerBuiltNeedsShareError",
   {
-    mode: Schema.Literals(["dev", "dev:server", "dev:web", "dev:desktop"]),
+    mode: Schema.Literals(["dev", "dev:instance", "dev:server", "dev:web", "dev:desktop"]),
   },
 ) {
   override get message(): string {
@@ -346,7 +348,7 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
     // An inherited HOST pins Vite's HMR socket via explicitHost in apps/web/vite.config.ts.
     // Only desktop mode should set it.
     delete output.HOST;
-    if (mode === "dev" || mode === "dev:web") {
+    if (mode === "dev" || mode === "dev:web" || mode === "dev:instance") {
       // Browser dev is single-origin: everything (including /ws) is proxied
       // through Vite, so the client must resolve its backend from
       // window.location.origin rather than a baked-in localhost URL.
@@ -400,7 +402,7 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
     delete output.T3CODE_DESKTOP_WS_URL;
   }
 
-  if (mode === "dev:server" || mode === "dev:web") {
+  if (mode === "dev:server" || mode === "dev:web" || mode === "dev:instance") {
     output.T3CODE_MODE = "web";
     delete output.T3CODE_DESKTOP_WS_URL;
   }
@@ -700,7 +702,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   );
 
   if (
-    (input.mode === "dev" || input.mode === "dev:web") &&
+    (input.mode === "dev" || input.mode === "dev:web" || input.mode === "dev:instance") &&
     input.host !== undefined &&
     !isProxiableBindHost(input.host)
   ) {

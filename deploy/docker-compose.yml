@@ -1,0 +1,35 @@
+# An O3 instance on one Docker host. See docs/user/instance-admin.md.
+#   cp .env.example .env   # fill in the values
+#   docker compose up -d
+services:
+  instance:
+    image: ${O3_INSTANCE_IMAGE:-o3code/instance:latest}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: instance
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      O3_DOCKER_SOCKET: /var/run/docker.sock
+    volumes:
+      - instance-data:/data
+      - instance-tailscale:/var/lib/tailscale
+      # The instance creates and manages one container per user.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Kernel-mode Tailscale, so the instance is reachable as a tailnet device.
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun]
+
+  # Built so `docker compose build` produces the image the instance starts for each user.
+  workspace-image:
+    image: ${O3_WORKSPACE_IMAGE:-o3code/workspace:latest}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: workspace
+    profiles: [build-only]
+
+volumes:
+  instance-data:
+  instance-tailscale:

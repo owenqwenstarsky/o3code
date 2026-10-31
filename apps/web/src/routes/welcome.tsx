@@ -13,15 +13,14 @@ const decodeEnvironmentId = Schema.decodeOption(EnvironmentId);
 export const Route = createFileRoute("/welcome")({
   beforeLoad: ({ context }) => {
     const { authGateState } = context;
-    if (authGateState.status !== "authenticated" && authGateState.status !== "hosted-static") {
-      throw redirect({ to: "/pair", replace: true });
+    if (authGateState.status !== "hosted-static") {
+      throw redirect({ to: "/login", replace: true });
     }
   },
   component: WelcomeRouteView,
 });
 
 function WelcomeRouteView() {
-  const { authGateState } = Route.useRouteContext();
   const navigate = useNavigate();
   const hash = useLocation({ select: (location) => location.hash });
   const resumeEnvironmentId = hash.startsWith("agents:")
@@ -31,7 +30,7 @@ function WelcomeRouteView() {
   const isWelcomeRoute = useLocation({ select: (location) => location.pathname === "/welcome" });
   const [dismissed, setDismissed] = useState(false);
   const openNewThread = useNewThreadHandler();
-  const localAvailable = authGateState.status === "authenticated";
+  const localAvailable = false;
   return (
     <>
       <NoProjectsHero />

@@ -30,6 +30,7 @@ import {
 } from "@t3tools/client-runtime/connection";
 import { EnvironmentId, ServerConfig, ThreadId, VcsListRefsResult } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import { InstanceSessionStore } from "@t3tools/client-runtime/instance";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -734,6 +735,24 @@ export const layer = Layer.effectContext(
           ),
         })),
     });
+    const instanceSessionStore = InstanceSessionStore.of({
+      get: catalog.read.pipe(
+        Effect.map((document) => Option.fromUndefinedOr(document.instanceSession)),
+        Effect.catch((cause) =>
+          Effect.logWarning("Could not read the O3 instance sign-in.", {
+            error: cause.message,
+          }).pipe(Effect.as(Option.none())),
+        ),
+      ),
+      set: Effect.fn("InstanceSessionStore.set")((session) =>
+        catalog
+          .update((document) => ({ ...document, instanceSession: session }))
+          .pipe(Effect.orDie),
+      ),
+      clear: catalog
+        .update(({ instanceSession: _removed, ...document }) => document)
+        .pipe(Effect.orDie),
+    });
     const cacheStore = Persistence.EnvironmentCacheStore.of({
       loadShell: Effect.fn("Persistence.EnvironmentCacheStore.loadShell")(function (environmentId) {
         return readDatabaseValue(database, SHELL_STORE_NAME, environmentId).pipe(
@@ -968,6 +987,7 @@ export const layer = Layer.effectContext(
       Context.add(CredentialStore.ConnectionCredentialStore, credentialStore),
       Context.add(TokenStore.RemoteDpopAccessTokenStore, remoteTokenStore),
       Context.add(Persistence.EnvironmentCacheStore, cacheStore),
+      Context.add(InstanceSessionStore, instanceSessionStore),
     );
   }),
 );
