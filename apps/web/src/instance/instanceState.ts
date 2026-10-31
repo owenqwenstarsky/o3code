@@ -5,7 +5,7 @@ import {
   type InstanceUnreachableError,
 } from "@t3tools/client-runtime/instance";
 import { executeAtomQuery, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type { InstanceUserId } from "@t3tools/contracts/instance";
+import type { InstanceUserId, InstanceWorkspaceId } from "@t3tools/contracts/instance";
 import { redirect } from "@tanstack/react-router";
 import * as Effect from "effect/Effect";
 import { Atom } from "effect/reactivity";
@@ -63,10 +63,12 @@ export const adminUserSessionsAtom = Atom.family((userId: InstanceUserId) =>
   ),
 );
 
-export const adminWorkspaceLogsAtom = Atom.family((userId: InstanceUserId) =>
+export const adminWorkspaceLogsAtom = Atom.family((workspaceId: InstanceWorkspaceId) =>
   queryAtom(
-    `admin-workspace-logs:${userId}`,
-    callInstance((client, headers) => client.admin.workspaceLogs({ headers, params: { userId } })),
+    `admin-workspace-logs:${workspaceId}`,
+    callInstance((client, headers) =>
+      client.admin.workspaceLogs({ headers, params: { workspaceId } }),
+    ),
   ),
 );
 

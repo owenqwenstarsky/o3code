@@ -3,11 +3,14 @@ import {
   InstanceBadRequestError,
   InstanceConflictError,
   InstanceNotFoundError,
+  InstanceWorkspaceId,
+  STATIC_WORKSPACE_ID,
   type InstanceWorkspace,
   type InstanceWorkspaceAction,
   type InstanceWorkspaceLimits,
 } from "@t3tools/contracts/instance";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
@@ -29,11 +32,13 @@ import {
 } from "./InstanceStore.ts";
 import { generateSecret, sha256, timingSafeEqualStrings } from "./Passwords.ts";
 import { TailscaleKeys } from "./TailscaleKeys.ts";
-import { STATIC_WORKSPACE_USER, WorkspaceRuntime, containerName } from "./WorkspaceRuntime.ts";
+import { WorkspaceRuntime, containerName } from "./WorkspaceRuntime.ts";
 import { normalizeToolIds, unknownToolIds } from "./WorkspaceTools.ts";
 
 const RECONCILE_INTERVAL = "15 seconds";
 const DISK_USAGE_INTERVAL = "5 minutes";
+/** Keeps `o3-ws-<slug>` and `o3-<slug>` well inside a 63-character DNS label. */
+const MAX_SLUG_LENGTH = 40;
 
 export type WorkspaceError =
   | InstanceNotFoundError
@@ -45,32 +50,50 @@ export class Workspaces extends Context.Service<
   Workspaces,
   {
     readonly get: (
-      userId: string,
+      workspaceId: string,
     ) => Effect.Effect<Option.Option<InstanceWorkspace>, InstanceStoreError>;
+    /** Default first, then oldest first. */
+    readonly listForUser: (
+      userId: string,
+    ) => Effect.Effect<ReadonlyArray<InstanceWorkspace>, InstanceStoreError>;
+    /** Every workspace, by workspace id. */
     readonly list: Effect.Effect<ReadonlyMap<string, InstanceWorkspace>, InstanceStoreError>;
-    readonly provision: (input: {
+    /** Adds a workspace; it becomes the default when the user has none. */
+    readonly create: (input: {
       readonly userId: string;
       readonly email: string;
+      readonly label: string;
       readonly tools: ReadonlyArray<string>;
       readonly limits: InstanceWorkspaceLimits;
     }) => Effect.Effect<InstanceWorkspace, WorkspaceError>;
     readonly action: (
-      userId: string,
+      workspaceId: string,
       action: InstanceWorkspaceAction,
     ) => Effect.Effect<InstanceWorkspace, WorkspaceError>;
     readonly update: (
-      userId: string,
-      patch: { readonly tools?: ReadonlyArray<string>; readonly limits?: InstanceWorkspaceLimits },
+      workspaceId: string,
+      patch: {
+        readonly label?: string;
+        readonly tools?: ReadonlyArray<string>;
+        readonly limits?: InstanceWorkspaceLimits;
+      },
     ) => Effect.Effect<InstanceWorkspace, WorkspaceError>;
-    readonly stopAndKeep: (userId: string) => Effect.Effect<void, InstanceStoreError>;
+    readonly setDefault: (workspaceId: string) => Effect.Effect<InstanceWorkspace, WorkspaceError>;
+    /** Removes one workspace; a user's last workspace goes only with the user. */
     readonly remove: (
+      workspaceId: string,
+      deleteData: boolean,
+    ) => Effect.Effect<void, WorkspaceError>;
+    readonly removeAllForUser: (
       userId: string,
       deleteData: boolean,
     ) => Effect.Effect<void, InstanceStoreError>;
-    readonly logs: (userId: string) => Effect.Effect<string, WorkspaceError>;
+    readonly stopAllForUser: (userId: string) => Effect.Effect<void, InstanceStoreError>;
+    readonly startAllForUser: (userId: string) => Effect.Effect<void, InstanceStoreError>;
+    readonly logs: (workspaceId: string) => Effect.Effect<string, WorkspaceError>;
     readonly upgradeAll: Effect.Effect<number, InstanceStoreError>;
     readonly verifySecret: (
-      userId: string,
+      workspaceId: string,
       secret: string,
     ) => Effect.Effect<boolean, InstanceStoreError>;
     readonly runtimeInfo: Effect.Effect<{
@@ -90,15 +113,43 @@ export class Workspaces extends Context.Service<
 const errorMessage = (error: string | { readonly message: string }) =>
   typeof error === "string" ? error : error.message;
 
-export const slugCandidate = (email: string) => {
-  const base = email
-    .split("@")[0]!
+const toSlugPart = (value: string) =>
+  value
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 24);
+    .replace(/^-+|-+$/g, "");
+
+export const slugCandidate = (email: string) => {
+  const base = toSlugPart(email.split("@")[0]!).slice(0, 24).replace(/-+$/, "");
   return base.length > 0 ? base : "user";
 };
+
+const labelSlug = (label: string) => {
+  const base = toSlugPart(label);
+  return base.length > 0 ? base : "workspace";
+};
+
+const fitSlug = (value: string, maxLength: number) => value.slice(0, maxLength).replace(/-+$/, "");
+
+/** The first workspace is named after the email; later ones add their label. */
+export const workspaceSlug = (input: {
+  readonly email: string;
+  readonly label: string;
+  readonly first: boolean;
+  readonly taken: ReadonlySet<string>;
+}) => {
+  const base = input.first
+    ? slugCandidate(input.email)
+    : fitSlug(`${slugCandidate(input.email)}-${labelSlug(input.label)}`, MAX_SLUG_LENGTH);
+  let slug = base;
+  for (let suffix = 2; input.taken.has(slug); suffix += 1) {
+    slug = `${fitSlug(base, MAX_SLUG_LENGTH - String(suffix).length - 1)}-${suffix}`;
+  }
+  return slug;
+};
+
+const sameLabel = (left: string, right: string) =>
+  left.trim().toLowerCase() === right.trim().toLowerCase();
 
 const make = Effect.gen(function* () {
   const store = yield* InstanceStore;
@@ -106,24 +157,28 @@ const make = Effect.gen(function* () {
   const config = yield* InstanceConfig;
   const runtime = yield* WorkspaceRuntime;
   const tailscale = yield* TailscaleKeys;
-  // Loops never finish; per-user actions do, so `drain` can wait on them alone.
+  const crypto = yield* Crypto.Crypto;
+  // Loops never finish; per-workspace actions do, so `drain` can wait on them alone.
   const loops = yield* FiberSet.make<unknown, never>();
   const actions = yield* FiberSet.make<unknown, never>();
   const locks = yield* Ref.make(new Map<string, Semaphore.Semaphore>());
+  // Adding, removing, renaming and re-defaulting workspaces check rows across users (slugs are
+  // global), so they share one lock; container work stays per workspace.
+  const membership = Semaphore.makeUnsafe(1);
   const discoveredInstanceUrl = yield* Ref.make<string | null>(null);
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-  const lockFor = (userId: string) =>
+  const lockFor = (workspaceId: string) =>
     Ref.modify(locks, (current) => {
-      const existing = current.get(userId);
+      const existing = current.get(workspaceId);
       if (existing) return [existing, current] as const;
       const created = Semaphore.makeUnsafe(1);
-      return [created, new Map(current).set(userId, created)] as const;
+      return [created, new Map(current).set(workspaceId, created)] as const;
     });
   const serialized =
-    (userId: string) =>
+    (workspaceId: string) =>
     <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      lockFor(userId).pipe(Effect.flatMap((lock) => lock.withPermit(effect)));
+      lockFor(workspaceId).pipe(Effect.flatMap((lock) => lock.withPermit(effect)));
 
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
@@ -135,7 +190,10 @@ const make = Effect.gen(function* () {
           ? buildTailscaleHttpsBaseUrl({ magicDnsName: record.tailnetHostname }).replace(/\/$/, "")
           : null;
     return {
+      id: record.workspaceId,
       userId: record.userId,
+      label: record.label,
+      isDefault: record.isDefault,
       slug: record.slug,
       status: record.status,
       statusMessage: record.statusMessage,
@@ -151,15 +209,14 @@ const make = Effect.gen(function* () {
     };
   };
 
-  const patch = (userId: string, values: WorkspacePatch) =>
-    nowIso.pipe(Effect.flatMap((now) => store.updateWorkspace(userId, values, now)));
+  const patch = (workspaceId: string, values: WorkspacePatch) =>
+    nowIso.pipe(Effect.flatMap((now) => store.updateWorkspace(workspaceId, values, now)));
 
-  const requireRecord = (userId: string) =>
-    store.getWorkspace(userId).pipe(
+  const requireRecord = (workspaceId: string) =>
+    store.getWorkspace(workspaceId).pipe(
       Effect.flatMap(
         Option.match({
-          onNone: () =>
-            Effect.fail(new InstanceNotFoundError({ message: "This user has no workspace." })),
+          onNone: () => Effect.fail(new InstanceNotFoundError({ message: "Workspace not found." })),
           onSome: Effect.succeed,
         }),
       ),
@@ -180,9 +237,9 @@ const make = Effect.gen(function* () {
     return url;
   });
 
-  const markError = (userId: string, message: string) =>
-    patch(userId, { status: "error", statusMessage: message }).pipe(
-      Effect.andThen(Effect.logWarning("Workspace operation failed.", { userId, message })),
+  const markError = (workspaceId: string, message: string) =>
+    patch(workspaceId, { status: "error", statusMessage: message }).pipe(
+      Effect.andThen(Effect.logWarning("Workspace operation failed.", { workspaceId, message })),
       Effect.ignore,
     );
 
@@ -205,7 +262,7 @@ const make = Effect.gen(function* () {
       yield* runtime.removeContainer(record.containerId);
     }
     const secret = generateSecret();
-    yield* patch(record.userId, {
+    yield* patch(record.workspaceId, {
       status: "starting",
       statusMessage: "Creating the workspace container",
       image: instanceSettings.workspaceImage,
@@ -213,6 +270,7 @@ const make = Effect.gen(function* () {
       containerId: null,
     });
     const containerId = yield* runtime.create({
+      workspaceId: record.workspaceId,
       userId: record.userId,
       slug: record.slug,
       image: instanceSettings.workspaceImage,
@@ -223,38 +281,41 @@ const make = Effect.gen(function* () {
       tailscaleAuthKey: authKey,
       tailscaleTag: config.tailscaleTag,
     });
-    yield* patch(record.userId, { containerId, statusMessage: "Starting" });
+    yield* patch(record.workspaceId, { containerId, statusMessage: "Starting" });
     yield* runtime.start(containerId);
   }, Effect.mapError(errorMessage));
 
   const inBackground = (
-    userId: string,
+    workspaceId: string,
     effect: Effect.Effect<unknown, string | { readonly message: string }>,
   ) =>
     FiberSet.run(actions)(
-      serialized(userId)(
+      serialized(workspaceId)(
         effect.pipe(
-          Effect.andThen(reconcileOne(userId)),
-          Effect.catch((error) => markError(userId, errorMessage(error))),
+          Effect.andThen(reconcileOne(workspaceId)),
+          Effect.catch((error) => markError(workspaceId, errorMessage(error))),
         ),
       ),
     ).pipe(Effect.asVoid);
 
   const reconcileOne = Effect.fn("Workspaces.reconcileOne")(
-    function* (userId: string) {
-      const found = yield* store.getWorkspace(userId);
+    function* (workspaceId: string) {
+      const found = yield* store.getWorkspace(workspaceId);
       if (Option.isNone(found)) return;
       const record = found.value;
       if (record.status === "provisioning" || record.status === "stopping") return;
       if (record.containerId === null) {
         if (record.status === "running") {
-          yield* patch(userId, { status: "error", statusMessage: "The container is missing." });
+          yield* patch(workspaceId, {
+            status: "error",
+            statusMessage: "The container is missing.",
+          });
         }
         return;
       }
       const state = yield* runtime.inspect(record.containerId);
       if (Option.isNone(state)) {
-        yield* patch(userId, {
+        yield* patch(workspaceId, {
           status: "error",
           statusMessage: "The container is missing. Recreate the workspace.",
           containerId: null,
@@ -263,13 +324,13 @@ const make = Effect.gen(function* () {
       }
       if (!state.value.running) {
         if (record.status !== "stopped") {
-          yield* patch(userId, { status: "error", statusMessage: state.value.detail });
+          yield* patch(workspaceId, { status: "error", statusMessage: state.value.detail });
         }
         return;
       }
       if (record.status === "running" && record.tailnetHostname !== null) return;
       const probe = yield* runtime.probe(record.containerId);
-      yield* patch(userId, {
+      yield* patch(workspaceId, {
         status: probe.ready ? "running" : "starting",
         statusMessage: probe.ready
           ? null
@@ -279,29 +340,32 @@ const make = Effect.gen(function* () {
         tailnetHostname: probe.tailnetHostname ?? record.tailnetHostname,
       });
     },
-    (effect, userId) =>
+    (effect, workspaceId) =>
       effect.pipe(
         Effect.catch((cause) =>
-          Effect.logWarning("Workspace reconcile failed.", { userId, cause }),
+          Effect.logWarning("Workspace reconcile failed.", { workspaceId, cause }),
         ),
       ),
   );
 
   const reconcileAll = store.listWorkspaces().pipe(
     Effect.flatMap((records) =>
-      Effect.forEach(records, (record) => serialized(record.userId)(reconcileOne(record.userId)), {
-        concurrency: 4,
-        discard: true,
-      }),
+      Effect.forEach(
+        records,
+        (record) => serialized(record.workspaceId)(reconcileOne(record.workspaceId)),
+        { concurrency: 4, discard: true },
+      ),
     ),
     Effect.catch((cause) => Effect.logWarning("Workspace reconcile pass failed.", { cause })),
   );
 
   const refreshDiskUsage = runtime.diskUsage.pipe(
     Effect.flatMap((sizes) =>
-      Effect.forEach([...sizes], ([userId, size]) => patch(userId, { diskUsageBytes: size }), {
-        discard: true,
-      }),
+      Effect.forEach(
+        [...sizes],
+        ([workspaceId, size]) => patch(workspaceId, { diskUsageBytes: size }),
+        { discard: true },
+      ),
     ),
     Effect.catch((cause) => Effect.logDebug("Workspace disk usage refresh failed.", { cause })),
   );
@@ -322,90 +386,163 @@ const make = Effect.gen(function* () {
       : Effect.succeed(normalizeToolIds(tools));
   };
 
-  const view = (userId: string) => requireRecord(userId).pipe(Effect.map(toView));
+  const assertLabelFree = Effect.fn("Workspaces.assertLabelFree")(function* (
+    userId: string,
+    label: string,
+    exceptWorkspaceId: string | null,
+  ) {
+    const siblings = yield* store.listWorkspacesForUser(userId);
+    const clash = siblings.some(
+      (record) => record.workspaceId !== exceptWorkspaceId && sameLabel(record.label, label),
+    );
+    if (clash) {
+      return yield* new InstanceConflictError({
+        message: `This user already has a workspace named "${label.trim()}".`,
+      });
+    }
+  });
+
+  const view = (workspaceId: string) => requireRecord(workspaceId).pipe(Effect.map(toView));
+
+  /** Removes the container, optionally the volumes, the tailnet device, then the row. */
+  const teardown = (record: WorkspaceRecord, deleteData: boolean) =>
+    serialized(record.workspaceId)(
+      Effect.gen(function* () {
+        yield* runtime
+          .removeContainer(record.containerId ?? containerName(record.slug))
+          .pipe(
+            Effect.catch((cause) => Effect.logWarning("Failed to remove container.", { cause })),
+          );
+        if (deleteData) {
+          yield* runtime
+            .removeData(record.workspaceId)
+            .pipe(
+              Effect.catch((cause) => Effect.logWarning("Failed to remove volumes.", { cause })),
+            );
+        }
+        if (runtime.kind === "docker" && record.tailnetHostname) {
+          yield* tailscale
+            .deleteDeviceByHostname(record.tailnetHostname.split(".")[0]!)
+            .pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Failed to remove the workspace's Tailscale device.", { cause }),
+              ),
+            );
+        }
+        yield* store.deleteWorkspace(record.workspaceId);
+      }),
+    );
 
   const action: Workspaces["Service"]["action"] = Effect.fn("Workspaces.action")(
-    function* (userId, kind) {
-      const record = yield* requireRecord(userId);
+    function* (workspaceId, kind) {
+      const record = yield* requireRecord(workspaceId);
       switch (kind) {
         case "start":
           if (record.containerId === null) {
-            yield* inBackground(userId, createAndStart(record));
+            yield* inBackground(workspaceId, createAndStart(record));
           } else {
-            yield* patch(userId, { status: "starting", statusMessage: "Starting" });
-            yield* inBackground(userId, runtime.start(record.containerId));
+            yield* patch(workspaceId, { status: "starting", statusMessage: "Starting" });
+            yield* inBackground(workspaceId, runtime.start(record.containerId));
           }
           break;
         case "stop":
-          yield* patch(userId, { status: "stopping", statusMessage: null });
+          yield* patch(workspaceId, { status: "stopping", statusMessage: null });
           yield* inBackground(
-            userId,
+            workspaceId,
             Effect.gen(function* () {
               if (record.containerId) {
                 yield* runtime.stop(record.containerId);
               }
-              yield* patch(userId, { status: "stopped", statusMessage: null });
+              yield* patch(workspaceId, { status: "stopped", statusMessage: null });
             }),
           );
           break;
         case "restart":
           if (record.containerId === null) {
-            yield* inBackground(userId, createAndStart(record));
+            yield* inBackground(workspaceId, createAndStart(record));
           } else {
-            yield* patch(userId, { status: "starting", statusMessage: "Restarting" });
-            yield* inBackground(userId, runtime.restart(record.containerId));
+            yield* patch(workspaceId, { status: "starting", statusMessage: "Restarting" });
+            yield* inBackground(workspaceId, runtime.restart(record.containerId));
           }
           break;
         case "recreate":
-          yield* patch(userId, { status: "starting", statusMessage: "Recreating" });
-          yield* inBackground(userId, requireRecord(userId).pipe(Effect.flatMap(createAndStart)));
+          yield* patch(workspaceId, { status: "starting", statusMessage: "Recreating" });
+          yield* inBackground(
+            workspaceId,
+            requireRecord(workspaceId).pipe(Effect.flatMap(createAndStart)),
+          );
           break;
       }
-      return yield* view(userId);
+      return yield* view(workspaceId);
     },
   );
 
+  const listForUser = (userId: string) =>
+    store.listWorkspacesForUser(userId).pipe(Effect.map((records) => records.map(toView)));
+
   return Workspaces.of({
-    get: Effect.fn("Workspaces.get")((userId) =>
-      store.getWorkspace(userId).pipe(Effect.map(Option.map(toView))),
+    get: Effect.fn("Workspaces.get")((workspaceId) =>
+      store.getWorkspace(workspaceId).pipe(Effect.map(Option.map(toView))),
     ),
+    listForUser: Effect.fn("Workspaces.listForUser")(listForUser),
     list: store
       .listWorkspaces()
       .pipe(
-        Effect.map((records) => new Map(records.map((record) => [record.userId, toView(record)]))),
+        Effect.map(
+          (records) => new Map(records.map((record) => [record.workspaceId, toView(record)])),
+        ),
       ),
-    provision: Effect.fn("Workspaces.provision")(function* (input) {
+    create: Effect.fn("Workspaces.create")(function* (input) {
       const tools = yield* validateTools(input.tools);
-      const existing = yield* store.listWorkspaces();
-      const taken = new Set(existing.map((record) => record.slug));
-      const base = slugCandidate(input.email);
-      let slug = base;
-      for (let suffix = 2; taken.has(slug); suffix += 1) slug = `${base}-${suffix}`;
-      const instanceSettings = yield* settings.get;
-      const now = yield* nowIso;
-      const record: WorkspaceRecord = {
-        userId: input.userId as WorkspaceRecord["userId"],
-        slug,
-        status: "provisioning",
-        statusMessage: "Preparing the workspace",
-        containerId: null,
-        tailnetHostname: null,
-        image: instanceSettings.workspaceImage,
-        tools,
-        limits: input.limits,
-        secretHash: sha256(generateSecret()),
-        tailscaleDeviceId: null,
-        diskUsageBytes: null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      yield* store.insertWorkspace(record);
-      yield* inBackground(input.userId, createAndStart(record));
+      const record = yield* membership.withPermit(
+        Effect.gen(function* () {
+          const label = input.label.trim();
+          yield* assertLabelFree(input.userId, label, null);
+          const all = yield* store.listWorkspaces();
+          const siblings = all.filter((record) => record.userId === input.userId);
+          const instanceSettings = yield* settings.get;
+          const now = yield* nowIso;
+          const created: WorkspaceRecord = {
+            workspaceId: InstanceWorkspaceId.make(yield* crypto.randomUUIDv4().pipe(Effect.orDie)),
+            userId: input.userId as WorkspaceRecord["userId"],
+            label,
+            isDefault: !siblings.some((record) => record.isDefault),
+            slug: workspaceSlug({
+              email: input.email,
+              label,
+              first: siblings.length === 0,
+              taken: new Set(all.map((record) => record.slug)),
+            }),
+            status: "provisioning",
+            statusMessage: "Preparing the workspace",
+            containerId: null,
+            tailnetHostname: null,
+            image: instanceSettings.workspaceImage,
+            tools,
+            limits: input.limits,
+            secretHash: sha256(generateSecret()),
+            diskUsageBytes: null,
+            createdAt: now,
+            updatedAt: now,
+          };
+          yield* store.insertWorkspace(created);
+          return created;
+        }),
+      );
+      yield* inBackground(record.workspaceId, createAndStart(record));
       return toView(record);
     }),
     action,
-    update: Effect.fn("Workspaces.update")(function* (userId, input) {
-      const record = yield* requireRecord(userId);
+    update: Effect.fn("Workspaces.update")(function* (workspaceId, input) {
+      const record = yield* requireRecord(workspaceId);
+      const label = input.label?.trim();
+      if (label !== undefined && label !== record.label) {
+        yield* membership.withPermit(
+          assertLabelFree(record.userId, label, workspaceId).pipe(
+            Effect.andThen(patch(workspaceId, { label })),
+          ),
+        );
+      }
       const tools = input.tools === undefined ? record.tools : yield* validateTools(input.tools);
       const limits = input.limits ?? record.limits;
       const changed =
@@ -413,70 +550,96 @@ const make = Effect.gen(function* () {
         limits.cpus !== record.limits.cpus ||
         limits.memoryMb !== record.limits.memoryMb ||
         limits.pids !== record.limits.pids;
-      if (!changed) return toView(record);
-      yield* patch(userId, { tools, limits });
+      if (!changed) return yield* view(workspaceId);
+      yield* patch(workspaceId, { tools, limits });
       // Tools install and limits apply when the container is created.
-      return yield* action(userId, "recreate");
+      return yield* action(workspaceId, "recreate");
     }),
-    stopAndKeep: Effect.fn("Workspaces.stopAndKeep")((userId) =>
-      store.getWorkspace(userId).pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.void,
-            onSome: (record) =>
-              patch(userId, { status: "stopped", statusMessage: "Account disabled" }).pipe(
+    setDefault: Effect.fn("Workspaces.setDefault")(function* (workspaceId) {
+      yield* membership.withPermit(
+        Effect.gen(function* () {
+          const record = yield* requireRecord(workspaceId);
+          if (record.isDefault) return;
+          yield* store.setDefaultWorkspace(record.userId, workspaceId, yield* nowIso);
+        }),
+      );
+      return yield* view(workspaceId);
+    }),
+    remove: Effect.fn("Workspaces.remove")((workspaceId, deleteData) =>
+      membership.withPermit(
+        Effect.gen(function* () {
+          const record = yield* requireRecord(workspaceId);
+          const siblings = yield* store.listWorkspacesForUser(record.userId);
+          const remaining = siblings
+            .filter((sibling) => sibling.workspaceId !== workspaceId)
+            .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+          const promoted = remaining[0];
+          if (promoted === undefined) {
+            return yield* new InstanceBadRequestError({
+              message: "This is the user's only workspace. Delete the user instead.",
+            });
+          }
+          yield* teardown(record, deleteData);
+          if (record.isDefault) {
+            yield* store.setDefaultWorkspace(record.userId, promoted.workspaceId, yield* nowIso);
+          }
+        }),
+      ),
+    ),
+    removeAllForUser: Effect.fn("Workspaces.removeAllForUser")((userId, deleteData) =>
+      membership.withPermit(
+        store
+          .listWorkspacesForUser(userId)
+          .pipe(
+            Effect.flatMap((records) =>
+              Effect.forEach(records, (record) => teardown(record, deleteData), { discard: true }),
+            ),
+          ),
+      ),
+    ),
+    stopAllForUser: Effect.fn("Workspaces.stopAllForUser")((userId) =>
+      store.listWorkspacesForUser(userId).pipe(
+        Effect.flatMap((records) =>
+          Effect.forEach(
+            records,
+            (record) =>
+              patch(record.workspaceId, {
+                status: "stopped",
+                statusMessage: "Account disabled",
+              }).pipe(
                 Effect.andThen(
                   record.containerId
-                    ? serialized(userId)(runtime.stop(record.containerId)).pipe(
+                    ? serialized(record.workspaceId)(runtime.stop(record.containerId)).pipe(
                         Effect.catch((cause) =>
-                          Effect.logWarning("Failed to stop workspace.", { userId, cause }),
+                          Effect.logWarning("Failed to stop workspace.", {
+                            workspaceId: record.workspaceId,
+                            cause,
+                          }),
                         ),
                       )
                     : Effect.void,
                 ),
               ),
-          }),
+            { discard: true },
+          ),
         ),
       ),
     ),
-    remove: Effect.fn("Workspaces.remove")((userId, deleteData) =>
-      Effect.gen(function* () {
-        const found = yield* store.getWorkspace(userId);
-        if (Option.isNone(found)) return;
-        const record = found.value;
-        yield* serialized(userId)(
-          Effect.gen(function* () {
-            yield* runtime
-              .removeContainer(record.containerId ?? containerName(record.slug))
-              .pipe(
-                Effect.catch((cause) =>
-                  Effect.logWarning("Failed to remove container.", { cause }),
-                ),
-              );
-            if (deleteData) {
-              yield* runtime
-                .removeData(userId)
-                .pipe(
-                  Effect.catch((cause) =>
-                    Effect.logWarning("Failed to remove volumes.", { cause }),
-                  ),
-                );
-            }
-            if (runtime.kind === "docker" && record.tailnetHostname) {
-              yield* tailscale.deleteDeviceByHostname(record.tailnetHostname.split(".")[0]!).pipe(
-                Effect.catch((cause) =>
-                  Effect.logWarning("Failed to remove the workspace's Tailscale device.", {
-                    cause,
-                  }),
-                ),
-              );
-            }
-          }),
-        );
-      }),
+    startAllForUser: Effect.fn("Workspaces.startAllForUser")((userId) =>
+      store
+        .listWorkspacesForUser(userId)
+        .pipe(
+          Effect.flatMap((records) =>
+            Effect.forEach(
+              records,
+              (record) => action(record.workspaceId, "start").pipe(Effect.ignore),
+              { discard: true },
+            ),
+          ),
+        ),
     ),
-    logs: Effect.fn("Workspaces.logs")((userId) =>
-      requireRecord(userId).pipe(
+    logs: Effect.fn("Workspaces.logs")((workspaceId) =>
+      requireRecord(workspaceId).pipe(
         Effect.flatMap((record) =>
           record.containerId === null
             ? Effect.succeed(record.statusMessage ?? "No container yet.\n")
@@ -498,21 +661,19 @@ const make = Effect.gen(function* () {
       );
       yield* Effect.forEach(
         outdated,
-        (record) => action(record.userId, "recreate").pipe(Effect.ignore),
-        {
-          discard: true,
-        },
+        (record) => action(record.workspaceId, "recreate").pipe(Effect.ignore),
+        { discard: true },
       );
       return outdated.length;
     }),
-    verifySecret: Effect.fn("Workspaces.verifySecret")((userId, secret) =>
+    verifySecret: Effect.fn("Workspaces.verifySecret")((workspaceId, secret) =>
       config.runtime.kind === "static"
         ? Effect.succeed(
-            userId === STATIC_WORKSPACE_USER &&
+            workspaceId === STATIC_WORKSPACE_ID &&
               timingSafeEqualStrings(secret, Redacted.value(config.runtime.secret)),
           )
         : store
-            .getWorkspace(userId)
+            .getWorkspace(workspaceId)
             .pipe(
               Effect.map((found) =>
                 Option.isSome(found)

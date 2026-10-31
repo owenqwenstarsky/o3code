@@ -218,6 +218,32 @@ describe("ConnectionCatalogDocument", () => {
     expect(decoded.disabledEnvironmentIds).toEqual([]);
   });
 
+  it("keeps an O3 sign-in saved before several workspaces per user", () => {
+    const decoded = decodeCatalogDocument({
+      schemaVersion: 1,
+      targets: [],
+      profiles: [],
+      credentials: [],
+      disabledEnvironmentIds: [],
+      instanceSession: {
+        url: "https://o3.tail.ts.net",
+        name: "Acme",
+        sessionToken: "o3s_session",
+        userId: "user-1",
+        email: "alice@acme.test",
+        environmentId: "environment-workspace",
+        workspaceTokenExpiresAt: "2099-01-01T00:00:00.000Z",
+        workspaceHttpBaseUrl: "https://o3-alice.tail.ts.net",
+      },
+    });
+
+    expect(decoded.instanceSession).toMatchObject({
+      sessionToken: "o3s_session",
+      environmentId: "environment-workspace",
+    });
+    expect(decoded.instanceSession?.workspaces).toBeUndefined();
+  });
+
   it("drops T3 Connect and SSH routes from a document saved before they were removed", () => {
     const decoded = decodeCatalogDocument({
       schemaVersion: 1,

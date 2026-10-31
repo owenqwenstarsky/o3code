@@ -35,7 +35,7 @@ function messageOf(error: unknown): string {
 }
 
 const attemptWorkspaceConnection = InstanceAccount.pipe(
-  Effect.flatMap((account) => account.connectWorkspace),
+  Effect.flatMap((account) => account.connectWorkspaces),
   Effect.as({ connected: true } as const),
   Effect.catchTags({
     InstanceWorkspaceUnavailableError: (error) =>

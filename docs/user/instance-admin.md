@@ -9,7 +9,9 @@ them directly and nothing is exposed to the internet.
 ## Before you start
 
 - A Linux server with Docker and Docker Compose. Plan roughly 2 CPUs and 4 GB
-  of memory per active user, plus disk for their projects.
+  of memory per running workspace, plus disk for their projects. Resource limits
+  are caps, not reservations, so the instance lets them add up to more than the
+  server has; it works until the workspaces need it all at once.
 - A Tailscale tailnet with **HTTPS certificates** turned on (admin console →
   **DNS**). Workspaces serve O3 Code over HTTPS with their tailnet name.
 - Everyone who uses O3 Code needs Tailscale on their device.
@@ -24,7 +26,7 @@ them directly and nothing is exposed to the internet.
    `tag:o3-instance`.
 3. Create an **OAuth client** with the `auth_keys` and `devices:core` write
    scopes, allowed to use `tag:o3-workspace`. The instance uses it to create a
-   single-use key for each new workspace and to remove a deleted user's device.
+   single-use key for each new workspace and to remove a deleted workspace's device.
 
 ## Deploy
 
@@ -63,21 +65,40 @@ People sign in to their coding agents from inside their workspace, in
 From a user's page you can:
 
 - reset their password, which signs them out everywhere,
-- disable them, which signs them out and stops their workspace but keeps their files,
-- start, stop, restart, or recreate their workspace,
-- change their tools or resource limits, which recreates the workspace,
-- read the workspace's recent logs, and sign out individual devices,
-- delete them, optionally with their files.
+- disable them, which signs them out and stops all their workspaces but keeps their files,
+- start, stop, restart, or recreate a workspace,
+- change a workspace's tools or resource limits, which recreates it,
+- read a workspace's recent logs, and sign out individual devices,
+- delete them with all their workspaces, optionally with their files.
 
-**Recreate** replaces the container but keeps the user's home folder, so
+**Recreate** replaces the container but keeps the workspace's home folder, so
 projects, settings, and agent sign-ins survive. Software someone installed
 outside their home folder does not.
+
+## Give someone more workspaces
+
+A user can have several workspaces, for example one per project. Each is a
+separate container with its own files, tailnet address, tools, resource limits,
+and agent sign-ins. On the user's page, choose **Add workspace** and give it a
+name, such as "Frontend". Its tailnet address is built from the user's email
+and that name, like `o3-alice-frontend`, and doesn't change if you rename the
+workspace later.
+
+The first workspace is the user's default, the one their apps open first. Use
+**Make default** on another workspace to change it. The apps list every
+running workspace, and the user can restart each one from **Settings →
+Account**.
+
+**Delete workspace** removes one workspace, optionally with its files. A user
+always keeps at least one; to remove the last, delete the user.
 
 ## Defaults, upgrades, and the audit log
 
 **Settings → Admin → Tools & defaults** sets the tools and resource limits new
-users start with and the workspace image. After you build or pull a new image,
-**Upgrade all** recreates every running workspace that uses an older one.
+workspaces start with and the workspace image. After you build or pull a new image,
+**Upgrade all** recreates every running workspace that uses an older one. Build
+the instance and workspace images from the same release: workspaces added after
+an upgrade need the matching workspace image.
 
 **Settings → Admin → Audit log** records sign-ins, failed sign-ins, and every
 admin action.
@@ -85,7 +106,8 @@ admin action.
 ## Backups
 
 Everything lives in Docker volumes: `instance-data` for accounts and settings,
-and one `o3-home-<user id>` volume per workspace. Back them up with your usual
+and one `o3-home-<workspace id>` volume per workspace. A workspace created
+before users could have several uses its user's id here. Back them up with your usual
 volume backup tool. The `o3-tailscale-*` volumes only hold tailnet identities and
 are recreated if lost.
 

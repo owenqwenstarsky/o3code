@@ -9,9 +9,10 @@ import {
   InstancePrincipal,
   InstanceUnauthorizedError,
   InstanceUserAuth,
-  InstanceUserId,
   InstanceWorkspaceAuth,
+  InstanceWorkspaceId,
   InstanceWorkspacePrincipal,
+  type InstanceWorkspace,
 } from "@t3tools/contracts/instance";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -87,12 +88,12 @@ const layerWorkspaceAuth = Layer.effect(
         const header = request.headers.authorization ?? "";
         const credential = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
         const separator = credential.indexOf(":");
-        const userId = separator > 0 ? credential.slice(0, separator) : "";
+        const workspaceId = separator > 0 ? credential.slice(0, separator) : "";
         const secret = separator > 0 ? credential.slice(separator + 1) : "";
         const valid =
-          userId.length > 0 &&
+          workspaceId.length > 0 &&
           secret.length > 0 &&
-          (yield* orInternal(workspaces.verifySecret(userId, secret)));
+          (yield* orInternal(workspaces.verifySecret(workspaceId, secret)));
         if (!valid) {
           return yield* new InstanceUnauthorizedError({
             reason: "invalid_credentials",
@@ -101,7 +102,7 @@ const layerWorkspaceAuth = Layer.effect(
         }
         return yield* httpEffect.pipe(
           Effect.provideService(InstanceWorkspacePrincipal, {
-            userId: InstanceUserId.make(userId),
+            workspaceId: InstanceWorkspaceId.make(workspaceId),
           }),
         );
       });
@@ -153,28 +154,64 @@ const layerAccount = HttpApiBuilder.group(
     const workspaces = yield* Workspaces;
     const settings = yield* InstanceSettings;
 
-    const requireWorkspace = (userId: string) =>
-      orInternal(workspaces.get(userId)).pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () =>
-              Effect.fail(
-                new InstanceNotFoundError({ message: "You don't have a workspace yet." }),
-              ),
-            onSome: Effect.succeed,
-          }),
+    const defaultWorkspace = (userId: string) =>
+      orInternal(workspaces.listForUser(userId)).pipe(
+        Effect.flatMap((list) =>
+          list[0] === undefined
+            ? Effect.fail(new InstanceNotFoundError({ message: "You don't have a workspace yet." }))
+            : Effect.succeed(list[0]),
         ),
       );
+
+    /** Someone else's workspace answers like a missing one. */
+    const ownWorkspace = (userId: string, workspaceId: string) =>
+      orInternal(workspaces.get(workspaceId)).pipe(
+        Effect.flatMap((found) =>
+          Option.isSome(found) && found.value.userId === userId
+            ? Effect.succeed(found.value)
+            : Effect.fail(new InstanceNotFoundError({ message: "Workspace not found." })),
+        ),
+      );
+
+    const issueToken = Effect.fn("instance.issueWorkspaceToken")(function* (
+      workspace: InstanceWorkspace,
+    ) {
+      const principal = yield* InstancePrincipal;
+      const issued = yield* auth.issueWorkspaceToken(principal, workspace.id).pipe(
+        Effect.catchTags({
+          InstanceUnauthorizedError: (error) =>
+            Effect.fail(new InstanceForbiddenError({ message: error.message })),
+        }),
+      );
+      return { ...issued, workspace };
+    });
+
+    const restart = Effect.fn("instance.restartWorkspace")(function* (
+      workspace: InstanceWorkspace,
+    ) {
+      const principal = yield* InstancePrincipal;
+      const restarted = yield* orInternal(workspaces.action(workspace.id, "restart"));
+      yield* settings.audit({
+        actorUserId: principal.user.id,
+        actorEmail: principal.user.email,
+        action: "workspace.restart",
+        targetUserId: principal.user.id,
+        targetEmail: principal.user.email,
+        detail: encodeDetail({ workspace: workspace.slug, label: workspace.label }),
+      });
+      return restarted;
+    });
 
     return handlers
       .handle(
         "me",
         Effect.fn("instance.me")(function* () {
           const principal = yield* InstancePrincipal;
-          const workspace = yield* orInternal(workspaces.get(principal.user.id));
+          const list = yield* orInternal(workspaces.listForUser(principal.user.id));
           return {
             user: principal.user,
-            workspace: Option.getOrNull(workspace),
+            workspace: list[0] ?? null,
+            workspaces: list,
             sessionId: principal.sessionId,
           };
         }),
@@ -234,36 +271,35 @@ const layerAccount = HttpApiBuilder.group(
         "workspace",
         Effect.fn("instance.workspace")(function* () {
           const principal = yield* InstancePrincipal;
-          return yield* requireWorkspace(principal.user.id);
+          return yield* defaultWorkspace(principal.user.id);
         }),
       )
       .handle(
         "workspaceToken",
         Effect.fn("instance.workspaceToken")(function* () {
           const principal = yield* InstancePrincipal;
-          const workspace = yield* requireWorkspace(principal.user.id);
-          const issued = yield* auth.issueWorkspaceToken(principal).pipe(
-            Effect.catchTags({
-              InstanceUnauthorizedError: (error) =>
-                Effect.fail(new InstanceForbiddenError({ message: error.message })),
-            }),
-          );
-          return { ...issued, workspace };
+          return yield* issueToken(yield* defaultWorkspace(principal.user.id));
         }),
       )
       .handle(
         "restartWorkspace",
-        Effect.fn("instance.restartWorkspace")(function* () {
+        Effect.fn("instance.restartDefaultWorkspace")(function* () {
           const principal = yield* InstancePrincipal;
-          const workspace = yield* orInternal(workspaces.action(principal.user.id, "restart"));
-          yield* settings.audit({
-            actorUserId: principal.user.id,
-            actorEmail: principal.user.email,
-            action: "workspace.restart",
-            targetUserId: principal.user.id,
-            targetEmail: principal.user.email,
-          });
-          return workspace;
+          return yield* restart(yield* defaultWorkspace(principal.user.id));
+        }),
+      )
+      .handle(
+        "myWorkspaceToken",
+        Effect.fn("instance.myWorkspaceToken")(function* (args) {
+          const principal = yield* InstancePrincipal;
+          return yield* issueToken(yield* ownWorkspace(principal.user.id, args.params.workspaceId));
+        }),
+      )
+      .handle(
+        "restartMyWorkspace",
+        Effect.fn("instance.restartMyWorkspace")(function* (args) {
+          const principal = yield* InstancePrincipal;
+          return yield* restart(yield* ownWorkspace(principal.user.id, args.params.workspaceId));
         }),
       );
   }),
@@ -301,6 +337,24 @@ const layerAdmin = HttpApiBuilder.group(
       });
     });
 
+    const requireWorkspace = (workspaceId: string) =>
+      workspaces.get(workspaceId).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () =>
+              Effect.fail(new InstanceNotFoundError({ message: "Workspace not found." })),
+            onSome: Effect.succeed,
+          }),
+        ),
+      );
+
+    const auditWorkspace = (action: string, workspace: InstanceWorkspace, detail?: object) =>
+      audit(action, workspace.userId, {
+        workspace: workspace.slug,
+        label: workspace.label,
+        ...detail,
+      });
+
     return handlers
       .handle("overview", () =>
         orInternal(
@@ -317,6 +371,9 @@ const layerAdmin = HttpApiBuilder.group(
               workspacesRunning: allWorkspaces.filter((workspace) => workspace.status === "running")
                 .length,
               workspacesTotal: allWorkspaces.length,
+              committedMemoryBytes: allWorkspaces
+                .filter((workspace) => workspace.status !== "stopped")
+                .reduce((total, workspace) => total + workspace.limits.memoryMb * 1024 * 1024, 0),
               runtime: yield* workspaces.runtimeInfo,
               tailscale: {
                 mode: config.tailscale.mode,
@@ -380,25 +437,61 @@ const layerAdmin = HttpApiBuilder.group(
         }),
       )
       .handle(
+        "createWorkspace",
+        Effect.fn("instance.admin.createWorkspace")(function* (args) {
+          const workspace = yield* orInternal(users.addWorkspace(args.params.userId, args.payload));
+          yield* orInternal(
+            auditWorkspace("workspace.created", workspace, {
+              tools: workspace.tools,
+              limits: workspace.limits,
+            }),
+          );
+          return workspace;
+        }),
+      )
+      .handle(
         "workspaceAction",
         Effect.fn("instance.admin.workspaceAction")(function* (args) {
           const workspace = yield* orInternal(
-            workspaces.action(args.params.userId, args.params.action),
+            workspaces.action(args.params.workspaceId, args.params.action),
           );
-          yield* orInternal(audit(`workspace.${args.params.action}`, args.params.userId));
+          yield* orInternal(auditWorkspace(`workspace.${args.params.action}`, workspace));
           return workspace;
         }),
       )
       .handle(
         "updateWorkspace",
         Effect.fn("instance.admin.updateWorkspace")(function* (args) {
-          const workspace = yield* orInternal(workspaces.update(args.params.userId, args.payload));
-          yield* orInternal(audit("workspace.updated", args.params.userId, args.payload));
+          const workspace = yield* orInternal(
+            workspaces.update(args.params.workspaceId, args.payload),
+          );
+          yield* orInternal(auditWorkspace("workspace.updated", workspace, args.payload));
           return workspace;
         }),
       )
+      .handle(
+        "setDefaultWorkspace",
+        Effect.fn("instance.admin.setDefaultWorkspace")(function* (args) {
+          const workspace = yield* orInternal(workspaces.setDefault(args.params.workspaceId));
+          yield* orInternal(auditWorkspace("workspace.default_changed", workspace));
+          return workspace;
+        }),
+      )
+      .handle(
+        "deleteWorkspace",
+        Effect.fn("instance.admin.deleteWorkspace")(function* (args) {
+          const workspace = yield* orInternal(requireWorkspace(args.params.workspaceId));
+          yield* orInternal(workspaces.remove(workspace.id, args.payload.deleteData));
+          yield* orInternal(
+            auditWorkspace("workspace.deleted", workspace, {
+              deleteData: args.payload.deleteData,
+            }),
+          );
+          return { ok: true };
+        }),
+      )
       .handle("workspaceLogs", (args) =>
-        orInternal(workspaces.logs(args.params.userId).pipe(Effect.map((text) => ({ text })))),
+        orInternal(workspaces.logs(args.params.workspaceId).pipe(Effect.map((text) => ({ text })))),
       )
       .handle("tools", () => Effect.succeed({ tools: WORKSPACE_TOOLS }))
       .handle("settings", () => orInternal(settings.get))
@@ -444,7 +537,7 @@ const layerInternal = HttpApiBuilder.group(
       Effect.fn("instance.introspect")(function* (args) {
         const workspace = yield* InstanceWorkspacePrincipal;
         return yield* orInternal(
-          auth.introspect({ token: args.payload.token, workspaceUserId: workspace.userId }),
+          auth.introspect({ token: args.payload.token, workspaceId: workspace.workspaceId }),
         );
       }),
     );

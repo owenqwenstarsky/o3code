@@ -7,8 +7,9 @@ import {
   InstanceRateLimitedError,
   type InstanceSessionInfo,
   InstanceUnauthorizedError,
+  InstanceWorkspaceId,
+  STATIC_WORKSPACE_ID,
   type InstanceUser,
-  type InstanceUserId,
   type InstanceClientKind,
 } from "@t3tools/contracts/instance";
 import * as Clock from "effect/Clock";
@@ -26,7 +27,6 @@ import { deriveAuthClientMetadata } from "../auth/utils.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
 import { InstanceSettings } from "./InstanceSettings.ts";
 import { InstanceStore, type InstanceStoreError, type UserRecord } from "./InstanceStore.ts";
-import { STATIC_WORKSPACE_USER } from "./WorkspaceRuntime.ts";
 import { DUMMY_PASSWORD_HASH, hashPassword, verifyPassword } from "./Passwords.ts";
 
 const USER_SUBJECT_PREFIX = "o3-user:";
@@ -39,13 +39,24 @@ const MAX_FAILURES_PER_EMAIL = 10;
 const MAX_FAILURES_PER_IP = 50;
 
 const userSubject = (userId: string) => `${USER_SUBJECT_PREFIX}${userId}`;
-const workspaceSubject = (userId: string, parentSessionId: string) =>
-  `${WORKSPACE_SUBJECT_PREFIX}${userId}:${parentSessionId}`;
+const workspaceSubject = (userId: string, workspaceId: string, parentSessionId: string) =>
+  `${WORKSPACE_SUBJECT_PREFIX}${userId}:${workspaceId}:${parentSessionId}`;
 
 const parseWorkspaceSubject = (subject: string) => {
   if (!subject.startsWith(WORKSPACE_SUBJECT_PREFIX)) return null;
-  const [userId, parentSessionId] = subject.slice(WORKSPACE_SUBJECT_PREFIX.length).split(":");
-  return userId && parentSessionId ? { userId, parentSessionId } : null;
+  const parts = subject.slice(WORKSPACE_SUBJECT_PREFIX.length).split(":");
+  // `<user>:<session>` tokens predate several workspaces per user; their workspace took the user's id.
+  const [userId, workspaceId, parentSessionId] =
+    parts.length === 2 ? [parts[0], parts[0], parts[1]] : parts;
+  return userId && workspaceId && parentSessionId && parts.length <= 3
+    ? { userId, workspaceId, parentSessionId }
+    : null;
+};
+
+/** Workspace tokens minted from one instance session, for any of the user's workspaces. */
+const mintedFrom = (subject: string, userId: string, parentSessionId: string) => {
+  const parsed = parseWorkspaceSubject(subject);
+  return parsed?.userId === userId && parsed.parentSessionId === parentSessionId;
 };
 
 const belongsToUser = (subject: string, userId: string) =>
@@ -103,15 +114,17 @@ export class InstanceAuth extends Context.Service<
     /** Revokes one of the user's sessions and the workspace tokens minted from it. */
     readonly revokeSession: (userId: string, sessionId: string) => Effect.Effect<boolean>;
     readonly revokeAllForUser: (userId: string) => Effect.Effect<void>;
+    /** The caller checks that the workspace belongs to the principal. */
     readonly issueWorkspaceToken: (
       principal: InstancePrincipalValue,
+      workspaceId: string,
     ) => Effect.Effect<
       { readonly token: string; readonly expiresAt: string },
       InstanceForbiddenError | InstanceUnauthorizedError
     >;
     readonly introspect: (input: {
       readonly token: string;
-      readonly workspaceUserId: InstanceUserId;
+      readonly workspaceId: string;
     }) => Effect.Effect<InstanceIntrospectResult, InstanceStoreError>;
   }
 >()("t3/instance/InstanceAuth") {}
@@ -280,9 +293,7 @@ const make = Effect.gen(function* () {
         return sessions
           .revoke(target.sessionId)
           .pipe(
-            Effect.andThen(
-              revokeMatching(({ subject }) => subject === workspaceSubject(userId, sessionId)),
-            ),
+            Effect.andThen(revokeMatching(({ subject }) => mintedFrom(subject, userId, sessionId))),
             Effect.as(true),
           );
       }),
@@ -323,7 +334,7 @@ const make = Effect.gen(function* () {
         ({ subject, sessionId }) =>
           belongsToUser(subject, userId) &&
           sessionId !== currentSessionId &&
-          subject !== workspaceSubject(userId, currentSessionId),
+          !mintedFrom(subject, userId, currentSessionId),
       );
       yield* settings.audit({
         actorUserId: record.value.userId,
@@ -362,37 +373,39 @@ const make = Effect.gen(function* () {
     revokeAllForUser: Effect.fn("InstanceAuth.revokeAllForUser")((userId) =>
       revokeMatching(({ subject }) => belongsToUser(subject, userId)),
     ),
-    issueWorkspaceToken: Effect.fn("InstanceAuth.issueWorkspaceToken")(function* (principal) {
-      if (principal.user.mustChangePassword) {
-        return yield* new InstanceForbiddenError({
-          message: "Change your password before opening your workspace.",
-        });
-      }
-      const parent = yield* authSessions
-        .getById({ sessionId: AuthSessionId.make(principal.sessionId) })
-        .pipe(Effect.orDie);
-      if (Option.isNone(parent) || parent.value.revokedAt !== null) {
-        return yield* unauthorized("session_expired", "Your session has ended. Sign in again.");
-      }
-      const now = yield* DateTime.now;
-      const parentRemaining = Duration.millis(
-        Math.max(0, parent.value.expiresAt.epochMilliseconds - now.epochMilliseconds),
-      );
-      const issued = yield* sessions
-        .issue({
-          subject: workspaceSubject(principal.user.id, principal.sessionId),
-          method: "bearer-access-token",
-          scopes: [],
-          ttl: Duration.min(WORKSPACE_TOKEN_TTL, parentRemaining),
-          client: { label: parent.value.client.label ?? "Workspace access", deviceType: "bot" },
-        })
-        .pipe(Effect.orDie);
-      return {
-        token: `${INSTANCE_WORKSPACE_TOKEN_PREFIX}${issued.token}`,
-        expiresAt: DateTime.formatIso(issued.expiresAt),
-      };
-    }),
-    introspect: Effect.fn("InstanceAuth.introspect")(function* ({ token, workspaceUserId }) {
+    issueWorkspaceToken: Effect.fn("InstanceAuth.issueWorkspaceToken")(
+      function* (principal, workspaceId) {
+        if (principal.user.mustChangePassword) {
+          return yield* new InstanceForbiddenError({
+            message: "Change your password before opening your workspace.",
+          });
+        }
+        const parent = yield* authSessions
+          .getById({ sessionId: AuthSessionId.make(principal.sessionId) })
+          .pipe(Effect.orDie);
+        if (Option.isNone(parent) || parent.value.revokedAt !== null) {
+          return yield* unauthorized("session_expired", "Your session has ended. Sign in again.");
+        }
+        const now = yield* DateTime.now;
+        const parentRemaining = Duration.millis(
+          Math.max(0, parent.value.expiresAt.epochMilliseconds - now.epochMilliseconds),
+        );
+        const issued = yield* sessions
+          .issue({
+            subject: workspaceSubject(principal.user.id, workspaceId, principal.sessionId),
+            method: "bearer-access-token",
+            scopes: [],
+            ttl: Duration.min(WORKSPACE_TOKEN_TTL, parentRemaining),
+            client: { label: parent.value.client.label ?? "Workspace access", deviceType: "bot" },
+          })
+          .pipe(Effect.orDie);
+        return {
+          token: `${INSTANCE_WORKSPACE_TOKEN_PREFIX}${issued.token}`,
+          expiresAt: DateTime.formatIso(issued.expiresAt),
+        };
+      },
+    ),
+    introspect: Effect.fn("InstanceAuth.introspect")(function* ({ token, workspaceId }) {
       const inactive = { active: false } as const;
       if (!token.startsWith(INSTANCE_WORKSPACE_TOKEN_PREFIX)) return inactive;
       const verified = yield* sessions
@@ -402,8 +415,11 @@ const make = Effect.gen(function* () {
       const subject = parseWorkspaceSubject(verified.value.subject);
       // A token is only good at the workspace it was minted for.
       if (subject === null) return inactive;
-      if (workspaceUserId !== STATIC_WORKSPACE_USER && subject.userId !== workspaceUserId) {
-        return inactive;
+      // The static dev runtime is one server standing in for every workspace.
+      if (workspaceId !== STATIC_WORKSPACE_ID) {
+        if (subject.workspaceId !== workspaceId) return inactive;
+        const workspace = yield* store.getWorkspace(workspaceId);
+        if (Option.isNone(workspace) || workspace.value.userId !== subject.userId) return inactive;
       }
       const parent = yield* authSessions
         .getById({ sessionId: AuthSessionId.make(subject.parentSessionId) })
@@ -421,6 +437,7 @@ const make = Effect.gen(function* () {
       return {
         active: true,
         userId: record.value.userId,
+        workspaceId: InstanceWorkspaceId.make(subject.workspaceId),
         email: record.value.email,
         name: record.value.name,
         role: record.value.role,

@@ -28,10 +28,25 @@ import * as EnvironmentRegistry from "../connection/registry.ts";
 import { fetchRemoteEnvironmentDescriptor } from "../environment/descriptor.ts";
 
 const REQUEST_TIMEOUT = Duration.seconds(20);
-/** Marks the saved environment an instance registered as this user's workspace. */
+/** Marks the saved environments an instance registered as this user's workspaces. */
 export const INSTANCE_WORKSPACE_CONNECTION_PREFIX = "o3:";
+/** The user's default workspace, which clients treat as the home environment. */
+export const INSTANCE_DEFAULT_WORKSPACE_CONNECTION_PREFIX = `${INSTANCE_WORKSPACE_CONNECTION_PREFIX}default:`;
+const workspaceConnectionId = (environmentId: EnvironmentId, isDefault: boolean) =>
+  `${isDefault ? INSTANCE_DEFAULT_WORKSPACE_CONNECTION_PREFIX : INSTANCE_WORKSPACE_CONNECTION_PREFIX}${environmentId}`;
 // Workspace tokens last a week; re-mint once fewer than five days remain.
 const WORKSPACE_TOKEN_REFRESH_MARGIN_MS = 5 * 24 * 60 * 60 * 1000;
+
+/** A workspace this client registered as an environment. */
+export const StoredInstanceWorkspace = Schema.Struct({
+  workspaceId: Schema.String,
+  environmentId: EnvironmentId,
+  /** Where it was registered; a recreated workspace can come back elsewhere. */
+  httpBaseUrl: Schema.String,
+  tokenExpiresAt: Schema.String,
+  isDefault: Schema.Boolean,
+});
+export type StoredInstanceWorkspace = typeof StoredInstanceWorkspace.Type;
 
 /** What a client keeps to stay signed in to an O3 instance across restarts. */
 export const StoredInstanceSession = Schema.Struct({
@@ -40,11 +55,10 @@ export const StoredInstanceSession = Schema.Struct({
   sessionToken: Schema.String,
   userId: Schema.String,
   email: Schema.String,
-  /** The workspace environment this client registered, so sign-out can remove it. */
+  /** The registered workspaces, so refresh and sign-out can find their environments. */
+  workspaces: Schema.optionalKey(Schema.Array(StoredInstanceWorkspace)),
+  /** The one workspace environment older clients saved; read only to forget it. */
   environmentId: Schema.optionalKey(EnvironmentId),
-  workspaceTokenExpiresAt: Schema.optionalKey(Schema.String),
-  /** Where the workspace was registered; a recreated workspace can come back elsewhere. */
-  workspaceHttpBaseUrl: Schema.optionalKey(Schema.String),
 });
 export type StoredInstanceSession = typeof StoredInstanceSession.Type;
 
@@ -67,7 +81,7 @@ export class InstanceUnreachableError extends Data.TaggedError("InstanceUnreacha
   readonly cause: unknown;
 }> {}
 
-/** The user's workspace is not ready to connect, or is unreachable from this device. */
+/** The user's default workspace is not ready to connect, or is unreachable from this device. */
 export class InstanceWorkspaceUnavailableError extends Data.TaggedError(
   "InstanceWorkspaceUnavailableError",
 )<{
@@ -123,15 +137,18 @@ export class InstanceAccount extends Context.Service<
     ) => Effect.Effect<A, E | InstanceSignedOutError | InstanceUnreachableError>;
     readonly me: Effect.Effect<InstanceMe, InstanceSignedOutError | InstanceUnreachableError>;
     /**
-     * Mints a workspace token and saves the workspace as this client's environment. Called on
-     * start and periodically, so the saved token never ages out while the session lives.
+     * Mints a token for each running workspace and saves each as an environment, the default
+     * marked as home. Fails only when the default workspace can't connect.
      */
-    readonly connectWorkspace: Effect.Effect<
+    readonly connectWorkspaces: Effect.Effect<
       InstanceWorkspace,
       InstanceSignedOutError | InstanceUnreachableError | InstanceWorkspaceUnavailableError
     >;
-    /** Confirms the session and re-mints the workspace token only when it is close to expiring. */
-    readonly refreshWorkspace: Effect.Effect<
+    /**
+     * Confirms the session and reconnects only when a token is close to expiring or the
+     * workspaces changed: added, removed, moved, or a new default.
+     */
+    readonly refreshWorkspaces: Effect.Effect<
       void,
       InstanceSignedOutError | InstanceUnreachableError | InstanceWorkspaceUnavailableError
     >;
@@ -153,14 +170,21 @@ const make = Effect.gen(function* () {
       cause,
     });
 
-  const forgetWorkspace = (session: StoredInstanceSession) =>
-    session.environmentId === undefined
-      ? Effect.void
-      : registry.remove(session.environmentId).pipe(Effect.ignore);
+  const savedEnvironmentIds = (session: StoredInstanceSession) => [
+    ...(session.workspaces ?? []).map((workspace) => workspace.environmentId),
+    ...(session.environmentId === undefined ? [] : [session.environmentId]),
+  ];
+
+  const forgetEnvironments = (environmentIds: Iterable<EnvironmentId>) =>
+    Effect.forEach(
+      new Set(environmentIds),
+      (environmentId) => registry.remove(environmentId).pipe(Effect.ignore),
+      { discard: true },
+    );
 
   const signOutLocally = Effect.gen(function* () {
     const current = yield* store.get;
-    if (Option.isSome(current)) yield* forgetWorkspace(current.value);
+    if (Option.isSome(current)) yield* forgetEnvironments(savedEnvironmentIds(current.value));
     yield* store.clear;
   });
 
@@ -208,26 +232,21 @@ const make = Effect.gen(function* () {
     Effect.mapError(toAccountError),
   );
 
-  const connectWorkspace = Effect.gen(function* () {
-    const session = yield* requireSession;
-    const current = yield* me;
-    if (current.user.mustChangePassword) {
+  const connectOne = Effect.fn("clientRuntime.instance.connectOne")(function* (
+    session: StoredInstanceSession,
+    workspace: InstanceWorkspace,
+    taken: ReadonlySet<EnvironmentId>,
+  ) {
+    const httpBaseUrl = workspace.httpBaseUrl;
+    if (workspace.status !== "running" || httpBaseUrl === null) {
       return yield* new InstanceWorkspaceUnavailableError({
-        message: "Choose a new password to open your workspace.",
-        workspace: current.workspace,
-        reason: "password-change",
-      });
-    }
-    const workspace = current.workspace;
-    if (workspace === null || workspace.status !== "running" || workspace.httpBaseUrl === null) {
-      return yield* new InstanceWorkspaceUnavailableError({
-        message: workspace?.statusMessage ?? "Your workspace is starting.",
+        message: workspace.statusMessage ?? "Your workspace is starting.",
         workspace,
         reason: "not-ready",
       });
     }
     const issued = yield* call((client, headers) =>
-      client.account.workspaceToken({ headers }),
+      client.account.myWorkspaceToken({ headers, params: { workspaceId: workspace.id } }),
     ).pipe(
       Effect.mapError((cause) =>
         isTagged(cause, "InstanceForbiddenError")
@@ -239,7 +258,6 @@ const make = Effect.gen(function* () {
           : toAccountError(cause),
       ),
     );
-    const httpBaseUrl = workspace.httpBaseUrl;
     const descriptor = yield* fetchRemoteEnvironmentDescriptor({ httpBaseUrl }).pipe(
       Effect.provideService(HttpClient.HttpClient, httpClient),
       Effect.mapError(
@@ -251,8 +269,10 @@ const make = Effect.gen(function* () {
           }),
       ),
     );
-    const connectionId = `${INSTANCE_WORKSPACE_CONNECTION_PREFIX}${descriptor.environmentId}`;
-    const label = `${session.name} workspace`;
+    // The instance's static dev runtime answers for every workspace from one server.
+    if (taken.has(descriptor.environmentId)) return null;
+    const connectionId = workspaceConnectionId(descriptor.environmentId, workspace.isDefault);
+    const label = workspace.label.length > 0 ? workspace.label : `${session.name} workspace`;
     yield* registry
       .register(
         new BearerConnectionRegistration({
@@ -273,18 +293,96 @@ const make = Effect.gen(function* () {
       )
       .pipe(Effect.orDie);
     yield* registry.setEnabled(descriptor.environmentId, true).pipe(Effect.ignore);
-    // A recreated workspace can come back as a new environment; drop the old entry.
-    if (session.environmentId !== undefined && session.environmentId !== descriptor.environmentId) {
-      yield* forgetWorkspace(session);
-    }
-    yield* store.set({
-      ...session,
+    return {
+      workspaceId: workspace.id,
       environmentId: descriptor.environmentId,
-      workspaceTokenExpiresAt: issued.expiresAt,
-      workspaceHttpBaseUrl: httpBaseUrl,
+      httpBaseUrl,
+      tokenExpiresAt: issued.expiresAt,
+      isDefault: workspace.isDefault,
+    } satisfies StoredInstanceWorkspace;
+  });
+
+  const connectWith = Effect.fn("clientRuntime.instance.connectWorkspaces")(function* (
+    session: StoredInstanceSession,
+    current: InstanceMe,
+  ) {
+    const defaultWorkspace = current.workspaces[0] ?? null;
+    if (current.user.mustChangePassword) {
+      return yield* new InstanceWorkspaceUnavailableError({
+        message: "Choose a new password to open your workspace.",
+        workspace: defaultWorkspace,
+        reason: "password-change",
+      });
+    }
+    if (defaultWorkspace === null) {
+      return yield* new InstanceWorkspaceUnavailableError({
+        message: "Your workspace is starting.",
+        workspace: null,
+        reason: "not-ready",
+      });
+    }
+    const previous = session.workspaces ?? [];
+    const connected: Array<StoredInstanceWorkspace> = [];
+    let defaultError: InstanceWorkspaceUnavailableError | null = null;
+    for (const workspace of current.workspaces) {
+      const taken = new Set(connected.map((entry) => entry.environmentId));
+      const result = yield* connectOne(session, workspace, taken).pipe(
+        Effect.catchTags({
+          InstanceWorkspaceUnavailableError: (error) => Effect.succeed(error),
+        }),
+      );
+      if (result instanceof InstanceWorkspaceUnavailableError) {
+        if (workspace.id === defaultWorkspace.id) defaultError = result;
+        yield* Effect.logWarning("Couldn't connect a workspace.", {
+          workspace: workspace.slug,
+          reason: result.reason,
+        });
+      } else if (result !== null) {
+        connected.push(result);
+      }
+    }
+    // A workspace that couldn't connect this time keeps its saved environment, as one that stopped.
+    const kept = previous.flatMap((entry) => {
+      if (connected.some((done) => done.workspaceId === entry.workspaceId)) return [];
+      const workspace = current.workspaces.find((candidate) => candidate.id === entry.workspaceId);
+      return workspace === undefined ? [] : [{ ...entry, isDefault: workspace.isDefault }];
     });
-    return workspace;
-  }).pipe(Effect.withSpan("clientRuntime.instance.connectWorkspace"));
+    const next = [...connected, ...kept];
+    const nextEnvironmentIds = new Set(next.map((entry) => entry.environmentId));
+    yield* forgetEnvironments(
+      savedEnvironmentIds(session).filter(
+        (environmentId) => !nextEnvironmentIds.has(environmentId),
+      ),
+    );
+    const { environmentId: _legacy, ...rest } = session;
+    yield* store.set({ ...rest, workspaces: next });
+    if (defaultError !== null) return yield* defaultError;
+    return defaultWorkspace;
+  });
+
+  const connectWorkspaces = Effect.gen(function* () {
+    const session = yield* requireSession;
+    return yield* connectWith(session, yield* me);
+  });
+
+  const needsReconnect = (session: StoredInstanceSession, current: InstanceMe, now: number) => {
+    const saved = session.workspaces ?? [];
+    if (session.environmentId !== undefined) return true;
+    if (saved.some((entry) => !current.workspaces.some((w) => w.id === entry.workspaceId))) {
+      return true;
+    }
+    return current.workspaces.some((workspace) => {
+      const entry = saved.find((candidate) => candidate.workspaceId === workspace.id);
+      if (entry === undefined) {
+        return workspace.status === "running" && workspace.httpBaseUrl !== null;
+      }
+      return (
+        entry.isDefault !== workspace.isDefault ||
+        (workspace.httpBaseUrl !== null && entry.httpBaseUrl !== workspace.httpBaseUrl) ||
+        Date.parse(entry.tokenExpiresAt) - now <= WORKSPACE_TOKEN_REFRESH_MARGIN_MS
+      );
+    });
+  };
 
   return InstanceAccount.of({
     describe: Effect.fn("clientRuntime.instance.describe")(function* (rawUrl: string) {
@@ -327,7 +425,7 @@ const make = Effect.gen(function* () {
           ),
         );
       const previous = yield* store.get;
-      if (Option.isSome(previous)) yield* forgetWorkspace(previous.value);
+      if (Option.isSome(previous)) yield* forgetEnvironments(savedEnvironmentIds(previous.value));
       yield* store.set({
         url,
         name: descriptor.name,
@@ -340,24 +438,14 @@ const make = Effect.gen(function* () {
     session: store.get,
     call,
     me,
-    connectWorkspace,
-    refreshWorkspace: Effect.gen(function* () {
+    connectWorkspaces,
+    refreshWorkspaces: Effect.gen(function* () {
       const session = yield* requireSession;
-      const expiresAt =
-        session.workspaceTokenExpiresAt === undefined
-          ? 0
-          : Date.parse(session.workspaceTokenExpiresAt);
-      const now = yield* Clock.currentTimeMillis;
-      if (
-        session.environmentId !== undefined &&
-        expiresAt - now > WORKSPACE_TOKEN_REFRESH_MARGIN_MS
-      ) {
-        // Still notices a revoked session or disabled account without touching the connection.
-        const current = yield* me;
-        if (current.workspace?.httpBaseUrl === session.workspaceHttpBaseUrl) return;
-      }
-      yield* connectWorkspace;
-    }).pipe(Effect.withSpan("clientRuntime.instance.refreshWorkspace")),
+      // Asking every time still notices a revoked session or a disabled account.
+      const current = yield* me;
+      if (!needsReconnect(session, current, yield* Clock.currentTimeMillis)) return;
+      yield* connectWith(session, current).pipe(Effect.asVoid);
+    }).pipe(Effect.withSpan("clientRuntime.instance.refreshWorkspaces")),
     signOut: Effect.gen(function* () {
       yield* call((client, headers) => client.account.logout({ headers })).pipe(Effect.ignore);
       yield* signOutLocally;

@@ -6,6 +6,7 @@ import {
   INSTANCE_API_PREFIX,
   INSTANCE_WORKSPACE_TOKEN_PREFIX,
   InstanceIntrospectResult,
+  STATIC_WORKSPACE_ID,
 } from "@t3tools/contracts/instance";
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
@@ -73,7 +74,7 @@ const tokenKey = (token: string) =>
 
 const O3AuthorityConfig = Config.all({
   instanceUrl: Config.String("T3CODE_O3_INSTANCE_URL").pipe(Config.option),
-  userId: Config.String("T3CODE_O3_USER_ID").pipe(Config.option),
+  workspaceId: Config.String("T3CODE_O3_WORKSPACE_ID").pipe(Config.option),
   secret: Config.Redacted("T3CODE_O3_WORKSPACE_SECRET").pipe(Config.option),
 });
 
@@ -82,7 +83,7 @@ export const make = Effect.gen(function* () {
   const sessions = yield* SessionStore.SessionStore;
   if (
     Option.isNone(config.instanceUrl) ||
-    Option.isNone(config.userId) ||
+    Option.isNone(config.workspaceId) ||
     Option.isNone(config.secret)
   ) {
     return O3Authority.of({
@@ -96,9 +97,9 @@ export const make = Effect.gen(function* () {
     });
   }
   const introspectUrl = `${config.instanceUrl.value.replace(/\/+$/, "")}${INSTANCE_API_PREFIX}/internal/introspect`;
-  const workspaceUserId = config.userId.value;
+  const workspaceId = config.workspaceId.value;
   const http = yield* HttpClient.HttpClient;
-  const credential = `${workspaceUserId}:${Redacted.value(config.secret.value)}`;
+  const credential = `${workspaceId}:${Redacted.value(config.secret.value)}`;
   const cache = yield* Ref.make(new Map<string, CachedSession>());
 
   const introspect = (token: string) =>
@@ -148,8 +149,8 @@ export const make = Effect.gen(function* () {
     const introspection = result.success;
     if (
       !introspection.active ||
-      // The instance's static dev runtime shares one workspace among all users.
-      (workspaceUserId !== "static" && introspection.userId !== workspaceUserId)
+      // The instance's static dev runtime is one server standing in for every workspace.
+      (workspaceId !== STATIC_WORKSPACE_ID && introspection.workspaceId !== workspaceId)
     ) {
       if (cached) yield* forget(key, cached);
       return yield* new O3AuthorityError({

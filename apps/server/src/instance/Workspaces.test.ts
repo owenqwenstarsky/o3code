@@ -60,8 +60,8 @@ const layerFakes = (host: FakeHost) =>
           host.removedContainers.push(containerId);
           host.running.delete(containerId);
         }),
-        removeData: Effect.fn("FakeRuntime.removeData")(function* (userId: string) {
-          host.removedData.push(userId);
+        removeData: Effect.fn("FakeRuntime.removeData")(function* (workspaceId: string) {
+          host.removedData.push(workspaceId);
         }),
         inspect: Effect.fn("FakeRuntime.inspect")(function* (containerId: string) {
           return Option.some({
@@ -144,61 +144,164 @@ it.effect("provisions, reconfigures, stops and removes a workspace", () => {
     yield* insertUser;
 
     const unknownTools = yield* workspaces
-      .provision({ userId, email: "alice@acme.test", tools: ["claude", "cobol"], limits })
+      .create({
+        userId,
+        email: "alice@acme.test",
+        label: "Default",
+        tools: ["claude", "cobol"],
+        limits,
+      })
       .pipe(Effect.flip);
     expect(unknownTools._tag).toBe("InstanceBadRequestError");
 
-    const provisioned = yield* workspaces.provision({
+    const provisioned = yield* workspaces.create({
       userId,
       email: "Alice.Smith@acme.test",
+      label: "Default",
       tools: ["uv", "claude", "uv"],
       limits,
     });
-    expect(provisioned.status).toBe("provisioning");
+    expect(provisioned).toMatchObject({ status: "provisioning", isDefault: true });
+    const workspaceId = provisioned.id;
+    expect(workspaceId).not.toBe(userId);
     yield* workspaces.drain;
 
     expect(host.created).toHaveLength(1);
     const first = host.created[0]!;
     expect(first).toMatchObject({
+      workspaceId,
+      userId,
       slug: "alice-smith",
       tools: ["claude", "uv"],
       instanceUrl: "https://o3.tail.ts.net",
       tailscaleTag: "tag:o3-workspace",
     });
     expect(first.tailscaleAuthKey && Redacted.value(first.tailscaleAuthKey)).toBe("tskey-1");
-    const running = Option.getOrThrow(yield* workspaces.get(userId));
+    const running = Option.getOrThrow(yield* workspaces.get(workspaceId));
     expect(running).toMatchObject({
       status: "running",
       tailnetHostname: "o3-alice-smith.tail.ts.net",
       httpBaseUrl: "https://o3-alice-smith.tail.ts.net",
       wsBaseUrl: "wss://o3-alice-smith.tail.ts.net",
     });
-    expect(yield* workspaces.verifySecret(userId, first.workspaceSecret)).toBe(true);
-    expect(yield* workspaces.verifySecret(userId, "guess")).toBe(false);
+    expect(yield* workspaces.verifySecret(workspaceId, first.workspaceSecret)).toBe(true);
+    expect(yield* workspaces.verifySecret(userId, first.workspaceSecret)).toBe(false);
+    expect(yield* workspaces.verifySecret(workspaceId, "guess")).toBe(false);
 
     // Tools apply at container creation, so changing them recreates the container.
-    yield* workspaces.update(userId, { tools: ["codex"] });
+    yield* workspaces.update(workspaceId, { tools: ["codex"] });
     yield* workspaces.drain;
     expect(host.created).toHaveLength(2);
     const second = host.created[1]!;
     expect(second.tools).toEqual(["codex"]);
     expect(host.removedContainers).toContain(first.containerId);
     // A recreated container gets a new secret; the old one stops working.
-    expect(yield* workspaces.verifySecret(userId, first.workspaceSecret)).toBe(false);
-    expect(yield* workspaces.verifySecret(userId, second.workspaceSecret)).toBe(true);
+    expect(yield* workspaces.verifySecret(workspaceId, first.workspaceSecret)).toBe(false);
+    expect(yield* workspaces.verifySecret(workspaceId, second.workspaceSecret)).toBe(true);
 
-    // An update that changes nothing leaves the container alone.
-    yield* workspaces.update(userId, { tools: ["codex"], limits });
+    // An update that changes nothing, or only the label, leaves the container alone.
+    yield* workspaces.update(workspaceId, { tools: ["codex"], limits });
+    yield* workspaces.update(workspaceId, { label: "Main" });
     yield* workspaces.drain;
     expect(host.created).toHaveLength(2);
+    expect(Option.getOrThrow(yield* workspaces.get(workspaceId)).label).toBe("Main");
 
-    yield* workspaces.action(userId, "stop");
+    yield* workspaces.action(workspaceId, "stop");
     yield* workspaces.drain;
     expect(host.stopped).toEqual([second.containerId]);
-    expect(Option.getOrThrow(yield* workspaces.get(userId)).status).toBe("stopped");
+    expect(Option.getOrThrow(yield* workspaces.get(workspaceId)).status).toBe("stopped");
 
-    yield* workspaces.remove(userId, true);
-    expect(host.removedData).toEqual([userId]);
+    // The last workspace goes only with its user.
+    const lastOne = yield* workspaces.remove(workspaceId, true).pipe(Effect.flip);
+    expect(lastOne._tag).toBe("InstanceBadRequestError");
+    yield* workspaces.removeAllForUser(userId, true);
+    expect(host.removedData).toEqual([workspaceId]);
     expect(host.deletedDevices).toEqual(["o3-alice-smith"]);
+    expect(yield* workspaces.listForUser(userId)).toEqual([]);
   }).pipe(Effect.provide(layerWorkspaces(host)));
+});
+
+it.effect("keeps a user's workspaces apart and one of them the default", () => {
+  const host = makeHost();
+  return Effect.gen(function* () {
+    const workspaces = yield* Workspaces.Workspaces;
+    yield* insertUser;
+    const create = (label: string) =>
+      workspaces.create({ userId, email: "alice@acme.test", label, tools: [], limits });
+
+    const main = yield* create("Default");
+    const frontend = yield* create("Frontend");
+    yield* workspaces.drain;
+    expect(frontend).toMatchObject({ slug: "alice-frontend", isDefault: false });
+    expect((yield* create(" frontend ").pipe(Effect.flip))._tag).toBe("InstanceConflictError");
+    expect(
+      (yield* workspaces.update(frontend.id, { label: "DEFAULT" }).pipe(Effect.flip))._tag,
+    ).toBe("InstanceConflictError");
+
+    // Separate containers, volumes, tailnet keys and secrets.
+    const [mainSpec, frontendSpec] = host.created;
+    expect(frontendSpec).toMatchObject({ workspaceId: frontend.id, slug: "alice-frontend" });
+    expect(host.mintedKeys).toBe(2);
+    expect(yield* workspaces.verifySecret(frontend.id, frontendSpec!.workspaceSecret)).toBe(true);
+    expect(yield* workspaces.verifySecret(frontend.id, mainSpec!.workspaceSecret)).toBe(false);
+
+    yield* workspaces.action(frontend.id, "stop");
+    yield* workspaces.drain;
+    expect(host.stopped).toEqual([frontendSpec!.containerId]);
+    expect(Option.getOrThrow(yield* workspaces.get(main.id)).status).toBe("running");
+
+    yield* workspaces.setDefault(frontend.id);
+    expect((yield* workspaces.listForUser(userId)).map((workspace) => workspace.id)).toEqual([
+      frontend.id,
+      main.id,
+    ]);
+    expect(Option.getOrThrow(yield* workspaces.get(main.id)).isDefault).toBe(false);
+
+    // Removing the default promotes the oldest remaining workspace.
+    const backend = yield* create("Backend");
+    yield* workspaces.drain;
+    yield* workspaces.remove(frontend.id, true);
+    expect(host.removedData).toEqual([frontend.id]);
+    expect(host.deletedDevices).toEqual(["o3-alice-frontend"]);
+    expect(
+      (yield* workspaces.listForUser(userId)).map((workspace) => [
+        workspace.id,
+        workspace.isDefault,
+      ]),
+    ).toEqual([
+      [main.id, true],
+      [backend.id, false],
+    ]);
+
+    yield* workspaces.stopAllForUser(userId);
+    expect(
+      (yield* workspaces.listForUser(userId)).every((workspace) => workspace.status === "stopped"),
+    ).toBe(true);
+    yield* workspaces.startAllForUser(userId);
+    yield* workspaces.drain;
+    expect(
+      (yield* workspaces.listForUser(userId)).every((workspace) => workspace.status === "running"),
+    ).toBe(true);
+  }).pipe(Effect.provide(layerWorkspaces(host)));
+});
+
+it("derives DNS-safe slugs from the email and label", () => {
+  const taken = new Set<string>();
+  expect(
+    Workspaces.workspaceSlug({ email: "a.b@x.test", label: "Default", first: true, taken }),
+  ).toBe("a-b");
+  expect(
+    Workspaces.workspaceSlug({ email: "a.b@x.test", label: "Front End!", first: false, taken }),
+  ).toBe("a-b-front-end");
+  const long = Workspaces.workspaceSlug({
+    email: `${"x".repeat(30)}@x.test`,
+    label: "y".repeat(40),
+    first: false,
+    taken: new Set([`${"x".repeat(24)}-${"y".repeat(15)}`]),
+  });
+  expect(long).toBe(`${"x".repeat(24)}-${"y".repeat(13)}-2`);
+  expect(long.length).toBeLessThanOrEqual(40);
+  expect(Workspaces.workspaceSlug({ email: "ab@x.test", label: "🚀", first: false, taken })).toBe(
+    "ab-workspace",
+  );
 });
