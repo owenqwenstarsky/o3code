@@ -40,6 +40,7 @@ import * as ServerConfig from "../config.ts";
 import * as EnvironmentAuthPolicy from "./EnvironmentAuthPolicy.ts";
 import * as PairingGrantStore from "./PairingGrantStore.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
+import * as O3Authority from "./O3Authority.ts";
 import * as SessionStore from "./SessionStore.ts";
 import { REUSABLE_DEV_SESSION_EXPIRES_AT, resolveReusableDevAuth } from "./ReusableDevAuth.ts";
 import { verifyRequestDpopProof } from "./dpop.ts";
@@ -703,6 +704,7 @@ export const make = Effect.gen(function* () {
   const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
   const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
   const sessions = yield* SessionStore.SessionStore;
+  const o3Authority = yield* O3Authority.O3Authority;
   const secretStore = yield* ServerSecretStore.ServerSecretStore;
   const crypto = yield* Crypto.Crypto;
   const descriptor = yield* policy.getDescriptor();
@@ -710,6 +712,32 @@ export const make = Effect.gen(function* () {
   const devAuth = resolveReusableDevAuth(config);
 
   const authenticateToken = (
+    token: string,
+  ): Effect.Effect<
+    AuthenticatedSession,
+    ServerAuthInvalidCredentialError | ServerAuthInternalError
+  > =>
+    O3Authority.isWorkspaceToken(token)
+      ? authenticateWorkspaceToken(token)
+      : authenticateSessionToken(token);
+
+  const authenticateWorkspaceToken = (token: string) =>
+    o3Authority.authenticate(token).pipe(
+      Effect.mapError((cause) =>
+        cause.reason === "unreachable"
+          ? new ServerAuthSessionCredentialValidationError({ cause })
+          : new ServerAuthInvalidCredentialError({ diagnostic: cause.message }),
+      ),
+      Effect.map((session): AuthenticatedSession => ({
+        sessionId: session.sessionId,
+        subject: session.subject,
+        method: "bearer-access-token",
+        scopes: AuthStandardClientScopes,
+        expiresAt: session.expiresAt,
+      })),
+    );
+
+  const authenticateSessionToken = (
     token: string,
   ): Effect.Effect<
     AuthenticatedSession,
@@ -1397,6 +1425,7 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(EnvironmentAuth, make).pipe(
   Layer.provideMerge(PairingGrantStore.layer),
+  Layer.provideMerge(O3Authority.layer),
   Layer.provideMerge(SessionStore.layer),
   Layer.provideMerge(EnvironmentAuthPolicy.layer),
 );

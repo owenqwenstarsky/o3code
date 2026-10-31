@@ -25,6 +25,10 @@
         "mobile-native-client.ts",
         "setup-worktree.ts",
         "sign-macos.ts",
+        // The CLI archive release steps in docs/operations/release.md run these by hand.
+        "build-cli-archive.ts",
+        "resolve-nightly-release.ts",
+        "smoke-cli-archive.ts",
         "smoke-desktop-app.ts",
         "verify-windows-desktop-artifact.ts",
       ],
