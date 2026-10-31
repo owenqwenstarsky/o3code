@@ -1,9 +1,10 @@
 # Architecture
 
 O3 Code keeps execution in the environment that owns the workspace. Web and desktop
-clients control it over authenticated RPC. A remote client must never substitute its own filesystem,
-provider credentials, or machine state for the environment's. The desktop app bundles a server,
-but its renderer follows the same boundary.
+clients control it over authenticated RPC. For each user that environment is their workspace on an
+[O3 instance](./o3-instance.md), reached over the tailnet. A client must never substitute its own
+filesystem, provider credentials, or machine state for the environment's; the desktop app is a
+client of the workspace like the web app.
 
 ## Ownership boundaries
 

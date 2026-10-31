@@ -51,7 +51,7 @@ account.
 ## Runtime installation
 
 Managed installation supports Apple Silicon macOS, Linux x64 or ARM64, and Windows
-x64 or ARM64. Intel Macs can connect to a supported remote environment. Allow
+x64 or ARM64. Allow
 several GB of free disk space, especially on Linux.
 
 ### Use a manual installation

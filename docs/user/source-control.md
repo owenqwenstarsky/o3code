@@ -22,9 +22,8 @@ setting in **Settings → Diffs**.
 
 ## Connect an account
 
-Install Git and configure authentication on the machine running your O3 Code server. For a remote
-environment, do this on the remote machine. After signing in, open **Settings → Source control**
-and choose **Rescan**.
+Configure Git authentication in your workspace, for example from a workspace terminal. After
+signing in, open **Settings → Source control** and choose **Rescan**.
 
 ### GitHub
 
@@ -83,8 +82,7 @@ Open **Settings → Source control**, expand **Bitbucket**, and enter one of:
   user read access (`read:user:bitbucket`).
 
 A field saves when you leave it, and applies right away. The access token wins when both are saved.
-Credentials are saved on the environment's server, so select a remote environment to configure
-it. Saved tokens can't be viewed again; enter a new one to replace it, or choose **Remove** to clear
+Credentials are saved in the selected environment. Saved tokens can't be viewed again; enter a new one to replace it, or choose **Remove** to clear
 everything saved for Bitbucket.
 
 If no credentials are saved, O3 Code falls back to these variables in the server's environment.
@@ -96,11 +94,6 @@ export T3CODE_BITBUCKET_ACCESS_TOKEN="your-access-token"
 export T3CODE_BITBUCKET_EMAIL="you@example.com"
 export T3CODE_BITBUCKET_API_TOKEN="your-token"
 ```
-
-For a background service, put these `KEY=VALUE` entries in
-[`service.env`](./background-service.md#configure-the-service-environment)
-under T3 home, then run `t3 service restart`. Service installation and updates
-preserve that file.
 
 ### Azure DevOps
 
@@ -183,22 +176,6 @@ Press **Escape** before releasing to cancel. Failed closes stay in the list so y
 
 GitHub, GitLab, and Azure DevOps support auto-merge while checks are outstanding. GitHub also
 supports approving waiting fork workflows and opening a revert pull request for a merged change.
-
-Pull request sharing is off by default. In Settings → Environments → Pull request sharing, choose **Read PRs** or **Read and act** for each
-environment you trust to share its source control access.
-Enable both the original environment and the environment answering its requests on this client.
-**Read and act** can use broader permissions than the original environment's credential;
-only enable it for environments you control and trust. Changing a saved endpoint or removing an
-environment clears its permission.
-
-Review details, linked PR status, and permitted review actions can then use another connected
-environment signed in to the same account on the same host. Each needs a project on that host.
-A connected local environment is preferred for actions and can answer slow or failed reads.
-Browsers need a paired environment to use its GitHub credentials.
-Credentials stay on their machines. Previously verified credentials remain usable for routing
-for ten minutes during a GitHub outage; new credentials must be verified first. An action with
-an uncertain result is never automatically retried elsewhere. Listings, diffs, and checkout or
-PR creation from Git actions continue to use the project's environment.
 
 For Azure DevOps, use the host website to change comments. Bitbucket does not support reopening a
 declined pull request.

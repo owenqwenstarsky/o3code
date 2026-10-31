@@ -7,18 +7,24 @@ pinned in `package.json` (Node 26), so no separate Node install is needed. From 
 
 ```sh
 vp i
-vp run dev
+vp run dev:instance
 ```
 
-Open the pairing URL printed by the dev runner. The bare origin does not authenticate
-a new browser.
+Open the web URL from the `[dev-runner]` output and sign in as `admin@o3.test` with
+`o3-dev-password`; the first sign-in asks for a new password, which the dev instance keeps.
+Every client signs in through an O3 instance, so this is the way to use the app locally: it runs
+an instance behind Vite and one stand-in workspace (a plain `t3 serve` on this checkout's dev
+home), with no Docker or tailnet ([dev-instance.ts](../../apps/server/scripts/dev-instance.ts)).
+The browser reaches the stand-in workspace directly on a loopback port, so the signed-in app works
+only from this machine.
 
 Prefer a container? See [Dev container](../internals/devcontainer.md) for VS Code and Codespaces setup.
 
 ## Choosing a dev process
 
-Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron client.
-`dev:server` and `dev:web` start those processes separately.
+Use `vp run dev:instance` for the full sign-in flow, `vp run dev` for a plain server and web
+(its UI stops at sign-in because nothing answers `/o3/api`), or `vp run dev:desktop` for the
+Electron client. `dev:server` and `dev:web` start those processes separately.
 
 Flags go directly after the task name, for example `vp run dev --home-dir /tmp/t3code-dev`.
 Add `--browser` to open a browser automatically.
@@ -45,7 +51,7 @@ different preference when needed.
 [dev-replay-agent.ts](../../apps/server/scripts/dev-replay-agent.ts). It plays recorded
 ACP transcripts with simulated streaming, so the real adapter, orchestration, and UI run
 without a paid model. Each scenario is a model, and each prompt plays the next recorded turn.
-Bundled servers, including desktop dev, skip it because they have no agent script.
+Servers without a Vite dev URL skip it, and that includes `dev:instance`'s stand-in workspace.
 Dev servers add it back on start, so turn it off in Settings instead of removing it.
 To add a scenario, point a `SCENARIOS` entry at a generic ACP replay fixture
 (`registry_transcript.ndjson`) or a file in [dev-replay](../../apps/server/scripts/dev-replay).
@@ -56,7 +62,9 @@ and vendor frames, so Grok and fx recordings lose their vendor-only behavior.
 
 `vp run dev --share` publishes the web port over the machine's tailnet and prints a pairing URL
 for that origin. Give the tester the complete URL, including its token. The dev runner removes
-its mapping on exit.
+its mapping on exit. The pairing URL authenticates the browser to the dev server, but the app
+still asks for an instance sign-in, and `dev:instance`'s stand-in workspace is loopback-only, so
+remote testing of the signed-in app does not work yet.
 
 Leave `VITE_HTTP_URL` and `VITE_WS_URL` unset. Vite proxies the backend through the browser's
 origin so the same build works over localhost and remote connections.
@@ -246,9 +254,7 @@ rustup target add x86_64-pc-windows-msvc
 rustup target add aarch64-pc-windows-msvc
 ```
 
-NSIS is downloaded by electron-builder. WSL support additionally needs the Linux CLI archive
-passed as `--wsl-runtime`; see the
-[release runbook](./release.md#windows-payload-topology-and-update-validation).
+NSIS is downloaded by electron-builder.
 
 ### Signing and passkeys
 

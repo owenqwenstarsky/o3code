@@ -6,7 +6,7 @@ Appearance, don't show it. They start at **All projects** and **All environments
 and stay selected as you move between categories or search for a setting.
 
 Preferences saved on this device, such as appearance, confirmations and browser profiles, always
-show and ignore the selection. Everything else is stored on a server. Choose one environment to
+show and ignore the selection. Everything else is stored in an environment. Choose one environment to
 edit its settings, or leave **All environments** to edit every connected environment at once.
 Offline environments keep their current values; this is a bulk edit, not a synced global default.
 
@@ -86,9 +86,9 @@ Leaving an edited form asks before discarding unsaved changes.
 In **Settings → Scheduled tasks**, choose **On webhook**
 as a task's schedule to run it whenever another service calls its URL, such as
 GitHub on a new pull request or a CI job that failed. After you save the task,
-copy its URL from the editor. The URL uses the address your client reaches the
-environment at, so the sender must be able to reach that address too, such as
-over your tailnet or through your own proxy.
+copy its URL from the editor. The URL uses your workspace's tailnet address, so
+only senders on your tailnet can reach it. Hosted services such as GitHub can't,
+unless your administrator exposes your workspace some other way.
 **Rotate** replaces the URL and the old one stops working.
 
 The prompt decides what the agent sees. Placeholders pull values out of the
@@ -139,9 +139,8 @@ always replace the persisted payload. Coalesced updates count toward a separate
 On desktop and web, pick **Deliveries** from a task's menu to see recent
 requests and the prompt each one produced.
 
-If the environment is offline, the sender gets an error and nothing runs;
-redeliver from the sender, such as GitHub's **Recent Deliveries**, once it is
-back.
+If your workspace is stopped, the sender gets an error and nothing runs;
+redeliver from the sender once it is back.
 
 ## Defaults and inheritance
 

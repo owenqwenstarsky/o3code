@@ -22,7 +22,7 @@ a rule can change and apply to all history.
 [Owner sources](../../apps/server/src/telemetry/Identify.ts), strongest first:
 the OpenAI and Claude person ids, then the client device. The server reports the
 provider logins it can read itself. A connecting client reports its device, which
-links every environment opened from one phone, browser, or desktop. Use the
+links every environment opened from one browser or desktop app. Use the
 OpenAI `user_id` claim, not the Codex `account_id` (the ChatGPT workspace, which a
 whole Team shares) or the token `sub` (one per login method).
 
@@ -37,8 +37,8 @@ Client dimensions belong to the event's WebSocket connection. A server-global
 Provider execution has its own events because a turn can outlive the requesting
 connection.
 
-Keep client and server dimensions separate. A desktop host can serve a phone or a
-remote browser, and a direct connection can cross a network. Older clients omit
+Keep client and server dimensions separate. A workspace serves browsers and
+desktop apps on other machines, and a direct connection can cross a network. Older clients omit
 metadata. Missing client values must stay unknown rather than being backfilled
 from server properties. The legacy `clientType` property describes how the server
 runs; use `surface` for the connected client.

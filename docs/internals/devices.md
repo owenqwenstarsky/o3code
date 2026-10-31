@@ -2,8 +2,10 @@
 
 The environment server owns simulators and emulators the way it owns
 terminals: discovery, streaming, and agent access all run there, and every
-client reaches them through the environment connection. This is what makes the
-Device panel work over a LAN or Tailscale, including when an SSH host runs the devices.
+client reaches them through the environment connection. A workspace is a Linux
+container with no simulators of its own, so its devices come from another host (an
+SSH machine such as a Mac, an EAS Simulator session, or a Simlock pool) and still
+stream to every client through the workspace.
 
 ## Two external tools, one seam
 

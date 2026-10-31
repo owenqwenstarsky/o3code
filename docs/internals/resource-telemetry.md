@@ -3,7 +3,7 @@
 Process counters come from a [standalone Rust monitor](../../native/resource-monitor/src/main.rs)
 using `sysinfo`. Electron main supplies host power and Electron process metrics.
 Keeping native collection outside Node isolates collector crashes and avoids a
-Node/Electron addon ABI matrix. Desktop and CLI servers use the same child-process
+Node/Electron addon ABI matrix. Every server uses the same child-process
 protocol. A missing or failed collector leaves the server running.
 
 ## Collection cost
@@ -50,8 +50,3 @@ unconstrained states. Headless servers leave unavailable power data unknown.
   cumulative counters cover the operating system's lifetime for that process.
 - Historical replay uses native samples without current Electron CPU or memory
   metrics. Merging the latest Electron values would overwrite the past.
-
-A WSL backend needs a Linux monitor even though Electron runs on Windows. Windows
-desktop packages currently supply only the Windows executable, so native process
-telemetry for the WSL backend is unavailable. The inherited Electron power feed
-still works.
