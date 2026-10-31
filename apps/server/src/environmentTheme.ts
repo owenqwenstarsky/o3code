@@ -8,7 +8,7 @@ import {
   EnvironmentThemeId,
   environmentThemeFileHasColors,
 } from "@t3tools/contracts";
-import { UNPUBLISHABLE_THEME_IDS } from "@t3tools/shared/themePalettes";
+import { RESERVED_THEME_IDS } from "@t3tools/shared/themePalettes";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -101,7 +101,7 @@ export const readPublishedThemes = Effect.fn(function* (themesDir: string) {
     if (!entry.endsWith(THEME_FILE_SUFFIX)) continue;
     const id = entry.slice(0, -THEME_FILE_SUFFIX.length);
     // Reserved ids shadow built-ins or capture clients that never chose them.
-    if (!isEnvironmentThemeId(id) || UNPUBLISHABLE_THEME_IDS.has(id)) continue;
+    if (!isEnvironmentThemeId(id) || RESERVED_THEME_IDS.has(id)) continue;
 
     // Cap examined files, not accepted themes, to bound work on malformed directories.
     examined += 1;

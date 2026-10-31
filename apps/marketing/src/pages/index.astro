@@ -2,12 +2,7 @@
 import { getImage } from "astro:assets";
 import desktopScreenshot from "../assets/app-desktop.webp";
 import Layout from "../layouts/Layout.astro";
-import {
-  ANDROID_PLAY_STORE_URL,
-  GITHUB_REPOSITORY_URL,
-  IOS_APP_STORE_URL,
-  MARKETING_STATS,
-} from "../lib/site";
+import { GITHUB_REPOSITORY_URL, MARKETING_STATS } from "../lib/site";
 import { tweets } from "../lib/tweets";
 
 const screenshot = await getImage({
@@ -76,12 +71,6 @@ const mobileEndorsementRows = [
           <span>Steal our code (legally)</span>
           <svg class="hero-source-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M8 7h9v9"/></svg>
         </a>
-        <p class="hero-mobile-line">
-          Also on your phone:
-          <a href={IOS_APP_STORE_URL} target="_blank" rel="noopener noreferrer">iOS</a>
-          <span aria-hidden="true">·</span>
-          <a href={ANDROID_PLAY_STORE_URL} target="_blank" rel="noopener noreferrer">Android</a>
-        </p>
       </div>
 
       <!-- The rise wrapper is separate so its animated transform does not override the preview tilt. -->
@@ -611,28 +600,6 @@ const mobileEndorsementRows = [
   .hero-source-link:hover .hero-source-arrow {
     transform: translate(2px, -2px);
     opacity: 1;
-  }
-
-  .hero-mobile-line {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--fg-muted);
-    font-size: 13px;
-    letter-spacing: -0.005em;
-  }
-
-  .hero-mobile-line a {
-    color: var(--fg-muted);
-    text-decoration: underline;
-    text-decoration-color: rgba(163, 163, 163, 0.4);
-    text-underline-offset: 3px;
-    transition: color 0.18s ease, text-decoration-color 0.18s ease;
-  }
-
-  .hero-mobile-line a:hover {
-    color: var(--fg);
-    text-decoration-color: var(--fg);
   }
 
   .dl-icon {

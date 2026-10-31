@@ -1,4 +1,3 @@
-import type { QueryPersistence } from "./queryPersistence.ts";
 import { createCommandPermissions } from "./commandPermissions.ts";
 import { followStreamInEnvironment } from "./environmentStreams.ts";
 import { reuseUnchanged } from "./serverConfigProjection.ts";
@@ -92,7 +91,6 @@ interface EnvironmentQueryAtomOptions<Input, A, E, R> extends Omit<
     input: Input,
     emit: (value: A) => Effect.Effect<void>,
   ) => Effect.Effect<A, E, R>;
-  readonly persistence?: QueryPersistence<A>;
   readonly staleTimeMs?: number;
   readonly idleTtlMs?: number;
   readonly refreshIntervalMs?: number;
@@ -755,28 +753,7 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
                 Effect.map(share),
                 Effect.tap((value) => onAnswer(target, value, get.registry)),
               );
-        if (!options.persistence) return answer();
-        const persistence = options.persistence;
-        const cacheKey = JSON.stringify([options.label, target.input]);
-        const previous = Option.flatMap(
-          get.self<AsyncResult.AsyncResult<A, unknown>>(),
-          AsyncResult.value,
-        );
-        return Effect.gen(function* () {
-          const cached = Option.isSome(previous)
-            ? previous
-            : yield* persistence.load(target.environmentId, cacheKey);
-          if (
-            Option.isSome(cached) &&
-            (connection === null || connection[0].phase !== "connected")
-          ) {
-            return cached.value;
-          }
-          if (Option.isNone(previous) && Option.isSome(cached)) yield* emit(cached.value);
-          return yield* answer().pipe(
-            Effect.tap((value) => persistence.save(target.environmentId, cacheKey, value)),
-          );
-        });
+        return answer();
       })
       .pipe(
         Atom.swr({
@@ -869,7 +846,6 @@ export function createEnvironmentRpcQueryAtomFamily<
       EnvironmentRpcFailure<TTag> | EnvironmentRpcUnavailableError,
       EnvironmentSupervisor.EnvironmentSupervisor | EnvironmentRegistry.EnvironmentRegistry
     >;
-    readonly persistence?: QueryPersistence<EnvironmentRpcSuccess<TTag>>;
     readonly staleTimeMs?: number;
     readonly idleTtlMs?: number;
     readonly refreshIntervalMs?: number;
@@ -883,7 +859,6 @@ export function createEnvironmentRpcQueryAtomFamily<
 ) {
   return createEnvironmentQueryAtomFamily(runtime, {
     label: options.label,
-    ...(options.persistence === undefined ? {} : { persistence: options.persistence }),
     ...(options.staleTimeMs === undefined ? {} : { staleTimeMs: options.staleTimeMs }),
     ...(options.idleTtlMs === undefined ? {} : { idleTtlMs: options.idleTtlMs }),
     ...(options.refreshIntervalMs === undefined

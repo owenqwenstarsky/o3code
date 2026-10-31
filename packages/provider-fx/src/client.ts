@@ -1,6 +1,6 @@
 /**
  * fx's client definition: settings form, label, and glyph.
- * Browser- and React Native-safe.
+ * Browser-safe.
  *
  * @module provider-fx/client
  */

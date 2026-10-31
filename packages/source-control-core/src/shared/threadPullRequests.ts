@@ -32,8 +32,6 @@ export type ThreadCurrentPullRequest =
     };
 
 function layersFromTop(chain: ThreadPullRequestChain): Array<ThreadPullRequestLink> {
-  // `.sort()` on a fresh array, not `.toSorted()`: this runs on Hermes, which has no ES2023
-  // array methods, and a TypeError here is fatal on every mobile launch that renders a stack.
   return chain.layers
     .map((link, index) => ({ link, index, depth: chain.depths[index]! }))
     .sort((left, right) => right.depth - left.depth || right.index - left.index)

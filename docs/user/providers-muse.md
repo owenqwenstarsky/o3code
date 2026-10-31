@@ -22,7 +22,7 @@ saved login.
 
 ## Remote access and instances
 
-Connect from web, desktop, or mobile through [remote access](./remote-access.md).
+Connect from web or desktop through [remote access](./remote-access.md).
 Muse uses the selected environment's files and login; connecting devices do not
 need Muse installed. Install and sign in separately on each host where you want
 Muse to run.
@@ -35,8 +35,7 @@ becomes unavailable.
 ## Models
 
 Models and reasoning choices come from Muse on the selected host. After changing
-Muse configuration, refresh provider status in **Settings → Providers**. On
-mobile, pull down in thread settings to refresh models. If a saved model becomes
+Muse configuration, refresh provider status in **Settings → Providers**. If a saved model becomes
 unavailable, select an available model before sending another message.
 
 Muse can list models that your account cannot use. If a message fails with

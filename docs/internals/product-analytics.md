@@ -35,7 +35,7 @@ The server accepts only hashes from clients.
 ## Attribution boundaries
 
 Client dimensions belong to the event's WebSocket connection. A server-global
-"current client" would misattribute simultaneous web, desktop, and mobile use.
+"current client" would misattribute simultaneous web and desktop use.
 Provider execution has its own events because a turn can outlive the requesting
 connection.
 

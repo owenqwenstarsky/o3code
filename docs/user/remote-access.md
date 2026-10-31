@@ -1,6 +1,6 @@
 # Remote access
 
-Connect a phone, browser, or another desktop app to O3 Code running on a different
+Connect a browser or another desktop app to O3 Code running on a different
 machine. That machine must stay running and reachable while you work.
 
 ## T3 Connect
@@ -88,18 +88,14 @@ If a server is already running, generate a fresh link without restarting it:
 t3 pair
 ```
 
-Scan the QR code on your phone or paste the pairing URL into **Add environment**
-in the receiving app. Connection settings are under **Settings → Environments**
-on web and desktop and **Settings → Environments** on mobile. A loopback address
+Scan the QR code or open the pairing URL in a browser, or paste it into **Add
+environment** in the receiving app. Connection settings are under **Settings →
+Environments**. A loopback address
 such as `127.0.0.1` reaches only the device opening the link.
 
 On a computer with the desktop app, you can open the printed `t3code://pair`
 app link instead. The desktop app asks you to confirm the server address, then
 adds it.
-
-If your HTTPS endpoint uses a certificate from your own certificate authority,
-install that CA on Android as a **CA certificate** in its security settings; the
-Android app then trusts it.
 
 Pairing authorizes that device for future connections. Use a fresh one-time link
 for each new device; you do not need the original token to reconnect. Links
@@ -138,12 +134,10 @@ return to the app, and every minute, and moves back as soon as one works.
 
 On web and desktop, select the route count under the machine's name in
 **Settings → Environments** to see its routes. Drag a route to change the order,
-or remove it. On mobile, open the machine under **Settings → Environments** and
-choose **Edit**. Signing out of T3 Connect removes only that route; a machine
+or remove it. Signing out of T3 Connect removes only that route; a machine
 you can still reach another way stays saved.
 
-Open **Permissions** next to **Routes** in web or desktop, or **Your permissions**
-in the mobile route details, to see what your current connection can do on that
+Open **Permissions** next to **Routes** to see what your current connection can do on that
 environment. For a remote environment, this is in its route details. Permissions
 shown there apply only to the route marked **In use**; other routes are not
 checked. Direct pairing and T3 Connect have separate sessions and may grant
@@ -165,7 +159,6 @@ that choice stable. Choose **Auto balance** again to check current resources, or
 a specific machine to override it. Choosing a branch or worktree also keeps the draft
 on that machine. Existing threads stay where they started. If resource checks are
 unavailable or all eligible machines are full, choose a machine manually to continue.
-Mobile keeps its manual environment selection.
 
 ### Tailscale HTTPS
 
@@ -202,8 +195,7 @@ to your server; a hosted pairing link does not make an unreachable backend
 reachable or convert HTTP to HTTPS.
 
 For a plain HTTP LAN endpoint, use the direct pairing URL in a browser that can
-open it, or pair from the desktop app. On mobile, an IP address entered without a
-scheme uses HTTP, so include `https://` when your server uses HTTPS.
+open it, or pair from the desktop app.
 
 ## Desktop-managed SSH
 
@@ -258,10 +250,6 @@ cuts goes to your clipboard, a file picker on the page opens your device's
 picker, and a finished download is offered for you to save. Popups such as
 sign-in windows open as their own tabs. Downloads stay on the host until the
 tab closes. Audio does not play on your device.
-
-On a phone, tap the floating preview's corner dot to show its controls, then
-**Pop into separate window** to keep watching in picture-in-picture over other
-apps.
 
 ### Local servers
 
@@ -326,7 +314,7 @@ the other: launch, message, wait on and stop its threads, answer their
 questions, and manage its queues, projects and scheduled tasks.
 
 Linked environments is a beta. Turn it on for both machines in **Settings →
-Labs**; on mobile, **Settings → Labs** lists each connected machine. While it is
+Labs**. While it is
 off on either machine, agents start nothing over a link between them. A task
 already running on the other machine still finishes, and if that machine has it
 off, its result arrives once it is back on.
@@ -388,7 +376,7 @@ and `orchestration:operate`.
 
 To change an existing client's permissions, create a fresh pairing link with the
 scopes it needs. In a browser opened directly on the environment, open that link
-to replace the browser's current grant. For mobile or a saved remote environment
+to replace the browser's current grant. For a saved remote environment
 in web or desktop, use **Add Environment** with the fresh link or code; pairing
 the same environment replaces its saved grant. Reconnecting alone does not change
 permissions.

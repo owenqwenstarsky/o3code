@@ -281,7 +281,7 @@ function hopLabel(hop: ConnectionHop, host: string): string {
 
 /**
  * Turns a connection state into what failed, in order, and what to try. Returns
- * null when nothing has failed. Web and mobile render this same model.
+ * null when nothing has failed.
  */
 export function presentConnectionDiagnosis(
   input: ConnectionDiagnosisInput,

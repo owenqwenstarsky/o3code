@@ -21,7 +21,7 @@ expired work again when you turn it back on.
    message, and **Send** includes them.
 
 Choose **Stop sharing** to end the link at once. Archiving the thread, creating a new link, or
-unlinking the machine from T3 Connect also ends it. You can send or dismiss guest messages from the mobile app.
+unlinking the machine from T3 Connect also ends it.
 
 ## What the guest sees
 

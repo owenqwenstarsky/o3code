@@ -197,18 +197,16 @@ describe("remote environment authorization", () => {
         httpBaseUrl: "https://remote.example.com/",
         bearerToken: "bearer-token",
         clientMetadata: {
-          surface: "mobile",
+          surface: "web",
           appVersion: "1.2.3",
           deviceType: "mobile",
           os: "Android",
-          osMajorVersion: 15,
-          deviceModel: "Pixel 9",
         },
         connectionMethod: "relay",
       }).pipe(provideRemoteHttp(fetch.fetchFn));
 
       expect(url).toBe(
-        "wss://remote.example.com/ws?wsTicket=ws-ticket&clientSurface=mobile&clientAppVersion=1.2.3&clientDeviceType=phone&clientOs=Android&clientOsMajorVersion=15&clientDeviceModel=Pixel+9&connectionMethod=relay",
+        "wss://remote.example.com/ws?wsTicket=ws-ticket&clientSurface=web&clientAppVersion=1.2.3&clientDeviceType=phone&clientOs=Android&connectionMethod=relay",
       );
     }),
   );

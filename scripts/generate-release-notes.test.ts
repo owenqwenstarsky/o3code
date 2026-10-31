@@ -2,12 +2,7 @@ import { assert, it } from "@effect/vitest";
 
 import * as Option from "effect/Option";
 
-import {
-  countContributors,
-  isReleaseNoteCommit,
-  summaryText,
-  type PullRequest,
-} from "./generate-release-notes.ts";
+import { countContributors, summaryText, type PullRequest } from "./generate-release-notes.ts";
 
 const pullRequest = (author: PullRequest["author"]): PullRequest => ({
   body: "",
@@ -37,20 +32,6 @@ it("counts each person once and leaves out bots", () => {
   ]);
 
   assert.equal(countContributors(commits, pullRequests), 4);
-});
-
-it("leaves mobile-only scopes out and keeps shared ones", () => {
-  const subjects = {
-    "fix(mobile): a": false,
-    "feat(android): b": false,
-    "fix(ios)!: c": false,
-    "fix(web,mobile): d": true,
-    "feat(mobile,web): f": true,
-    "fix(server): e": true,
-  };
-  for (const [subject, kept] of Object.entries(subjects)) {
-    assert.equal(isReleaseNoteCommit({ subject, authorName: "" }), kept, subject);
-  }
 });
 
 it("uses model text only from a completed response", () => {

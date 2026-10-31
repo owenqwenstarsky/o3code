@@ -1,6 +1,5 @@
 // Counts commits and component renders via the DevTools hook, so it loads before react-dom.
-// Same walk as apps/mobile/src/features/development/render-counter.ts: bailed-out subtrees
-// (child === alternate.child) keep stale PerformedWork flags and are skipped.
+// Bailed-out subtrees (child === alternate.child) keep stale PerformedWork flags and are skipped.
 
 interface Fiber {
   readonly tag: number;
