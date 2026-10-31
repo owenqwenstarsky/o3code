@@ -120,6 +120,7 @@ import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as Observability from "./observability/Observability.ts";
 import * as HeapSnapshot from "./observability/HeapSnapshot.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
+import * as EnvironmentPublicOrigin from "./environment/EnvironmentPublicOrigin.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
@@ -832,6 +833,8 @@ const layerMakeServer = Layer.unwrap(
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provide(VcsProcess.layer),
       Layer.provideMerge(AgentScopeLive.layer),
+      // Guest links and webhook URLs name the environment's tailnet address behind Tailscale Serve.
+      Layer.provideMerge(EnvironmentPublicOrigin.layerFromConfig),
       Layer.provideMerge(layerPlatformServices),
     );
   }),
