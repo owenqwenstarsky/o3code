@@ -1,14 +1,11 @@
 # Environment authentication
 
-The environment issues its own sessions and enforces their capabilities. Cloud
-identity and relay credentials belong to a separate trust boundary, described in
-[T3 Connect](./t3-connect.md). A relay token is never an environment login.
+The environment issues its own sessions and enforces their capabilities.
 
 ## Authority survives transport changes
 
 Pairing delegates a set of scopes. Exchanging a bootstrap credential can narrow
-that grant but cannot widen it. The default grant includes access and relay
-management: `terminal:operate` is a shell as the server's user and
+that grant but cannot widen it. The default grant includes access management: `terminal:operate` is a shell as the server's user and
 `orchestration:operate` can start a full-access agent, and either can mint a
 session with every scope through `t3 auth session issue`, so withholding
 management from the default would not be a boundary. A narrower client gets
@@ -22,10 +19,11 @@ secrets. Only the creation response returns the raw credential. Otherwise read
 access to the connections list would become a way to acquire another client's
 authority.
 
-Browser cookies, bearer tokens, and DPoP tokens adapt the same scoped session
-model. DPoP binds a token to a client's proof key; an invalid proof must fail
-rather than fall back to bearer authentication. The OAuth token-exchange
-vocabulary gives these grants a familiar meaning.
+Browser cookies and bearer tokens adapt the same scoped session model. The OAuth
+token-exchange vocabulary gives these grants a familiar meaning. Sessions and
+pairing grants issued for the removed T3 Connect were bound to a DPoP proof key;
+nothing can present that proof any more, so the session store refuses them
+rather than accept them as bearer tokens.
 
 ### Guest links are not sessions
 
@@ -36,8 +34,10 @@ so nothing secret is stored. The share in the thread projection is the only
 state: replacing, closing, or archiving it revokes every token, and the
 orchestrator's serial commands make redeeming and sending happen once. Guest
 tokens never enter `SessionStore`, so no RPC, WebSocket, or MCP path can accept
-one. Guest routes also require T3 Connect to still serve the link's hostname;
-the request's Host header is not checked, because a LAN client can forge it.
+one. Guest routes also require the environment's public origin
+([EnvironmentPublicOrigin](../../apps/server/src/environment/EnvironmentPublicOrigin.ts))
+to still be the link's host; the request's Host header is not checked, because a
+LAN client can forge it. With no public origin, guest links are unavailable.
 
 ### MCP clients are a separate audience
 
@@ -50,7 +50,7 @@ approval page names the host access goes to and approving stays the owner's
 call. Every client is public and proves itself with PKCE; a client that asks
 for a secret is registered without one. Client registration is stateless, so an unauthenticated caller cannot grow server
 state. Approval spends a one-time pairing code, or uses a browser session with
-`access:write`; proof-bound T3 Connect codes are refused without being spent.
+`access:write`.
 
 The user grants either read-only access or a runtime-mode ceiling, not a
 scope list: MCP tools are all orchestration, and `orchestration:operate`
@@ -66,20 +66,15 @@ parameters only pick targets; see
 [threadAccess](../../apps/server/src/mcp/threadAccess.ts).
 
 Issuer and resource URLs come from the request's Host and
-`X-Forwarded-Proto`, so one server answers over loopback, Tailscale Serve and a
-T3 Connect tunnel. A proxy that rewrites Host or drops the protocol header
+`X-Forwarded-Proto`, so one server answers over loopback, Tailscale Serve and
+other proxies. A proxy that rewrites Host or drops the protocol header
 breaks sign-in.
 
-Bearer and DPoP clients obtain short-lived WebSocket tickets through authenticated
-HTTP so long-lived tokens stay out of socket URLs. A ticket names the route it
-opens: the RPC socket, or the media routes (device hub, preview stream), which
-share one ticket across `<img>`, `EventSource` and several sockets. A DPoP
-client's RPC ticket is bound to its proof key and the upgrade carries a fresh
-proof in the `dpop` query parameter, since a WebSocket cannot set headers; a
-ticket captured on a plain HTTP LAN route is useless without the key, and the
-proof's `jti` is consumed like any other. Media tickets stay bearer because each
-media request would need its own proof. Clients that predate this mint unbound
-tickets that open either route. Browser sessions can authenticate the upgrade
+Bearer clients obtain short-lived WebSocket tickets through authenticated HTTP so
+long-lived tokens stay out of socket URLs. A ticket names the route it opens: the
+RPC socket, or the media routes (device hub, preview stream), which share one
+ticket across `<img>`, `EventSource` and several sockets. Clients that predate
+this mint unbound tickets that open either route. Browser sessions can authenticate the upgrade
 with their cookie. A successful handshake grants no
 extra authority: [every RPC declares a required
 scope](../../apps/server/src/auth/RpcAuthorization.ts), and the WebSocket RPC
@@ -121,7 +116,7 @@ and restarting invalidates the old credential and its WebSocket tickets.
 
 Normal credentials keep precedence. A rejected normal credential never falls
 back to the reusable credential. OAuth exchanges create ordinary local bearer
-or DPoP children with normal expiry and revocation. The reusable cookie expires
+children with normal expiry and revocation. The reusable cookie expires
 after 30 days.
 
 ## The environment is the filesystem boundary

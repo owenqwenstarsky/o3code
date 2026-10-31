@@ -82,7 +82,8 @@ export const layer = Layer.effect(Foo, make);
   `Layer.effect`; use the constructor that fits, like `Layer.succeed` or `Layer.sync`.
 - **Names.** A module named for its implementation uses plain `make` and `layer`
   ([`NodePtyAdapter.ts`](../../apps/server/src/terminal/NodePtyAdapter.ts)). A port module that also
-  holds implementations names them, like `makeCloudflaredRelayClient` and `layerCloudflared`.
+  holds several implementations names them, like `layerMemory` and `layerFromPath` in
+  [`Sqlite.ts`](../../apps/server/src/persistence/Sqlite.ts).
 - **Moves.** Moving a service deletes the old files and updates every consumer, including
   orchestration, MCP, tests, and integration harnesses. No re-export shims.
 - **Tests** exercise behavior through the service, with test layers only for external dependencies.

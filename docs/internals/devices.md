@@ -3,7 +3,7 @@
 The environment server owns simulators and emulators the way it owns
 terminals: discovery, streaming, and agent access all run there, and every
 client reaches them through the environment connection. This is what makes the
-Device panel work over Tailscale and T3 Connect, including when an SSH host runs the devices.
+Device panel work over a LAN or Tailscale, including when an SSH host runs the devices.
 
 ## Two external tools, one seam
 
@@ -74,7 +74,7 @@ hub binds loopback and the only way in is the
 stream, config, and screenshot routes and authenticates every request as an
 environment session. `<img>` and `WebSocket` cannot carry headers, so the proxy
 authenticates like the `/ws` upgrade: cookie, or a short-lived `wsTicket` that
-bearer and DPoP clients mint over authenticated HTTP. The ticket is stripped
+bearer clients mint over authenticated HTTP. The ticket is stripped
 before the request reaches the hub.
 
 Stream responses carry `Cache-Control: no-transform`; the compression

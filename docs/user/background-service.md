@@ -44,14 +44,14 @@ under T3 home. Pass `--yes` from a script.
 
 ## Local network access
 
-A new service answers only on this machine. Other devices reach it through
-T3 Connect, or directly once you choose the local network in `t3 up` (or run
-`t3 up --lan`, which sets `T3CODE_LAN=true` in `service.env`). It then listens on
-your local network and Tailscale addresses, so desktop apps on
-the same network connect directly instead of through T3 Connect. It still does
-not answer on public addresses. Anyone on the same network can reach the port,
-so a pairing code is all that keeps them out. The hosted web app at app.t3.codes
-stays on T3 Connect, because browsers block plain HTTP from an HTTPS page.
+A new service answers only on this machine. Other devices reach it once you
+choose the local network in `t3 up` (or run `t3 up --lan`, which sets
+`T3CODE_LAN=true` in `service.env`). It then listens on your local network and
+Tailscale addresses. It still does not answer on public addresses. Anyone on the
+same network can reach the port, so a pairing code is all that keeps them out.
+The hosted web app at app.t3.codes needs an HTTPS address, because browsers block
+plain HTTP from an HTTPS page; [Tailscale HTTPS](./remote-access.md#tailscale-https)
+provides one.
 
 A service installed before `T3CODE_LAN` existed keeps listening on the local
 network. `t3 status` says so, and `t3 up --no-lan` turns it off. Any
@@ -92,14 +92,10 @@ Mac logged in and awake for unattended remote access. Installing over SSH while
 nobody is logged in at the Mac's screen can fail at the final start step; the
 service is still installed and will start at the next login.
 
-Windows background services are not supported. To keep a Windows host available
-through T3 Connect, leave the desktop app running with its local environment
-enabled, or keep `t3 serve` running in a terminal. Minimize the desktop app rather
-than closing its last window, which stops its local server. Linking T3 Connect
-does not configure automatic startup at Windows sign-in.
-
-`t3 up` installs the service when you set up T3 Connect, but the two are managed
-separately. Signing out of T3 Connect does not stop or uninstall the service.
+Windows background services are not supported. To keep a Windows host
+available, leave the desktop app running with its local environment enabled, or
+keep `t3 serve` running in a terminal. Minimize the desktop app rather than
+closing its last window, which stops its local server.
 
 ## Keep the server responsive when agents use all memory
 
@@ -139,8 +135,7 @@ ssh -t your-server 'sudo loginctl enable-linger "$(id -un)"'
 ```
 
 Then retry service setup as your normal user. Run only the `loginctl` command
-with sudo; running O3 Code as root creates a separate installation and Connect
-identity. Without administrator access, run `t3 serve` in a terminal and keep
+with sudo; running O3 Code as root creates a separate installation. Without administrator access, run `t3 serve` in a terminal and keep
 that session open.
 
 | Status problem                          | Next step                                                                                                                      |
@@ -155,9 +150,6 @@ longer starts at login. If agent work cannot access Desktop, Documents, or
 Downloads, it may need Full Disk Access for the `t3` executable listed in
 `ProgramArguments` in
 `~/Library/LaunchAgents/com.t3tools.t3code.service.plist`.
-
-For failures after signing in to T3 Connect, see
-[connection troubleshooting](./t3-connect-troubleshooting.md).
 
 ## Reclaim database space
 

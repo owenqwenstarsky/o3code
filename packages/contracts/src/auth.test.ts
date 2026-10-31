@@ -13,15 +13,18 @@ import {
 } from "./auth.ts";
 
 describe("authorization grants", () => {
-  it("decodes legacy review credentials without offering them in new grants", () => {
-    const decodeAuthEnvironmentScopes = Schema.decodeSync(AuthEnvironmentScopes);
+  it.each(["review:write", "relay:read", "relay:write"] as const)(
+    "decodes retired %s credentials without offering them in new grants",
+    (scope) => {
+      const decodeAuthEnvironmentScopes = Schema.decodeSync(AuthEnvironmentScopes);
 
-    expect(decodeAuthEnvironmentScopes(["review:write"])).toEqual(["review:write"]);
-    const decodeAuthGrantScopes = Schema.decodeUnknownSync(AuthGrantScopes);
+      expect(decodeAuthEnvironmentScopes([scope])).toEqual([scope]);
+      const decodeAuthGrantScopes = Schema.decodeUnknownSync(AuthGrantScopes);
 
-    expect(() => decodeAuthGrantScopes(["review:write"])).toThrow();
-    expect(AuthStandardClientScopes).not.toContain("review:write");
-  });
+      expect(() => decodeAuthGrantScopes([scope])).toThrow();
+      expect(AuthStandardClientScopes).not.toContain(scope);
+    },
+  );
 
   // Keep the pre-granular vocabulary frozen to expose compatibility regressions.
   const oldScopes = Schema.Array(

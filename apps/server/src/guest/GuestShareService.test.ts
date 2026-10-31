@@ -25,6 +25,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
@@ -37,7 +38,7 @@ import {
   sweepStalePendingAttachments,
 } from "../attachmentStore.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
-import { CloudManagedEndpointRuntime } from "../cloud/ManagedEndpointRuntime.ts";
+import { EnvironmentPublicOrigin } from "../environment/EnvironmentPublicOrigin.ts";
 import * as ServerConfig from "../config.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
@@ -75,14 +76,10 @@ const layerOrchestration = Layer.mergeAll(
   ),
 );
 
-// The Connect hostname the fake tunnel reports. Tests set it to null to simulate an unlink.
-const hostname = Ref.makeUnsafe<string | null>("env.t3.test");
-const layerConnect = Layer.mock(CloudManagedEndpointRuntime)({
-  inspectConnector: Effect.map(Ref.get(hostname), (value) => ({
-    readyConnections: 1,
-    hostname: value,
-    protocol: "http2",
-  })),
+// The environment's public origin. Tests set it to null to simulate losing the address.
+const publicOrigin = Ref.makeUnsafe<string | null>("https://env.t3.test");
+const layerPublicOrigin = Layer.succeed(EnvironmentPublicOrigin, {
+  current: Effect.map(Ref.get(publicOrigin), Option.fromNullishOr),
 });
 const layerProviders = Layer.mock(ProviderRegistry.ProviderRegistry)({
   getProviders: Effect.succeed([]),
@@ -138,7 +135,7 @@ const layerTest = GuestShareService.layer.pipe(
   ),
   Layer.provide(layerProviders),
   Layer.provideMerge(ServerSettings.layerTest({ guestSharingEnabled: true })),
-  Layer.provide(layerConnect),
+  Layer.provide(layerPublicOrigin),
   Layer.provideMerge(layerAnalytics),
   Layer.provide(ServerSecretStore.layer),
   Layer.provideMerge(layerConfig),
@@ -148,7 +145,7 @@ const layerTest = GuestShareService.layer.pipe(
 const threadId = ThreadId.make("thread:guest-share-service");
 
 const shareThreadFor = Effect.fn(function* (threadId: ThreadId) {
-  yield* Ref.set(hostname, "env.t3.test");
+  yield* Ref.set(publicOrigin, "https://env.t3.test");
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   yield* orchestrator.dispatch({
     type: "thread.create",
@@ -297,38 +294,40 @@ it.effect("redeems only a short invite whose signature and share id are both cur
   }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("refuses guest requests once T3 Connect no longer serves the link's host", () =>
+it.effect("refuses guest requests and new links once the environment loses its public origin", () =>
   Effect.gen(function* () {
     const { guestShares, credential } = yield* shareThread;
     const { token: session } = yield* guestShares.redeem({ credential, name: "Sam" });
     const { id: shareId } = (yield* Orchestrator.OrchestratorV2.use((orchestrator) =>
       orchestrator.getThreadRecords(threadId, []),
     )).thread.guestShare!;
-    yield* Ref.set(hostname, null);
+    yield* Ref.set(publicOrigin, null);
     const submitted = yield* Effect.exit(
       guestShares.submit(session, { shareId, text: "Hello" }, []),
     );
     assert.isTrue(Exit.isFailure(submitted));
+    const created = yield* Effect.flip(guestShares.create({ threadId }));
+    assert.equal(created.reason, "origin_unavailable");
   }).pipe(Effect.provide(layerTest)),
 );
 
-it.effect("closes an open guest stream when T3 Connect stops serving the link's host", () =>
+it.effect("closes an open guest stream when the environment loses its public origin", () =>
   Effect.gen(function* () {
     const { guestShares, credential } = yield* shareThread;
     const { token: session } = yield* guestShares.redeem({ credential, name: "Sam" });
     const collecting = yield* Stream.runCollect(yield* guestShares.stream(session)).pipe(
       Effect.forkChild,
     );
-    yield* Ref.set(hostname, null);
+    yield* Ref.set(publicOrigin, null);
     yield* TestClock.adjust("30 seconds");
-    // No `ended`: the browser reconnects, and the host check refuses it while Connect is gone.
+    // No `ended`: the browser reconnects, and the host check refuses it while the origin is gone.
     const received = Array.from(yield* Fiber.join(collecting));
     assert.deepEqual(
       received.map((event) => (event.type === "thread" ? event.item.kind : event.type)),
       ["view", "snapshot"],
     );
     assert.isTrue(Exit.isFailure(yield* Effect.exit(guestShares.stream(session))));
-    yield* Ref.set(hostname, "env.t3.test");
+    yield* Ref.set(publicOrigin, "https://env.t3.test");
     assert.isTrue(Exit.isSuccess(yield* Effect.exit(guestShares.stream(session))));
   }).pipe(Effect.provide(layerTest)),
 );

@@ -31,24 +31,11 @@ allowBuilds:
 catalog:
   "@alchemy.run/axiom": 2.0.0-beta.84
   "@alchemy.run/cloudflare": 2.0.0-beta.84
-  "@alchemy.run/drizzle": 2.0.0-beta.84
-  "@alchemy.run/planetscale": 2.0.0-beta.84
-  "@clerk/backend": 3.25.0
-  "@clerk/clerk-js": 6.40.0
-  "@clerk/electron": 0.1.3
-  "@clerk/electron-passkeys": 0.0.3
-  "@clerk/react": 6.18.0
-  "@clerk/shared": 4.41.0
-  # Must match the version alchemy depends on: the relay overrides its
-  # Cloudflare retry policy through this package's Retry service.
-  "@distilled.cloud/cloudflare": 1.0.0-rc.17
   "@effect/atom-react": 4.0.5
   "@effect/graphql-generator": 4.0.5
   "@effect/openapi-generator": 4.0.5
   "@effect/platform-node": 4.0.5
   "@effect/platform-node-shared": 4.0.5
-  "@effect/sql-pg": 4.0.5
-  "@effect/sql-sqlite-do": 4.0.5
   "@effect/vitest": 4.0.5
   "@electron-webauthn/macos": 1.3.1
   "@legendapp/list": 3.3.5
@@ -101,30 +88,20 @@ minimumReleaseAgeExclude:
   - "@alchemy.run/cloudflare@2.0.0-beta.84"
   - "@alchemy.run/cloudflare-runtime@2.0.0-beta.84"
   - "@alchemy.run/docker@2.0.0-beta.84"
-  - "@alchemy.run/drizzle@2.0.0-beta.84"
   - "@alchemy.run/node-utils@2.0.0-beta.84"
-  - "@alchemy.run/planetscale@2.0.0-beta.84"
   - "@alchemy.run/sql@2.0.0-beta.84"
   - "@distilled.cloud/acme@1.0.0-rc.17"
   - "@distilled.cloud/aws4signer@1.0.0-rc.17"
   - "@distilled.cloud/axiom@1.0.0-rc.17"
-  - "@distilled.cloud/cloudflare@1.0.0-rc.17"
   - "@distilled.cloud/core@1.0.0-rc.17"
   - "@distilled.cloud/iceberg@1.0.0-rc.17"
   - "@distilled.cloud/planetscale@1.0.0-rc.17"
   - "@tsc-rs/*"
-  - "@clerk/backend@3.25.0"
-  - "@clerk/clerk-js@6.40.0"
-  - "@clerk/electron@0.1.3"
-  - "@clerk/react@6.18.0"
-  - "@clerk/shared@4.41.0"
   - "@effect/atom-react@4.0.5"
   - "@effect/graphql-generator@4.0.5"
   - "@effect/openapi-generator@4.0.5"
   - "@effect/platform-node-shared@4.0.5"
   - "@effect/platform-node@4.0.5"
-  - "@effect/sql-pg@4.0.5"
-  - "@effect/sql-sqlite-do@4.0.5"
   - "@effect/vitest@4.0.5"
   - effect@4.0.5
   - "@legendapp/list@3.3.5"
@@ -170,28 +147,15 @@ overrides:
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-linux-x64-musl": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-arm64": "-"
   "@anthropic-ai/claude-agent-sdk>@anthropic-ai/claude-agent-sdk-win32-x64": "-"
-  # Alchemy's Ink fork declares React as a hard dependency, but the relay only
+  # Alchemy's Ink fork declares React as a hard dependency, but infra only
   # reaches its terminal-capability helpers; the TUI is never imported, so the
   # extra React copy is pure install weight.
   "@alchemy.run/sigil>react": "-"
   "@alchemy.run/sigil>react-reconciler": "-"
   "@alchemy.run/sigil>scheduler": "-"
-  "@clerk/backend": "catalog:"
-  "@clerk/clerk-js": "catalog:"
-  "@clerk/clerk-js>@base-org/account": "-"
-  "@clerk/clerk-js>@coinbase/wallet-sdk": "-"
-  "@clerk/clerk-js>@solana/wallet-adapter-base": "-"
-  "@clerk/clerk-js>@solana/wallet-adapter-react": "-"
-  "@clerk/clerk-js>@solana/wallet-standard": "-"
-  "@clerk/clerk-js>@wallet-standard/core": "-"
-  "@clerk/electron": "catalog:"
-  "@clerk/electron-passkeys": "catalog:"
-  "@clerk/react": "catalog:"
-  "@clerk/shared": "catalog:"
   "@effect/atom-react": "catalog:"
   "@effect/platform-node": "catalog:"
   "@effect/platform-node-shared": "catalog:"
-  "@effect/sql-pg": "catalog:"
   "@effect/vitest": "catalog:"
   "@effect/vitest>vitest": "-"
   "@pierre/diffs>@shikijs/transformers": ^4.2.0
