@@ -22,7 +22,6 @@ import {
   type RemoteEnvironmentRequestError,
 } from "../rpc/http.ts";
 
-export { RemoteEnvironmentAuthUndeclaredStatusError } from "../rpc/http.ts";
 export type RemoteEnvironmentAuthError = RemoteEnvironmentRequestError;
 
 const DEFAULT_REMOTE_REQUEST_TIMEOUT_MS = 10_000;
@@ -117,25 +116,6 @@ export const bootstrapRemoteBearerSession = Effect.fn(
         requested_token_type: AuthAccessTokenType,
         ...(input.scopes ? { scope: encodeOAuthScope(input.scopes) } : {}),
         ...clientMetadataTokenExchangeFields(input.clientMetadata),
-      },
-    }),
-  );
-});
-
-export const fetchRemoteSessionState = Effect.fn(
-  "clientRuntime.authorization.fetchRemoteSessionState",
-)(function* (input: {
-  readonly httpBaseUrl: string;
-  readonly bearerToken: string;
-  readonly timeoutMs?: number;
-}) {
-  const client = yield* makeEnvironmentHttpApiGroupClient(input.httpBaseUrl, "auth");
-  return yield* executeEnvironmentHttpRequest(
-    environmentEndpointUrl(input.httpBaseUrl, "/api/auth/session"),
-    input.timeoutMs ?? DEFAULT_REMOTE_REQUEST_TIMEOUT_MS,
-    client.session({
-      headers: {
-        authorization: `Bearer ${input.bearerToken}`,
       },
     }),
   );

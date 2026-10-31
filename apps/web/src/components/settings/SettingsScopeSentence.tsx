@@ -53,9 +53,8 @@ const SETTINGS_DEVICE_ONLY_PATHS: ReadonlySet<string> = new Set([
   "/settings/chat",
   "/settings/diffs",
   "/settings/snap-shot",
-  "/settings/connections",
   "/settings/account",
-  // Network access and authorized clients belong to the environment serving this app.
+  // Authorized clients belong to the user's workspace.
   "/settings/access",
   "/settings/about",
 ]);

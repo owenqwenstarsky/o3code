@@ -23,7 +23,6 @@ export interface UpdateEverythingMachine {
     readonly settings: Pick<ServerConfig["settings"], "continueThreadsAfterServerUpdate">;
   } | null;
   readonly connected: boolean;
-  readonly hostedByThisApp: boolean;
   readonly canMaintain: boolean;
   readonly updateState: ServerUpdateState;
 }
@@ -36,16 +35,11 @@ export interface RestartingMachine {
 export function collectRestartingMachines(
   machines: ReadonlyArray<UpdateEverythingMachine>,
   servers: ReadonlyArray<Pick<ServerUpdateTarget, "environmentId">>,
-  installsLocal: boolean,
 ): RestartingMachine[] {
   const updated = new Set(servers.map((server) => server.environmentId));
   return machines.flatMap((machine) => {
     const config = machine.serverConfig;
-    if (
-      config === null ||
-      !machine.connected ||
-      !(updated.has(machine.environmentId) || (installsLocal && machine.hostedByThisApp))
-    ) {
+    if (config === null || !machine.connected || !updated.has(machine.environmentId)) {
       return [];
     }
     return [
@@ -63,8 +57,7 @@ export interface SkippedMachine {
   readonly reason: string;
 }
 
-/** Skip current and app-hosted servers; the latter update with the app and would relaunch mid-run.
- * Desktop-managed servers use their own feed. Each server's updater checks that it can install the
+/** Skip current servers. Desktop-managed servers use their own feed. Each server's updater checks that it can install the
  * release before it restarts, so no registry precheck runs here. */
 export function collectServerUpdateTargets(
   machines: ReadonlyArray<UpdateEverythingMachine>,
@@ -77,7 +70,6 @@ export function collectServerUpdateTargets(
   const skipped: SkippedMachine[] = [];
   for (const machine of machines) {
     const config = machine.serverConfig;
-    if (machine.hostedByThisApp) continue;
     if (
       config !== null &&
       resolveVersionMismatch(config.environment.serverVersion, targetVersion) === null
@@ -163,33 +155,6 @@ function channelSwitchBlockReason(
     : null;
 }
 
-/** This app's reinstall restarts every server it hosts, so each of their databases must allow the
- * switch. `backendCount` is the desktop's own inventory: a backend still starting has no client
- * entry yet. A cached config can outlive its connection, so only a connected server's head counts. */
-export function localSwitchBlockReason(
-  appVersion: string,
-  release: ChannelSwitchRelease,
-  hosted: ReadonlyArray<{
-    readonly connected: boolean;
-    readonly databaseMigration: number | undefined;
-  }>,
-  backendCount: number,
-): string | null {
-  if (!crossesTrack(appVersion, release)) return null;
-  if (
-    hosted.length === 0 ||
-    hosted.length < backendCount ||
-    hosted.some((server) => !server.connected)
-  ) {
-    return "its server is not connected, so its database cannot be checked";
-  }
-  return (
-    hosted
-      .map((server) => channelSwitchBlockReason(appVersion, release, server.databaseMigration))
-      .find((reason) => reason !== null) ?? null
-  );
-}
-
 /** Servers move to the release; desktop-managed hosts reinstall their app on its track. A desktop
  * host already current gets a track-only request, since its saved track may still differ. */
 export function collectChannelSwitchTargets(
@@ -200,7 +165,6 @@ export function collectChannelSwitchTargets(
   const skipped: SkippedMachine[] = [];
   for (const machine of machines) {
     const config = machine.serverConfig;
-    if (machine.hostedByThisApp) continue;
     const skip = (reason: string) =>
       skipped.push({ environmentId: machine.environmentId, label: machine.label, reason });
     const target = (
@@ -271,12 +235,11 @@ export function collectChannelSwitchTargets(
 
 /** A remote host on the other track that a switch can still move, for retrying a partial switch. */
 export function awaitsTrackSwitch(
-  machine: Pick<UpdateEverythingMachine, "serverConfig" | "hostedByThisApp">,
+  machine: Pick<UpdateEverythingMachine, "serverConfig">,
   channel: DesktopUpdateChannel,
 ): boolean {
   const config = machine.serverConfig;
   return (
-    !machine.hostedByThisApp &&
     config !== null &&
     !isOnTrack(config.environment.serverVersion, channel) &&
     !("skip" in trackSwitchMove(config, false))
@@ -546,11 +509,6 @@ export function getUpdateEverythingToastView(
 
 export interface UpdateEverythingPlan {
   readonly localVersion: string | null;
-  /** Machines whose servers this app hosts; this app's update restarts them. */
-  readonly localMachines: ReadonlyArray<{
-    readonly environmentId: EnvironmentId;
-    readonly label: string;
-  }>;
   readonly servers: ReadonlyArray<
     Pick<ServerUpdateTarget, "environmentId" | "serverLabel" | "selfUpdate" | "targetVersion">
   >;
@@ -613,12 +571,7 @@ export function describeUpdateEverything(plan: UpdateEverythingPlan): {
     };
     rows.set(environmentId, { ...row, ...change });
   };
-  if (plan.localVersion) {
-    if (plan.localMachines.length === 0) update(null, "This app", { app: "this-app" });
-    for (const machine of plan.localMachines) {
-      update(machine.environmentId, machine.label, { app: "this-app" });
-    }
-  }
+  if (plan.localVersion) update(null, "This app", { app: "this-app" });
   for (const server of plan.servers) {
     update(server.environmentId, server.serverLabel, {
       app: server.selfUpdate === "desktop-managed" ? "desktop-app" : "server",

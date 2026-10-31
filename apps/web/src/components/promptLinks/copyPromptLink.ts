@@ -14,7 +14,7 @@ import {
 
 import { type ComposerThreadTarget, useComposerDraftStore } from "~/composerDraftStore";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
-import { configuredHostedAppUrl } from "~/hostedPairing";
+import { HOSTED_APP_URL } from "~/branding";
 
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
@@ -29,7 +29,7 @@ export function promptLinkFor(
 ): string | null {
   const trimmed = isAttachmentOnlyBootstrapPrompt(prompt) ? "" : prompt.trim();
   if (trimmed.length === 0 || trimmed.length > PROMPT_LINK_MAX_PROMPT_LENGTH) return null;
-  return buildNewThreadLink({ prompt: trimmed, ...context, origin: configuredHostedAppUrl() });
+  return buildNewThreadLink({ prompt: trimmed, ...context, origin: HOSTED_APP_URL });
 }
 
 export function promptLinkRepositoryOf(

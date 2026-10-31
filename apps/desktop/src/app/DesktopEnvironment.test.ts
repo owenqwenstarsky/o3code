@@ -38,7 +38,7 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
-  it.effect("uses the packaged Windows server sidecar as the backend root", () =>
+  it.effect("serves client assets from the packaged Windows server sidecar", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment({
         platform: "win32",
@@ -49,10 +49,6 @@ describe("DesktopEnvironment", () => {
 
       assert.equal(environment.appRoot, "/install/resources/app.asar");
       assert.equal(environment.serverRoot, "/install/resources/server.asar");
-      assert.equal(
-        environment.backendEntryPath,
-        "/install/resources/server.asar/apps/server/dist/bin.mjs",
-      );
       assert.equal(
         environment.clientAssetsDir,
         "/install/resources/server.asar/apps/server/dist/client",

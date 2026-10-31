@@ -365,11 +365,11 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
       delete output.T3CODE_SINGLE_ORIGIN_DEV;
     }
   } else {
-    output.T3CODE_PORT = String(serverPort);
-    output.VITE_HTTP_URL = `http://${DESKTOP_DEV_LOOPBACK_HOST}:${serverPort}`;
-    output.VITE_WS_URL = `ws://${DESKTOP_DEV_LOOPBACK_HOST}:${serverPort}`;
-    // Desktop pins the renderer to loopback on purpose; an ambient marker
-    // must not make Vite drop those URLs.
+    // The desktop runs no server: its renderer signs in to an O3 instance, which developers
+    // start separately with `vp run dev:instance`.
+    delete output.T3CODE_PORT;
+    delete output.VITE_HTTP_URL;
+    delete output.VITE_WS_URL;
     delete output.T3CODE_SINGLE_ORIGIN_DEV;
     delete output.T3CODE_MODE;
     delete output.T3CODE_NO_BROWSER;
