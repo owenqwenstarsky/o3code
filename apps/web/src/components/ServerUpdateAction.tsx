@@ -358,7 +358,7 @@ export function ServerUpdateAction({
   );
 }
 
-/** Read the host descriptor's version because the host never delivers server config. */
+/** The host never delivers server config, so the version it updates from comes from its descriptor when known. */
 export function OutdatedServerUpdateAction({
   environmentId,
   serverLabel,
@@ -368,7 +368,7 @@ export function OutdatedServerUpdateAction({
 }: {
   readonly environmentId: EnvironmentId;
   readonly serverLabel: string;
-  readonly fromVersion: string | undefined;
+  readonly fromVersion?: string | undefined;
   readonly targetVersion: string;
   readonly label?: string;
 }) {
