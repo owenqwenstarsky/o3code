@@ -12,8 +12,49 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HttpClientError } from "effect/http";
 
-import { PrimaryEnvironmentHttpClient } from "./httpClient";
-import { runPrimaryHttp } from "../../lib/runtime";
+import {
+  layerRemoteHttpClient,
+  makeEnvironmentHttpApiGroupClient,
+} from "@t3tools/client-runtime/rpc";
+import * as Option from "effect/Option";
+
+import { appAtomRegistry } from "../../rpc/atomRegistry";
+import { readPrimaryEnvironmentId } from "../../state/environments";
+import { environmentSession } from "../../state/session";
+
+type AuthApiClient = Effect.Success<ReturnType<typeof makeEnvironmentHttpApiGroupClient<"auth">>>;
+
+/**
+ * Access management acts on the user's workspace over its own connection: the page is served
+ * by the O3 instance, a different origin with no session for these routes.
+ */
+function runWorkspaceAuthRequest<A, E>(
+  request: (
+    client: AuthApiClient,
+    headers: { readonly authorization?: string },
+  ) => Effect.Effect<A, E>,
+): Promise<A> {
+  const environmentId = readPrimaryEnvironmentId();
+  const prepared =
+    environmentId === null
+      ? null
+      : Option.getOrNull(
+          appAtomRegistry.get(environmentSession.preparedConnectionValueAtom(environmentId)),
+        );
+  if (prepared === null) {
+    return Promise.reject(new Error("Your workspace isn't connected yet."));
+  }
+  const headers =
+    prepared.httpAuthorization === null
+      ? {}
+      : { authorization: `Bearer ${prepared.httpAuthorization.token}` };
+  return Effect.runPromise(
+    makeEnvironmentHttpApiGroupClient(prepared.httpBaseUrl, "auth").pipe(
+      Effect.flatMap((client) => request(client, headers)),
+      Effect.provide(layerRemoteHttpClient(globalThis.fetch)),
+    ),
+  );
+}
 
 const PrimaryEnvironmentRequestOperation = Schema.Literals([
   "create-pairing-credential",
@@ -111,18 +152,14 @@ export async function createServerPairingCredential(input?: {
 }): Promise<AuthPairingCredentialResult> {
   const trimmedLabel = input?.label?.trim();
   try {
-    return await runPrimaryHttp(
-      PrimaryEnvironmentHttpClient.pipe(
-        Effect.flatMap((client) =>
-          client.auth.pairingCredential({
-            headers: {},
-            payload: {
-              ...(trimmedLabel ? { label: trimmedLabel } : {}),
-              ...(input?.scopes ? { scopes: input.scopes } : {}),
-            },
-          }),
-        ),
-      ),
+    return await runWorkspaceAuthRequest((client, headers) =>
+      client.pairingCredential({
+        headers,
+        payload: {
+          ...(trimmedLabel ? { label: trimmedLabel } : {}),
+          ...(input?.scopes ? { scopes: input.scopes } : {}),
+        },
+      }),
     );
   } catch (error) {
     throw PrimaryEnvironmentRequestError.fromCause({
@@ -134,10 +171,8 @@ export async function createServerPairingCredential(input?: {
 
 export async function revokeServerPairingLink(id: string): Promise<void> {
   try {
-    await runPrimaryHttp(
-      PrimaryEnvironmentHttpClient.pipe(
-        Effect.flatMap((client) => client.auth.revokePairingLink({ headers: {}, payload: { id } })),
-      ),
+    await runWorkspaceAuthRequest((client, headers) =>
+      client.revokePairingLink({ headers, payload: { id } }),
     );
   } catch (error) {
     throw PrimaryEnvironmentRequestError.fromCause({
@@ -150,12 +185,8 @@ export async function revokeServerPairingLink(id: string): Promise<void> {
 
 export async function revokeServerClientSession(sessionId: AuthSessionId): Promise<void> {
   try {
-    await runPrimaryHttp(
-      PrimaryEnvironmentHttpClient.pipe(
-        Effect.flatMap((client) =>
-          client.auth.revokeClient({ headers: {}, payload: { sessionId } }),
-        ),
-      ),
+    await runWorkspaceAuthRequest((client, headers) =>
+      client.revokeClient({ headers, payload: { sessionId } }),
     );
   } catch (error) {
     throw PrimaryEnvironmentRequestError.fromCause({
@@ -168,10 +199,8 @@ export async function revokeServerClientSession(sessionId: AuthSessionId): Promi
 
 export async function revokeOtherServerClientSessions(): Promise<number> {
   try {
-    const result = await runPrimaryHttp(
-      PrimaryEnvironmentHttpClient.pipe(
-        Effect.flatMap((client) => client.auth.revokeOtherClients({ headers: {} })),
-      ),
+    const result = await runWorkspaceAuthRequest((client, headers) =>
+      client.revokeOtherClients({ headers }),
     );
     return result.revokedCount;
   } catch (error) {

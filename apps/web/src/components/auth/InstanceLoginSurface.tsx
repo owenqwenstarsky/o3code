@@ -67,9 +67,8 @@ export function InstanceLoginSurface({ onSignedIn }: { onSignedIn: () => void })
       setStep({ kind: "credentials", descriptor, url: normalized });
     } catch (cause) {
       setError(messageOf(cause));
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   const describeOnMount = useEffectEvent(() => {
@@ -132,9 +131,8 @@ export function InstanceLoginSurface({ onSignedIn }: { onSignedIn: () => void })
       }
     } catch (cause) {
       setError(messageOf(cause));
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   const submitNewPassword = async (event: React.SubmitEvent<HTMLFormElement>) => {
@@ -156,9 +154,8 @@ export function InstanceLoginSurface({ onSignedIn }: { onSignedIn: () => void })
       await connectWorkspace(step.descriptor);
     } catch (cause) {
       setError(messageOf(cause));
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   const errorAlert = error ? (

@@ -69,7 +69,9 @@ export const Route = createRootRoute({
       };
     }
 
-    if (location.pathname === "/login") {
+    // Outside agents are approved on the workspace's own origin, which has no instance sign-in;
+    // the approval itself needs a pairing code from the workspace.
+    if (location.pathname === "/login" || location.pathname === "/connect-agent") {
       return {
         authGateState: {
           status: "signed-out",

@@ -277,9 +277,8 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
       onCreated();
     } catch (cause) {
       setError(errorText(cause));
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   return (

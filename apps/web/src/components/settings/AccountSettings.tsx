@@ -82,9 +82,8 @@ function ChangePasswordRow() {
       });
     } catch (cause) {
       setError(errorText(cause));
-    } finally {
-      setBusy(false);
     }
+    setBusy(false);
   };
 
   return (
@@ -167,9 +166,8 @@ export function AccountSettingsPanel() {
       me.refresh();
     } catch (cause) {
       toastManager.add({ type: "error", title: "Couldn't restart", description: errorText(cause) });
-    } finally {
-      setRestarting(false);
     }
+    setRestarting(false);
   };
 
   const revoke = async (sessionId: string) => {
@@ -189,12 +187,12 @@ export function AccountSettingsPanel() {
 
   const signOut = async () => {
     setSigningOut(true);
-    try {
-      await runInstance(InstanceAccount.pipe(Effect.flatMap((account) => account.signOut)));
-    } finally {
-      setSigningOut(false);
-      void navigate({ to: "/login", replace: true });
-    }
+    // Signing out locally must finish even if the instance can't be reached.
+    await runInstance(InstanceAccount.pipe(Effect.flatMap((account) => account.signOut))).catch(
+      () => undefined,
+    );
+    setSigningOut(false);
+    void navigate({ to: "/login", replace: true });
   };
 
   return (
