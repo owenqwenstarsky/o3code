@@ -94,10 +94,6 @@ export function connectionStatusTitle(connection: EnvironmentConnectionPresentat
   return connectionStatusText({ ...connection, error: null });
 }
 
-/**
- * SSH connections ride a local forward that disappears with the client, so they have no stable
- * address.
- */
 export function environmentMcpUrl(input: {
   readonly entry: ConnectionCatalogEntry;
   readonly connectedTarget?: ConnectionTarget | null | undefined;

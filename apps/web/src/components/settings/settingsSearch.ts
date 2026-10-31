@@ -1054,7 +1054,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Workspace",
     to: "/settings/access",
     searchTerms: [
-      "connections server workspace access administrative permissions scope pairing code authorized clients sessions revoke agent",
+      "connections server workspace access administrative permissions scope pairing code authorized clients sessions revoke outside agent mcp url",
     ],
   },
   {

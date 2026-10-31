@@ -9,6 +9,7 @@ import {
   type AuthPairingCredentialResult,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
+import { environmentMcpUrl } from "@t3tools/client-runtime/connection";
 import { settlePromise } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
 
@@ -19,7 +20,7 @@ import { FoldedSettingsSection } from "./FoldedSettingsSection";
 import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
 import { usePeerLinkHosts } from "~/state/peerLinks";
 import { ScrollArea } from "../ui/scroll-area";
-import { Menu, MenuPopup, MenuTrigger } from "../ui/menu";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Button } from "../ui/button";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
@@ -34,7 +35,9 @@ import {
   readEnvironmentScope,
   useEnvironmentScope,
   useEnvironmentSessionState,
+  usePreparedConnection,
 } from "~/state/session";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useEnvironmentQuery } from "~/state/query";
 import { type EnvironmentPresentation, usePrimaryEnvironment } from "~/state/environments";
 import {
@@ -73,6 +76,33 @@ function WorkspaceAccessSettings({
   const peerLinkHosts = usePeerLinkHosts();
   const primaryEnvironmentId = primaryEnvironment.environmentId;
   const session = useEnvironmentSessionState(primaryEnvironmentId).data;
+  const prepared = usePreparedConnection(primaryEnvironmentId);
+  const mcpUrl = environmentMcpUrl({
+    entry: primaryEnvironment.entry,
+    connectedTarget:
+      primaryEnvironment.connection.phase === "connected" && prepared._tag === "Some"
+        ? prepared.value.target
+        : null,
+  });
+  const { copyToClipboard: copyMcpUrl } = useCopyToClipboard<{ url: string }>({
+    target: "MCP URL",
+    onCopy: ({ url }) => {
+      toastManager.add({
+        type: "success",
+        title: "MCP URL copied",
+        description: `Add it to an agent, e.g. claude mcp add --transport http t3 ${url}`,
+      });
+    },
+    onError: (error) => {
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Could not copy MCP URL",
+          description: error.message,
+        }),
+      );
+    },
+  });
   const currentSessionScopes = session?.authenticated
     ? (session.permissions ?? session.scopes ?? null)
     : null;
@@ -214,6 +244,11 @@ function WorkspaceAccessSettings({
                 environmentId={primaryEnvironment.environmentId}
                 serverConfig={primaryServerConfig}
               />
+              {mcpUrl ? (
+                <MenuItem onClick={() => copyMcpUrl(mcpUrl, { url: mcpUrl })}>
+                  Copy MCP URL
+                </MenuItem>
+              ) : null}
             </MenuPopup>
           </Menu>
         }
