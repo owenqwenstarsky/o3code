@@ -291,7 +291,7 @@ on your browser or device; save an unsupported video to open it in another app.
 
 On web and desktop, right-click media to save it or copy its path or URL.
 
-File links refer to the environment's machine, including when you connect remotely.
+File links refer to files in the thread's environment, such as your workspace.
 Previews use the original file, even outside the workspace. Moving or deleting it
 can break the preview, so save a copy if you need to keep it.
 

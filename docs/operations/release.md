@@ -13,6 +13,12 @@
 > `git show 15fe28327:.github/workflows/<name>.yml`. Its paths, secrets, URLs, and product identifiers are
 > upstream's, not this fork's. When you add a release workflow back, rewrite the matching section here
 > instead of leaving this notice in place.
+>
+> O3 Code is organization-hosted, so most of what upstream shipped has no user here. Admins build the
+> instance and workspace images ([`docker/Dockerfile`](../../docker/Dockerfile)) and upgrade
+> workspaces from **Settings → Admin**; users install only the desktop app. The CLI archive, npm
+> launcher, install scripts, hosted web app, server self-update, and WSL runtime sections describe
+> distribution that a new pipeline does not need.
 
 This document covers the unified release workflow for stable and nightly desktop releases.
 

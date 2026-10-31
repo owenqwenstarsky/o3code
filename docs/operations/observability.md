@@ -8,9 +8,9 @@ O3 Code has one server-side observability model:
 - completed spans go to a local NDJSON trace file
 - traces, metrics, and logs can also be exported over OTLP to a real backend like Grafana LGTM
 
-The local trace file is the persisted source of truth for normal local launches. Those launches do not
-write a separate server log file, but SSH-managed launches also persist the remote process's
-stdout/stderr at `~/.t3/ssh-launch/<state>/server.log`.
+The local trace file is the persisted source of truth. The server does not write a separate log
+file. In an O3 workspace, stdout goes to the container's logs, which admins read from the user's
+page in **Settings → Admin → Users**.
 
 ## Where To Find Things
 
@@ -20,8 +20,7 @@ Logs are human-facing:
 
 - destination: stdout
 - format: `Logger.consolePretty()`
-- normal local persistence: none
-- SSH-managed launch persistence: `~/.t3/ssh-launch/<state>/server.log`
+- local persistence: none (a workspace's container logs keep recent output)
 - remote export: OTLP only, when configured
 
 If you want a log message to show up in the trace file, emit it inside an active span with `Effect.log...`. `Logger.tracerLogger` will attach it as a span event.
@@ -29,8 +28,8 @@ If you want a log message to show up in the trace file, emit it inside an active
 Configuring a logs endpoint takes over that job. The server then exports log records, which cover
 every message instead of only the ones inside an active span and carry the trace and span ids so
 they still line up with the trace. `Logger.tracerLogger` is dropped in that mode, so the same
-message is not exported twice and the trace file stops carrying log messages. stdout output and
-SSH-managed launch persistence stay unchanged either way.
+message is not exported twice and the trace file stops carrying log messages. stdout output stays
+unchanged either way.
 
 ### Traces
 
@@ -39,7 +38,8 @@ server starts: production and explicitly configured homes use
 `<home>/userdata/logs/server.trace.ndjson` (so `~/.t3/userdata/...` by default, or
 `/custom/path/userdata/...` with `--home-dir /custom/path`), a linked worktree dev run uses
 `<worktree>/.t3/userdata/logs/server.trace.ndjson`, and an implicit dev run outside a linked
-worktree uses `~/.t3/dev/logs/server.trace.ndjson`.
+worktree uses `~/.t3/dev/logs/server.trace.ndjson`. A workspace starts with `--base-dir ~/.t3`,
+so its file is `~/.t3/userdata/logs/server.trace.ndjson` inside the container.
 
 Important fields common to both record types:
 
@@ -145,10 +145,6 @@ You do not need any extra env vars. Just run the app normally and inspect `serve
 Examples:
 
 ```bash
-npx t3
-```
-
-```bash
 node --run dev
 ```
 
@@ -180,7 +176,8 @@ Default Grafana login:
 
 For endpoint settings and startup precedence, see the
 [user telemetry guide](../user/telemetry.md#export-diagnostics-to-your-own-receiver).
-In a worktree, use `vp run dev` instead of `npx t3` to keep state isolated.
+For a workspace, set the endpoints in **Settings → Maintenance → Diagnostics** instead; nobody
+starts its server from a shell.
 
 ```bash
 export T3CODE_OTLP_TRACES_URL=http://localhost:4318/v1/traces
@@ -198,12 +195,6 @@ export T3CODE_TRACE_TIMING_ENABLED=true
 
 #### 3. Launch the app from that same shell
 
-CLI:
-
-```bash
-npx t3
-```
-
 Monorepo web/server dev:
 
 ```bash
@@ -216,29 +207,14 @@ Monorepo desktop dev:
 node --run dev:desktop
 ```
 
-Packaged desktop app:
-
-Launch the actual app executable from the same shell so the desktop app and embedded backend inherit `T3CODE_OTLP_*`.
-
-macOS app bundle example:
+A packaged desktop app reads the variables only when launched from that shell, not from Finder,
+Spotlight, the dock, or the Start menu:
 
 ```bash
 T3CODE_OTLP_TRACES_URL=http://localhost:4318/v1/traces \
-T3CODE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics \
 T3CODE_OTLP_LOGS_URL=http://localhost:4318/v1/logs \
 "/Applications/T3 Code.app/Contents/MacOS/T3 Code"
 ```
-
-Direct binary example:
-
-```bash
-T3CODE_OTLP_TRACES_URL=http://localhost:4318/v1/traces \
-T3CODE_OTLP_METRICS_URL=http://localhost:4318/v1/metrics \
-T3CODE_OTLP_LOGS_URL=http://localhost:4318/v1/logs \
-./path/to/your/desktop-app-binary
-```
-
-Do not rely on launching from Finder, Spotlight, the dock, or the Start menu after setting shell env vars. Those launches usually will not pick them up.
 
 #### 4. Fully restart after changing env
 
@@ -680,15 +656,14 @@ Current high-value span and metric boundaries include:
 
 ### Current Constraints
 
-- logs outside spans are not persisted in the trace file; SSH-managed launch stdout/stderr is still
-  captured in its launcher log
+- logs outside spans are not persisted in the trace file
 - metrics are not snapshotted locally
 
 ## Heap Snapshots
 
 To see what a long-running server holds in memory, send it `SIGUSR2`. The server writes a V8 heap
-snapshot to its logs dir and logs the path. This works for desktop, `npx t3`, and service installs
-on macOS and Linux. Windows has no `SIGUSR2`.
+snapshot to its logs dir and logs the path. This works for any server on macOS and Linux, including
+a workspace (`docker exec` into its container). Windows has no `SIGUSR2`.
 
 Send the signal to the server pid in `server-runtime.json`, which sits in the server's state dir
 next to the `logs` dir. For a dev server or a `--home-dir` launch, use that server's state dir from

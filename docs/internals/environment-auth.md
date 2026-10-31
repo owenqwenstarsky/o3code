@@ -25,6 +25,13 @@ pairing grants issued for the removed T3 Connect were bound to a DPoP proof key;
 nothing can present that proof any more, so the session store refuses them
 rather than accept them as bearer tokens.
 
+### Instance workspace tokens are another way in
+
+The web and desktop apps do not pair. A workspace also accepts `o3w_` bearer tokens its O3 instance
+minted for the signed-in user, checks each with the instance, and maps it to a local shadow session,
+so scopes, WebSocket tickets, and revocation work as for any other session. Pairing codes remain for
+outside agents and linked environments. See [O3 instances](./o3-instance.md#workspaces-check-tokens-with-the-instance).
+
 ### Guest links are not sessions
 
 A [guest link](../user/guest-links.md) gives one browser read access to one
@@ -37,7 +44,7 @@ tokens never enter `SessionStore`, so no RPC, WebSocket, or MCP path can accept
 one. Guest routes also require the environment's public origin
 ([EnvironmentPublicOrigin](../../apps/server/src/environment/EnvironmentPublicOrigin.ts))
 to still be the link's host; the request's Host header is not checked, because a
-LAN client can forge it. With no public origin, guest links are unavailable.
+client can forge it. With no public origin, guest links are unavailable.
 
 ### MCP clients are a separate audience
 
@@ -92,13 +99,6 @@ features those servers already support. These client checks never change server
 authorization. Permission errors likewise retain a legacy `requiredScope` and
 add the exact `requiredPermission`, so a denied RPC stays decodable by old clients.
 Unknown response permissions are ignored; grant inputs stay strict.
-
-Desktop restarts forget the previous local bearer token, so its reusable
-bootstrap grant replaces earlier sessions for the same subject and method.
-Revocation and insertion share a [database
-transaction](../../apps/server/src/persistence/AuthSessions.ts); a failed
-replacement must leave the old credential usable. Pairing and browser sessions
-do not follow this replacement rule.
 
 ### Reusable dev credential
 

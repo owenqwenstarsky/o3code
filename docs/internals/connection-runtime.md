@@ -44,7 +44,7 @@ projections, and platform-owned state such as drafts.
 RPC sessions authenticate at socket upgrade. HTTP requests reuse the prepared
 connection's credential
 ([environmentHttpAuth](../../packages/client-runtime/src/state/environmentHttpAuth.ts)):
-the browser cookie for the primary environment, or the bearer token. An HTTP
+the bearer token, such as the workspace token an O3 instance issues, or a browser cookie. An HTTP
 failure belongs to that request; it never replaces a healthy socket.
 
 The server closes a socket when its session is revoked or expires
