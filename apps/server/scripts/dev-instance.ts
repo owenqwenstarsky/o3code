@@ -38,7 +38,7 @@ const worktreeHome = await Effect.runPromise(
 const home = process.env.T3CODE_HOME ?? worktreeHome;
 if (home === undefined) {
   // Outside a worktree the default would be ~/.t3, the developer's live install.
-  console.error("[dev-instance] Set T3CODE_HOME or run from a git worktree.");
+  process.stderr.write("[dev-instance] Set T3CODE_HOME or run from a git worktree.\n");
   process.exit(1);
 }
 const secret = NodeCrypto.randomBytes(24).toString("base64url");
@@ -100,8 +100,9 @@ const children = [
   ),
 ];
 
-console.log(
-  `[dev-instance] instance ${instanceUrl}, workspace ${workspaceUrl}. First sign-in: ${process.env.O3_ADMIN_EMAIL ?? "admin@o3.test"} / ${process.env.O3_ADMIN_PASSWORD ?? "o3-dev-password"}`,
+process.stdout.write(
+  `[dev-instance] instance ${instanceUrl}, workspace ${workspaceUrl}. First sign-in: ${process.env.O3_ADMIN_EMAIL ?? "admin@o3.test"} / ${process.env.O3_ADMIN_PASSWORD ?? "o3-dev-password"}` +
+    "\n",
 );
 
 const stop = (signal: NodeJS.Signals) => {
