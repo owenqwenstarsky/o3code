@@ -1,6 +1,6 @@
 # Product usage data
 
-The T3 Code server sends product usage events to T3 Code's own endpoint at `ingest.t3.codes`,
+The O3 Code server sends product usage events to O3 Code's own endpoint at `ingest.t3.codes`,
 associated with a hashed account or installation identifier. To count how many installations one person
 uses, the server also sends hashed account identifiers: your T3 Connect account, your OpenAI and
 Claude accounts when you are signed in, and a random identifier for each device that connects. The endpoint keeps a copy of each
@@ -11,7 +11,7 @@ available.
 Events do not include prompts, responses, file contents, authentication tokens, conversation IDs,
 raw provider events, or child-agent output. Child-agent token use is excluded from the totals.
 
-T3 Code also sends relay connection traces to Axiom to diagnose T3 Connect connectivity.
+O3 Code also sends relay connection traces to Axiom to diagnose T3 Connect connectivity.
 
 To disable product events and relay tracing, set `T3CODE_TELEMETRY_ENABLED=false` in the server's
 environment before starting it. Relay tracing also stops when `T3CODE_OTEL_SDK_DISABLED` or
@@ -23,13 +23,13 @@ Linux, so export it there and restart the app. On Windows, set it as a user envi
 
 ## Mobile app crash reports
 
-When the iOS or Android app crashes or hits an error, it sends a report to T3 Code: the error
+When the iOS or Android app crashes or hits an error, it sends a report to O3 Code: the error
 message, the stack trace, the app version, and the device model and OS version. Each launch also
 sends startup timings, and every report carries a random ID for the install. Reports go through
 the T3 Connect relay to Axiom. They do not include your threads, prompts, or connection details,
 but an error message can quote a value the app was handling.
 
-To stop sending them, turn off **Send crash reports** in **Settings > About T3 Code > Diagnostics**.
+To stop sending them, turn off **Send crash reports** in **Settings > About O3 Code > Diagnostics**.
 
 ## Export diagnostics to your own receiver
 
