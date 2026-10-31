@@ -383,7 +383,6 @@ export function presentPendingBackgroundWork(
         childThreadId: task.kind === "subagent" ? task.childThreadId : undefined,
       };
     })
-    // `map` returned a new array; Hermes has no `toSorted`.
     .sort(
       (left, right) =>
         BACKGROUND_WORK_KINDS[left.kind].order - BACKGROUND_WORK_KINDS[right.kind].order,

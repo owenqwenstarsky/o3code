@@ -19,6 +19,7 @@ import {
   assistantItem,
   emitThreadEvent,
   installFakeEnvironment,
+  signInToFakeWorkspace,
   isThreadSubscribed,
   runningRun,
   threadWithHistory,
@@ -62,6 +63,7 @@ const [WARM, A, B, LIVE] = THREADS.map((thread) => thread.id) as [
 ];
 
 installFakeEnvironment(THREADS);
+await signInToFakeWorkspace();
 // Desktop-sized, so the sidebar, composer and right panel lay out as they do in the app.
 await page.viewport(1400, 900);
 // A returning user: the first-run gate would otherwise wait on onboarding evidence.
@@ -139,7 +141,7 @@ async function report(
 }
 
 // A first mount loads lazy route chunks, fonts and the connection at varying times. The diff
-// panel and settings load more chunks on first open (the T3 Connect sidebar, the terminal
+// panel and settings load more chunks on first open (the terminal
 // preview's renderer), which can land after a window has gone quiet, so the warm-up opens
 // each once and lets it settle.
 it("warm up", async () => {

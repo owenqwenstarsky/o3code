@@ -1,6 +1,20 @@
 # Server updates
 
-A [stable launcher](../../apps/server/src/serviceLauncher.ts) owns the runtime
+## Workspaces upgrade by recreation
+
+A workspace runs `t3 serve` in the foreground of its container
+([workspace-start.sh](../../docker/workspace-start.sh)); nothing inside it updates itself. An admin
+upgrades by recreating the container from a newer image
+([`Workspaces.upgradeAll`](../../apps/server/src/instance/Workspaces.ts)). The `o3-home-<user>`
+volume, and the database in it, survives, and the new server migrates it at startup. No launcher
+sits in between, so there is no snapshot to roll back to: a failed migration leaves the workspace
+down until the image is fixed or the volume is restored from a backup. A restart or recreation
+interrupts running turns, which [recovery](#recovering-interrupted-threads) continues.
+
+## The standalone service launcher
+
+The binary still carries the `t3 service` launcher for servers run outside an instance; instance
+users never run it. A [stable launcher](../../apps/server/src/serviceLauncher.ts) owns the runtime
 selected by systemd or launchd. It is the only runtime writer of durable service
 state. Server children request updates over inherited IPC; they never rewrite
 their service definition or select their own replacement. Local service commands
@@ -13,7 +27,7 @@ immutable runtime. Preflight checks the launcher protocol because a target that
 needs new rollback guarantees cannot safely run under an older launcher. Upgrading
 that launcher requires a local service update.
 
-## Commit boundary
+### Commit boundary
 
 The launcher durably records the pending update before acknowledging it, then
 stops the old child and starts the target as a trial. Service-state writes use
@@ -36,7 +50,7 @@ deadline restores the snapshot, and the retry pays the same cost again. A
 crashed trial is caught when it exits; the deadline bounds only a stuck one.
 Client update waits must outlast the deadline, or a slow update shows as failed.
 
-## Database rollback
+### Database rollback
 
 Before stopping the old child, the launcher refuses an update whose snapshot will
 not fit on disk, so a full disk does not cause an outage. After the old child
@@ -49,19 +63,12 @@ interrupted restore finish before either version boots. Keep the snapshot until
 commit, or until both restoration and the terminal rollback state are durable.
 Attachments and other files outside SQLite are outside this rollback boundary.
 
-## Client acknowledgement
+### Client acknowledgement
 
 An accepted update is still pending. Clients correlate the launcher's update ID
 with the ready event after reconnecting, then check the outcome and target version.
 A reconnect alone cannot distinguish successful replacement from rollback. Older
 servers without an update ID retain version-only correlation.
-
-Desktop updates have a separate two-phase handoff because installing the app stops
-its bundled backend. Preparation returns a token while the connection is alive;
-the client commits that token only after receiving it. Otherwise backend shutdown
-could lose the only successful RPC result. The client must then observe the
-prepared version after reconnecting. If installation fails, desktop restarts the
-stopped backends and replays the failure for the same token.
 
 ## Recovering interrupted threads
 

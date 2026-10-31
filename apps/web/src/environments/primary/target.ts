@@ -1,13 +1,6 @@
-import { PRIMARY_LOCAL_ENVIRONMENT_ID, type DesktopEnvironmentBootstrap } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
-import { isLocalEnvironmentDisabled } from "../../localEnvironment";
-
-const PrimaryEnvironmentTargetSource = Schema.Literals([
-  "configured",
-  "window-origin",
-  "desktop-managed",
-]);
+const PrimaryEnvironmentTargetSource = Schema.Literals(["configured", "window-origin"]);
 type PrimaryEnvironmentTargetSource = typeof PrimaryEnvironmentTargetSource.Type;
 
 const PrimaryEnvironmentUrlKind = Schema.Literals([
@@ -43,31 +36,6 @@ export class PrimaryEnvironmentProtocolUnsupportedError extends Schema.TaggedErr
   }
 }
 
-export class DesktopEnvironmentBootstrapIncompleteError extends Schema.TaggedError<DesktopEnvironmentBootstrapIncompleteError>()(
-  "DesktopEnvironmentBootstrapIncompleteError",
-  {
-    hasHttpBaseUrl: Schema.Boolean,
-    hasWsBaseUrl: Schema.Boolean,
-  },
-) {
-  override get message(): string {
-    const missing = [
-      ...(this.hasHttpBaseUrl ? [] : ["httpBaseUrl"]),
-      ...(this.hasWsBaseUrl ? [] : ["wsBaseUrl"]),
-    ];
-    return `Desktop bootstrap is missing ${missing.join(" and ")} for the local environment.`;
-  }
-}
-
-export class PrimaryEnvironmentDisabledError extends Schema.TaggedError<PrimaryEnvironmentDisabledError>()(
-  "PrimaryEnvironmentDisabledError",
-  {},
-) {
-  override get message(): string {
-    return "The local environment is disabled.";
-  }
-}
-
 export interface PrimaryEnvironmentTarget {
   readonly source: PrimaryEnvironmentTargetSource;
   readonly target: {
@@ -77,11 +45,6 @@ export interface PrimaryEnvironmentTarget {
 }
 
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
-
-function getDesktopLocalEnvironmentBootstrap(): DesktopEnvironmentBootstrap | null {
-  const bootstraps = window.desktopBridge?.getLocalEnvironmentBootstraps() ?? [];
-  return bootstraps.find((entry) => entry.id === PRIMARY_LOCAL_ENVIRONMENT_ID) ?? null;
-}
 
 function parseTargetUrl(input: {
   readonly rawValue: string;
@@ -236,46 +199,11 @@ function resolveWindowOriginPrimaryTarget(): PrimaryEnvironmentTarget {
   };
 }
 
-function resolveDesktopPrimaryTarget(): PrimaryEnvironmentTarget | null {
-  const desktopBootstrap = getDesktopLocalEnvironmentBootstrap();
-  if (!desktopBootstrap) {
-    return null;
-  }
-  if (!desktopBootstrap.httpBaseUrl && !desktopBootstrap.wsBaseUrl) {
-    return null;
-  }
-  if (!desktopBootstrap.httpBaseUrl || !desktopBootstrap.wsBaseUrl) {
-    throw new DesktopEnvironmentBootstrapIncompleteError({
-      hasHttpBaseUrl: Boolean(desktopBootstrap.httpBaseUrl),
-      hasWsBaseUrl: Boolean(desktopBootstrap.wsBaseUrl),
-    });
-  }
-
-  return {
-    source: "desktop-managed",
-    target: {
-      httpBaseUrl: normalizeBaseUrl(
-        desktopBootstrap.httpBaseUrl,
-        "desktop-managed",
-        "http-base-url",
-      ),
-      wsBaseUrl: normalizeBaseUrl(
-        desktopBootstrap.wsBaseUrl,
-        "desktop-managed",
-        "websocket-base-url",
-      ),
-    },
-  };
-}
-
 export function resolvePrimaryEnvironmentHttpUrl(
   pathname: string,
   searchParams?: Record<string, string>,
 ): string {
   const primaryTarget = readPrimaryEnvironmentTarget();
-  if (!primaryTarget) {
-    throw new PrimaryEnvironmentDisabledError();
-  }
 
   const url = parseTargetUrl({
     rawValue: resolveHttpRequestBaseUrl(primaryTarget),
@@ -289,14 +217,7 @@ export function resolvePrimaryEnvironmentHttpUrl(
   return url.toString();
 }
 
-/** Null only for desktop with its local environment disabled; other hosts fall back to page origin. */
-export function readPrimaryEnvironmentTarget(): PrimaryEnvironmentTarget | null {
-  if (isLocalEnvironmentDisabled()) {
-    return null;
-  }
-  return (
-    resolveDesktopPrimaryTarget() ??
-    resolveConfiguredPrimaryTarget() ??
-    resolveWindowOriginPrimaryTarget()
-  );
+/** The server that served this page. It is never an environment in the catalog. */
+export function readPrimaryEnvironmentTarget(): PrimaryEnvironmentTarget {
+  return resolveConfiguredPrimaryTarget() ?? resolveWindowOriginPrimaryTarget();
 }

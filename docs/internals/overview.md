@@ -1,16 +1,17 @@
 # Architecture
 
-O3 Code keeps execution in the environment that owns the workspace. Web, desktop, and mobile
-clients control it over authenticated RPC. A remote client must never substitute its own filesystem,
-provider credentials, or machine state for the environment's. The desktop app bundles a server,
-but its renderer follows the same boundary.
+O3 Code keeps execution in the environment that owns the workspace. Web and desktop
+clients control it over authenticated RPC. For each user that environment is their workspace on an
+[O3 instance](./o3-instance.md), reached over the tailnet. A client must never substitute its own
+filesystem, provider credentials, or machine state for the environment's; the desktop app is a
+client of the workspace like the web app.
 
 ## Ownership boundaries
 
 Provider processes, terminals, Git, and project files belong to the server. Shared connection and
 domain state belongs in `packages/client-runtime`; clients supply platform services and UI.
 Keeping that logic shared prevents reconnect and multi-environment behavior from diverging between
-web and mobile. See [connection runtime](./connection-runtime.md) and
+clients. See [connection runtime](./connection-runtime.md) and
 [remote environments](./remote.md).
 
 The [RPC contract](../../packages/contracts/src/rpc.ts) is the boundary between independently

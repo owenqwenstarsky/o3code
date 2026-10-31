@@ -23,7 +23,7 @@ import { type ComponentProps, useRef, useState } from "react";
 
 import { requestConfirmDialog } from "~/confirmDialog";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { serverEnvironment, updateOutdatedServer } from "~/state/server";
+import { serverEnvironment } from "~/state/server";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { manualServerUpdateCommand } from "~/versionSkew";
@@ -354,55 +354,6 @@ export function ServerUpdateAction({
       onClick={onClick}
     >
       {actionLabel}
-    </Button>
-  );
-}
-
-/** Read the host descriptor's version because the host never delivers server config. */
-export function OutdatedServerUpdateAction({
-  environmentId,
-  serverLabel,
-  fromVersion,
-  targetVersion,
-  label = "Update",
-}: {
-  readonly environmentId: EnvironmentId;
-  readonly serverLabel: string;
-  readonly fromVersion: string | undefined;
-  readonly targetVersion: string;
-  readonly label?: string;
-}) {
-  const update = useAtomCommand(updateOutdatedServer, { reportFailure: false });
-  const handleUpdate = async () => {
-    if (pendingUpdateEnvironmentIds.has(environmentId)) return;
-    pendingUpdateEnvironmentIds.add(environmentId);
-    const result = await update({
-      environmentId,
-      input: { targetVersion },
-      ...(fromVersion === undefined ? {} : { fromVersion }),
-    });
-    pendingUpdateEnvironmentIds.delete(environmentId);
-    if (result._tag === "Failure") {
-      if (isAtomCommandInterrupted(result)) return;
-      toastManager.add({
-        type: "error",
-        title: `${serverLabel} update failed`,
-        description: updateFailureMessage(squashAtomCommandFailure(result)),
-      });
-      return;
-    }
-    toastManager.add({
-      type: "success",
-      title: `${serverLabel} updated`,
-      description: `Reconnected on t3@${result.value.targetVersion}.`,
-    });
-  };
-  if (fromVersion !== undefined && crossesReleaseTrack(fromVersion, targetVersion)) {
-    return <CrossTrackNote />;
-  }
-  return (
-    <Button size="xs" variant="outline" onClick={() => void handleUpdate()}>
-      {label}
     </Button>
   );
 }

@@ -1,5 +1,4 @@
 import {
-  DESKTOP_UPDATE_RESTART_MARKER_FILE,
   DesktopUpdateChannelSchema,
   type DesktopRuntimeInfo,
   type DesktopUpdateActionResult,
@@ -13,7 +12,6 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -25,7 +23,6 @@ import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
-import * as DesktopBackendPool from "../backend/DesktopBackendPool.ts";
 import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopObservability from "../app/DesktopObservability.ts";
@@ -345,7 +342,6 @@ function isArm64HostRunningIntelBuild(runtimeInfo: DesktopRuntimeInfo): boolean 
 /** @public */
 export const make = Effect.gen(function* () {
   const config = yield* DesktopConfig.DesktopConfig;
-  const pool = yield* DesktopBackendPool.DesktopBackendPool;
   const desktopState = yield* DesktopState.DesktopState;
   const electronUpdater = yield* ElectronUpdater.ElectronUpdater;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
@@ -355,9 +351,6 @@ export const make = Effect.gen(function* () {
 
   const appUpdateYmlConfigRef = yield* Ref.make<Option.Option<AppUpdateYmlConfig>>(Option.none());
   const activeUpdateActionRef = yield* Ref.make<Option.Option<UpdateAction>>(Option.none());
-  const installRunningBackendsRef = yield* Ref.make<
-    ReadonlyArray<DesktopBackendPool.DesktopBackendInstance>
-  >([]);
   const finishedUpdateActions = yield* PubSub.unbounded<UpdateAction>();
   const updaterConfiguredRef = yield* Ref.make(false);
   const lastLoggedDownloadMilestoneRef = yield* Ref.make(-1);
@@ -608,31 +601,11 @@ export const make = Effect.gen(function* () {
     );
   }).pipe(Effect.withSpan("desktop.updates.downloadAvailableUpdate"));
 
-  const updateRestartMarkerDir = environment.path.join(environment.baseDir, "runtime");
-  const updateRestartMarkerPath = environment.path.join(
-    updateRestartMarkerDir,
-    DESKTOP_UPDATE_RESTART_MARKER_FILE,
-  );
-  const writeUpdateRestartMarker = fileSystem
-    .makeDirectory(updateRestartMarkerDir, { recursive: true })
-    .pipe(
-      Effect.andThen(fileSystem.writeFileString(updateRestartMarkerPath, "")),
-      Effect.catch((error) =>
-        logUpdaterWarning("Could not write the update restart marker.", { errorTag: error._tag }),
-      ),
-    );
-
-  // Failed or interrupted installs leave no replacement backend; later quits must release the tunnel.
-  const removeUpdateRestartMarker = fileSystem
-    .remove(updateRestartMarkerPath, { force: true })
-    .pipe(Effect.ignore);
-
-  const installRecordPath = environment.path.join(
-    updateRestartMarkerDir,
-    DESKTOP_UPDATE_INSTALL_RECORD_FILE,
-  );
+  const runtimeDir = environment.path.join(environment.baseDir, "runtime");
+  const installRecordPath = environment.path.join(runtimeDir, DESKTOP_UPDATE_INSTALL_RECORD_FILE);
   const writeInstallRecord = (targetVersion: string) =>
     encodeInstallRecord({ fromVersion: environment.appVersion, targetVersion }).pipe(
+      Effect.tap(() => fileSystem.makeDirectory(runtimeDir, { recursive: true })),
       Effect.flatMap((text) => fileSystem.writeFileString(installRecordPath, text)),
       Effect.catch((error) =>
         logUpdaterWarning("Could not record the update install.", { errorTag: error._tag }),
@@ -667,13 +640,7 @@ export const make = Effect.gen(function* () {
     );
 
   const resetInstallAction = Effect.all(
-    [
-      finishUpdateAction("install"),
-      Ref.set(desktopState.quitting, false),
-      Ref.set(installRunningBackendsRef, []),
-      removeUpdateRestartMarker,
-      removeInstallRecord,
-    ],
+    [finishUpdateAction("install"), Ref.set(desktopState.quitting, false), removeInstallRecord],
     { discard: true },
   );
 
@@ -688,22 +655,10 @@ export const make = Effect.gen(function* () {
     if (!ownsRecovery) return;
 
     yield* Ref.set(desktopState.quitting, false);
-    yield* removeUpdateRestartMarker;
     yield* removeInstallRecord;
-    yield* Effect.gen(function* () {
-      const runningInstances = yield* Ref.getAndSet(installRunningBackendsRef, []);
-      const instances = (yield* pool.list).filter((instance) =>
-        runningInstances.includes(instance),
-      );
-      const restartExit = yield* Effect.forEach(instances, (instance) => instance.start, {
-        concurrency: "unbounded",
-        discard: true,
-      }).pipe(Effect.exit);
-      yield* updateState((current) => reduceDesktopUpdateStateOnInstallFailure(current, message));
-      if (Exit.isFailure(restartExit)) {
-        yield* logUpdaterError("Desktop update install recovery could not restart every backend.");
-      }
-    }).pipe(
+    yield* updateState((current) =>
+      reduceDesktopUpdateStateOnInstallFailure(current, message),
+    ).pipe(
       Effect.catchCause(() =>
         logUpdaterError("Desktop update install recovery failed unexpectedly."),
       ),
@@ -760,24 +715,10 @@ export const make = Effect.gen(function* () {
         }
 
         yield* Ref.set(desktopState.quitting, true);
-        yield* Ref.set(installRunningBackendsRef, []);
 
         return yield* Effect.gen(function* () {
-          yield* writeUpdateRestartMarker;
           const { downloadedVersion } = yield* Ref.get(updateStateRef);
           if (downloadedVersion !== null) yield* writeInstallRecord(downloadedVersion);
-          // Stop pooled backends before quitAndInstall can outrun their scope finalizers.
-          const instances = yield* pool.list;
-          // stop clears desiredRunning, so retain the recovery set beforehand.
-          const runningInstances = yield* Effect.filter(instances, (instance) =>
-            instance.snapshot.pipe(Effect.map((snapshot) => snapshot.desiredRunning)),
-          );
-          yield* Ref.set(installRunningBackendsRef, runningInstances);
-          yield* Effect.forEach(
-            instances,
-            (instance) => instance.stop({ timeout: Duration.seconds(5) }),
-            { concurrency: "unbounded" },
-          );
           yield* electronUpdater.quitAndInstall({
             isSilent: true,
             isForceRunAfter: true,

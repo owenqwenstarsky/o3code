@@ -114,7 +114,7 @@ export interface ReferenceAutolink {
 }
 
 /**
- * A host's mark as data, so web and mobile draw the same artwork without React in the host's
+ * A host's mark as data, so clients draw the same artwork without React in the host's
  * package. Paths only: a circle or rectangle is written as a path.
  */
 export interface SourceControlIcon {
@@ -150,15 +150,6 @@ export interface SourceControlIconPath {
   readonly fillOpacity?: number;
   readonly stroke?: string;
   readonly strokeWidth?: number;
-}
-
-/** Whether the mark is drawn in the text colour alone, so a client may tint it. */
-export function isMonochromeSourceControlIcon(icon: SourceControlIcon): boolean {
-  return icon.paths.every(
-    (path) =>
-      (path.fill === undefined || path.fill === "currentColor") &&
-      (path.stroke === undefined || path.stroke === "currentColor"),
-  );
 }
 
 /**

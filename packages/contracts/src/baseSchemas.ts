@@ -4,8 +4,7 @@ import * as Schema from "effect/Schema";
 import * as SchemaGetter from "effect/SchemaGetter";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
-// Hermes copies the string on every `trim()`, even when nothing changes.
-// Returning the original keeps repeated IDs shared after decode.
+// Returning the original when nothing changes keeps repeated IDs shared after decode.
 const trim = (value: string) => {
   const trimmed = value.trim();
   return trimmed.length === value.length ? value : trimmed;
@@ -31,16 +30,6 @@ export const TrimmedNonEmptyString = TrimmedString.check(isNonBlank);
 export const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 export const PositiveInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 export const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
-
-export const DpopFailureReason = Schema.Literals([
-  "time_window",
-  "key_mismatch",
-  "request_mismatch",
-  "token_mismatch",
-  "replay",
-  "invalid_proof",
-]);
-export type DpopFailureReason = typeof DpopFailureReason.Type;
 
 export const IsoDateTime = Schema.String;
 export type IsoDateTime = typeof IsoDateTime.Type;

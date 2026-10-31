@@ -181,7 +181,7 @@ it.layer(NodeServices.layer)("AnalyticsService test", (it) => {
           );
           // The event buffer also holds 1,000, so send the client events first.
           yield* analytics.flush;
-          yield* analytics.recordOwners([{ source: "connect", ownerId: "a".repeat(64) }], "server");
+          yield* analytics.recordOwners([{ source: "openai", ownerId: "a".repeat(64) }], "server");
         }),
       );
       const owners = batches.flat().map((event) => event.properties.observedBy);

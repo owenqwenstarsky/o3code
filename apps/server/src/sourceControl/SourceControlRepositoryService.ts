@@ -73,7 +73,7 @@ export interface SourceControlCloneOptions {
   readonly timeoutMs?: number | null;
 }
 
-// Older/mobile synchronous RPCs need deadlines; tracked clones use progress and Cancel instead.
+// Older synchronous RPCs need deadlines; tracked clones use progress and Cancel instead.
 const CLONE_TIMEOUT_MS = 120_000;
 const CLONE_ENV = {
   // Force piped progress immediately; refuse credential prompts that would hang without a tty.

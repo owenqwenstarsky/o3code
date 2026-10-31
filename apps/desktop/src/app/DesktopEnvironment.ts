@@ -55,15 +55,11 @@ export class DesktopEnvironment extends Context.Service<
     readonly rootDir: string;
     readonly appRoot: string;
     readonly serverRoot: string;
-    readonly backendEntryPath: string;
     readonly clientAssetsDir: string;
-    readonly backendCwd: string;
     readonly preloadPath: string;
     readonly compileCachePath: string;
     readonly appUpdateYmlPath: string;
     readonly devServerUrl: Option.Option<URL>;
-    readonly devRemoteT3ServerEntryPath: Option.Option<string>;
-    readonly configuredBackendPort: Option.Option<number>;
     readonly commitHashOverride: Option.Option<string>;
     readonly otlpTracesUrl: Option.Option<string>;
     readonly otlpMetricsUrl: Option.Option<string>;
@@ -81,7 +77,6 @@ export class DesktopEnvironment extends Context.Service<
     readonly appImagePath: Option.Option<string>;
     readonly defaultDesktopSettings: DesktopAppSettings.DesktopSettings;
     readonly runtimeInfo: DesktopRuntimeInfo;
-    readonly resolvePickFolderDefaultPath: (rawOptions: unknown) => Option.Option<string>;
     readonly resolveResourcePathCandidates: (fileName: string) => readonly string[];
   }
 >()("@t3tools/desktop/app/DesktopEnvironment") {}
@@ -208,17 +203,13 @@ const make = Effect.fn("desktop.environment.make")(function* (
     rootDir,
     appRoot,
     serverRoot,
-    backendEntryPath: path.join(serverRoot, "apps/server/dist/bin.mjs"),
     clientAssetsDir: path.join(serverRoot, "apps/server/dist/client"),
-    backendCwd: input.isPackaged ? homeDirectory : appRoot,
     preloadPath: path.join(input.dirname, "preload.cjs"),
     compileCachePath: path.join(input.dirname, "compileCache.cjs"),
     appUpdateYmlPath: input.isPackaged
       ? path.join(resourcesPath, "app-update.yml")
       : path.join(input.appPath, "dev-app-update.yml"),
     devServerUrl,
-    devRemoteT3ServerEntryPath: config.devRemoteT3ServerEntryPath,
-    configuredBackendPort: config.configuredBackendPort,
     commitHashOverride: config.commitHashOverride,
     otlpTracesUrl: config.otlpTracesUrl,
     otlpMetricsUrl: config.otlpMetricsUrl,
@@ -242,31 +233,6 @@ const make = Effect.fn("desktop.environment.make")(function* (
       processArch: input.processArch,
       runningUnderArm64Translation: input.runningUnderArm64Translation,
     }),
-    resolvePickFolderDefaultPath: (rawOptions) => {
-      if (typeof rawOptions !== "object" || rawOptions === null) {
-        return Option.none();
-      }
-
-      const { initialPath } = rawOptions as { initialPath?: unknown };
-      if (typeof initialPath !== "string") {
-        return Option.none();
-      }
-
-      const trimmedPath = initialPath.trim();
-      if (trimmedPath.length === 0) {
-        return Option.none();
-      }
-
-      if (trimmedPath === "~") {
-        return Option.some(homeDirectory);
-      }
-
-      if (trimmedPath.startsWith("~/") || trimmedPath.startsWith("~\\")) {
-        return Option.some(path.join(homeDirectory, trimmedPath.slice(2)));
-      }
-
-      return Option.some(path.resolve(trimmedPath));
-    },
     resolveResourcePathCandidates: (fileName) => [
       path.join(input.dirname, "../resources", fileName),
       path.join(input.dirname, "../prod-resources", fileName),

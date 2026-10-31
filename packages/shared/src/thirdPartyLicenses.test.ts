@@ -17,7 +17,7 @@ const ENTRIES: ReadonlyArray<ThirdPartyLicenseEntry> = [
     version: "19.2.6",
   },
   {
-    bundles: ["assets", "mobile"],
+    bundles: ["assets", "desktop"],
     kind: "custom",
     license: "CC-BY-4.0",
     name: "sample-icons",

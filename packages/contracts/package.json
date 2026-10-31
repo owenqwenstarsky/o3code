@@ -15,9 +15,9 @@
       "types": "./src/settings.ts",
       "import": "./src/settings.ts"
     },
-    "./relay": {
-      "types": "./src/relay.ts",
-      "import": "./src/relay.ts"
+    "./instance": {
+      "types": "./src/instance.ts",
+      "import": "./src/instance.ts"
     }
   },
   "scripts": {

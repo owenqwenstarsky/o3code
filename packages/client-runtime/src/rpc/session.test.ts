@@ -164,22 +164,11 @@ const encodeServerConfig = Schema.encodeSync(ServerConfig);
 const encodeServerConfigStreamEvent = Schema.encodeSync(ServerConfigStreamEvent);
 const encodeDefect = Schema.encodeSync(Schema.Defect());
 const ENCODED_SERVER_CONFIG = encodeServerConfig(SERVER_CONFIG);
-const THEME_SERVER_CONFIG: ServerConfigType = {
+const SOURCE_SERVER_CONFIG: ServerConfigType = {
   ...SERVER_CONFIG,
   environment: {
     ...SERVER_CONFIG.environment,
-    capabilities: {
-      ...SERVER_CONFIG.environment.capabilities,
-      environmentThemes: true,
-    },
-  },
-};
-const ENCODED_THEME_SERVER_CONFIG = encodeServerConfig(THEME_SERVER_CONFIG);
-const SOURCE_SERVER_CONFIG: ServerConfigType = {
-  ...THEME_SERVER_CONFIG,
-  environment: {
-    ...THEME_SERVER_CONFIG.environment,
-    capabilities: { ...THEME_SERVER_CONFIG.environment.capabilities, usageLimitSources: true },
+    capabilities: { ...SERVER_CONFIG.environment.capabilities, usageLimitSources: true },
   },
 };
 const SOURCE_EVENT: ServerConfigStreamEventType = {
@@ -512,7 +501,7 @@ describe("RpcSessionFactory", () => {
         const readyFiber = yield* Effect.forkChild(session.ready);
         const socket = yield* awaitSocket(sockets);
         socket.open();
-        yield* completeInitialConfig(socket, ENCODED_THEME_SERVER_CONFIG, {
+        yield* completeInitialConfig(socket, ENCODED_SERVER_CONFIG, {
           environmentThemes: true,
         });
         yield* Fiber.join(readyFiber);
@@ -583,7 +572,7 @@ describe("RpcSessionFactory", () => {
         let projection = applyServerConfigProjection(Option.none(), {
           version: 1,
           type: "snapshot",
-          config: THEME_SERVER_CONFIG,
+          config: SERVER_CONFIG,
         });
         projection = applyServerConfigProjection(projection, {
           version: 1,
@@ -751,7 +740,7 @@ describe("RpcSessionFactory", () => {
           const firstReady = yield* Effect.forkChild(firstSession.ready);
           const firstSocket = yield* awaitSocket(sockets);
           firstSocket.open();
-          yield* completeInitialConfig(firstSocket, ENCODED_THEME_SERVER_CONFIG, {
+          yield* completeInitialConfig(firstSocket, ENCODED_SERVER_CONFIG, {
             environmentThemes: true,
           });
           yield* Fiber.join(firstReady);
@@ -851,9 +840,9 @@ describe("RpcSessionFactory", () => {
           yield* SubscriptionRef.set(activeSession, Option.none());
 
           const recoveredConfig = {
-            ...THEME_SERVER_CONFIG,
+            ...SERVER_CONFIG,
             environment: {
-              ...THEME_SERVER_CONFIG.environment,
+              ...SERVER_CONFIG.environment,
               label: "Recovered environment",
             },
           } satisfies ServerConfigType;

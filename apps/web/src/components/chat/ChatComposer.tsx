@@ -7,7 +7,6 @@ import {
   runtimeModeConfig,
   runtimeModeOptions as runtimeModes,
 } from "./runtimeModeConfig";
-import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useRightPanelStore } from "~/rightPanelStore";
 import { importPastedComposerText, readPastedComposerContext } from "../composerInlineTokenPaste";
@@ -47,7 +46,6 @@ import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime
 import * as Schema from "effect/Schema";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
-import { folderDropTarget, resolveDroppedFolderPath } from "./folderDrop";
 import { splitTransferredFiles } from "./workspaceFileDrop";
 import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
 import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
@@ -2470,42 +2468,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   };
   const insertComposerTextAtEndStable = useStableCallback(insertComposerTextAtEnd);
 
-  const addComposerFolders = (folders: File[]) => {
-    const target = folderDropTarget({
-      localEnvironmentDisabled: isLocalEnvironmentDisabled(),
-      environmentId,
-      primaryEnvironmentId,
+  // Folders on this device are not in the workspace, so there is no path to link.
+  const addComposerFolders = (_folders: File[]) => {
+    toastManager.add({
+      type: "error",
+      title: "Folders from this device cannot be referenced",
+      description: "Type a workspace folder path with @ instead.",
     });
-    if (target === "remote") {
-      toastManager.add({
-        type: "error",
-        title: "Folders can only be referenced in the local desktop environment",
-      });
-      return;
-    }
-    for (const folder of folders) {
-      const path = resolveDroppedFolderPath(folder, window.desktopBridge?.getPathForFile);
-      if (path === null) {
-        toastManager.add({
-          type: "error",
-          title: `Couldn't get the path of "${folder.name}"`,
-          description: "Type the folder path with @ instead.",
-        });
-        continue;
-      }
-      const inserted = insertComposerTextAtEndStable(`${serializeComposerFileLink(path)} `, {
-        ensureLeadingBoundary: true,
-      });
-      if (!inserted) {
-        toastManager.add({
-          type: "error",
-          title: "Unable to add folder",
-          description: "The composer is busy; try again once it is ready.",
-        });
-        break;
-      }
-    }
-    focusComposer();
   };
   const addComposerFoldersStable = useStableCallback(addComposerFolders);
 

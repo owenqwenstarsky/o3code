@@ -4,7 +4,6 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   collectChannelSwitchTargets,
   collectRestartingMachines,
-  localSwitchBlockReason,
   collectServerUpdateTargets,
   describeUpdateCapsule,
   describeUpdateEverything,
@@ -38,7 +37,6 @@ function machine(
       settings: { continueThreadsAfterServerUpdate: false },
     },
     connected: true,
-    hostedByThisApp: false,
     canMaintain: true,
     updateState: { status: "idle" },
     ...overrides,
@@ -49,7 +47,6 @@ describe("collectServerUpdateTargets", () => {
   it("updates remote servers that can move to the target and names every skipped one", () => {
     const { targets, skipped } = collectServerUpdateTargets(
       [
-        machine("this-app", "0.0.40", "desktop-managed", { hostedByThisApp: true }),
         machine("service", "0.0.40", "boot-service"),
         machine("nightly-service", "0.0.49-nightly.20261001.3", "boot-service"),
         machine("other-desktop", "0.0.49-nightly.20261001.3", "desktop-managed"),
@@ -111,7 +108,6 @@ describe("collectChannelSwitchTargets", () => {
     const stable = { channel: "latest" as const, version: "0.1.3", databaseMigration: 69 };
     const { targets, skipped } = collectChannelSwitchTargets(
       [
-        host(machine("this-app", NIGHTLY, "desktop-managed", { hostedByThisApp: true }), 72),
         host(machine("old-service", OLD_NIGHTLY, "boot-service"), 69),
         // Service launchers refuse older versions, even when the database allows it.
         host(machine("newer-service", NEWER_NIGHTLY, "boot-service"), 69),
@@ -188,36 +184,8 @@ describe("collectChannelSwitchTargets", () => {
   });
 });
 
-describe("localSwitchBlockReason", () => {
-  it("checks every server this app hosts, and only while connected", () => {
-    const stable = { channel: "latest" as const, version: "0.1.3", databaseMigration: 69 };
-    const nightly = "0.1.4-nightly.20261027.3796";
-
-    const windows = { connected: true, databaseMigration: 69 };
-    expect(localSwitchBlockReason(nightly, stable, [windows], 1)).toBeNull();
-    // A WSL server's newer migration blocks the reinstall that would restart it.
-    expect(
-      localSwitchBlockReason(
-        nightly,
-        stable,
-        [windows, { connected: true, databaseMigration: 72 }],
-        2,
-      ),
-    ).toContain("does not support yet");
-    // A WSL backend still starting has no client entry, so its database is unchecked.
-    expect(localSwitchBlockReason(nightly, stable, [windows], 2)).toBe(
-      "its server is not connected, so its database cannot be checked",
-    );
-    // A cached head from a disconnected server proves nothing.
-    expect(
-      localSwitchBlockReason(nightly, stable, [{ connected: false, databaseMigration: 69 }], 1),
-    ).toBe("its server is not connected, so its database cannot be checked");
-    expect(localSwitchBlockReason("0.1.3", stable, [], 1)).toBeNull();
-  });
-});
-
 describe("collectRestartingMachines", () => {
-  it("lists updated servers, and this app's servers only when it installs", () => {
+  it("lists the updated servers and whether their threads continue", () => {
     const withContinuation = (
       id: string,
       overrides: Partial<UpdateEverythingMachine> = {},
@@ -233,7 +201,6 @@ describe("collectRestartingMachines", () => {
       };
     };
     const machines = [
-      withContinuation("this-app", { hostedByThisApp: true }, true),
       withContinuation("alvin", {}, true),
       withContinuation("opted-out", {}, false),
       machine("old", "0.0.40", "boot-service"),
@@ -243,15 +210,11 @@ describe("collectRestartingMachines", () => {
       environmentId: EnvironmentId.make(id),
     }));
 
-    expect(collectRestartingMachines(machines, servers, true)).toEqual([
-      { environmentId: "this-app", continuesThreads: true },
+    expect(collectRestartingMachines(machines, servers)).toEqual([
       { environmentId: "alvin", continuesThreads: true },
       { environmentId: "opted-out", continuesThreads: false },
       { environmentId: "old", continuesThreads: false },
     ]);
-    expect(
-      collectRestartingMachines(machines, servers, false).map((entry) => entry.environmentId),
-    ).toEqual(["alvin", "opted-out", "old"]);
   });
 });
 
@@ -278,10 +241,6 @@ describe("describeUpdateEverything", () => {
     const id = EnvironmentId.make;
     const { rows } = describeUpdateEverything({
       localVersion: "1.1.0",
-      localMachines: [
-        { environmentId: id("local"), label: "Mainbook" },
-        { environmentId: id("wsl"), label: "Mainbook WSL" },
-      ],
       servers: [
         {
           environmentId: id("npm"),
@@ -292,7 +251,7 @@ describe("describeUpdateEverything", () => {
       ],
       providerMachines: [
         { environmentId: id("npm"), label: "bb-1", providers: ["Codex", "Claude"] },
-        { environmentId: id("local"), label: "Mainbook", providers: ["Codex"] },
+        { environmentId: id("workspace"), label: "Workspace", providers: ["Codex"] },
         { environmentId: id("manual"), label: "alvin", providers: ["Claude"] },
       ],
       skipped: [
@@ -304,9 +263,9 @@ describe("describeUpdateEverything", () => {
     expect(
       rows.map(({ label, app, skipped, providers }) => [label, app, skipped, providers]),
     ).toEqual([
-      ["Mainbook", "this-app", null, ["Codex"]],
-      ["Mainbook WSL", "this-app", null, []],
+      ["This app", "this-app", null, []],
       ["bb-1", "server", null, ["Codex", "Claude"]],
+      ["Workspace", null, null, ["Codex"]],
       ["alvin", null, "needs a manual update", ["Claude"]],
       ["TheoRoom", null, "not connected", []],
     ]);

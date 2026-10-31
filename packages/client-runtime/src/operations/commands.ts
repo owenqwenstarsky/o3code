@@ -448,7 +448,7 @@ export const closeGuestShare = Effect.fn("EnvironmentCommands.closeGuestShare")(
 export interface ResolveGuestMessageInput extends ThreadCommandInput {
   readonly guestMessageId: GuestMessageId;
   readonly decision: "send" | "dismiss";
-  readonly creationSource?: "web" | "mobile";
+  readonly creationSource?: "web";
 }
 /** Send runs the guest's text as a normal turn; the server supplies the text, not the client. */
 export const resolveGuestMessage = Effect.fn("EnvironmentCommands.resolveGuestMessage")(function* (

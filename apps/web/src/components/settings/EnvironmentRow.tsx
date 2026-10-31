@@ -4,22 +4,15 @@ import {
   connectionRouteLabel,
   connectionRoutes,
 } from "@t3tools/client-runtime/connection";
-import type { DesktopSshEnvironmentTarget, EnvironmentMachineKind } from "@t3tools/contracts";
-import * as Option from "effect/Option";
+import type { EnvironmentMachineKind } from "@t3tools/contracts";
 import type { ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import type { EnvironmentPresentation } from "~/state/environments";
 import { usePreparedConnection } from "~/state/session";
-import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 
-export function formatDesktopSshTarget(target: DesktopSshEnvironmentTarget): string {
-  const authority = target.username ? `${target.username}@${target.hostname}` : target.hostname;
-  return target.port ? `${authority}:${target.port}` : authority;
-}
-
-export function environmentTransportLabel(
+function environmentTransportLabel(
   environment: EnvironmentPresentation,
   activeTarget: ConnectionTarget | null = null,
 ): string {
@@ -37,15 +30,6 @@ export function environmentTransportLabel(
       ? connectionRouteLabel(routes[0]!)
       : `via ${connectionRouteLabel(active)}`;
   }
-  if (environment.relayManaged) return "T3 Connect";
-  if (isDesktopLocalConnectionTarget(entry.target)) return "WSL";
-  if (
-    entry.target._tag === "SshConnectionTarget" &&
-    Option.isSome(entry.profile) &&
-    entry.profile.value._tag === "SshConnectionProfile"
-  ) {
-    return `SSH ${formatDesktopSshTarget(entry.profile.value.target)}`;
-  }
   return environment.displayUrl ?? "Remote link";
 }
 
@@ -57,12 +41,6 @@ export function useEnvironmentTransportLabel(environment: EnvironmentPresentatio
       ? prepared.value.target
       : null,
   );
-}
-
-export function EnvironmentTransportLabel(props: {
-  readonly environment: EnvironmentPresentation;
-}) {
-  return useEnvironmentTransportLabel(props.environment);
 }
 
 export function EnvironmentRow({

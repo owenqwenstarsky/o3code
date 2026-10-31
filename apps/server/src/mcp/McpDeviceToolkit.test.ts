@@ -173,7 +173,7 @@ it.effect("registers the device tools and returns the screenshot as image conten
         agentDevice: { command: string; targetArgs: ReadonlyArray<string>; session: string };
         quickStart: string;
       };
-      // Callers that pass the target flags, like test-t3-mobile's pair-client.sh, keep working.
+      // Callers that pass the target flags keep working.
       expect(openedContent.agentDevice).toMatchObject({
         targetArgs: [
           "--platform",

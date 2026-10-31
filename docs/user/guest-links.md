@@ -6,11 +6,10 @@ until you send or dismiss it.
 
 ## Share a thread
 
-Guest links are a beta. Turn on **Settings → Labs → Guest links** for the machine that runs the
-thread. They also need [T3 Connect](./remote-access.md): sign in and link that machine, because the
-link points at its T3 Connect address. The machine must stay online while the guest uses it.
-While the setting is off, every guest link on that machine stops working; links that have not
-expired work again when you turn it back on.
+Guest links are a beta. Turn on **Settings → Labs → Guest links**. A link points at your
+workspace's tailnet address, so only people on your tailnet can open it, and your workspace must
+stay running while they use it. While the setting is off, every guest link stops working; links
+that have not expired work again when you turn it back on.
 
 1. Right-click the thread in the sidebar and choose **Share with guest**. It is also in the thread
    menu and the command palette.
@@ -20,16 +19,16 @@ expired work again when you turn it back on.
    Choose **Send** to run it as a normal turn, or **Dismiss**. Files they attached show with the
    message, and **Send** includes them.
 
-Choose **Stop sharing** to end the link at once. Archiving the thread, creating a new link, or
-unlinking the machine from T3 Connect also ends it. You can send or dismiss guest messages from the mobile app.
+Choose **Stop sharing** to end the link at once. Archiving the thread or creating a new link also
+ends it.
 
 ## What the guest sees
 
 The guest sees the thread's recent history and everything after, in the same timeline you see, as
 it streams: messages and their files, the agent's replies with the images they show from your
-machine, its reasoning, plans, questions, and its work, with command output when they expand a
+workspace, its reasoning, plans, questions, and its work, with command output when they expand a
 command. Their composer shows the thread's model, but they cannot change it. They do not see diffs, and they cannot act on the thread: no forking,
-reverting, opening files on your machine, or answering the agent for you.
+reverting, opening files in your workspace, or answering the agent for you.
 
 Anything the agent read or printed can show, such as a value from a file. Share only threads you
 are comfortable showing.

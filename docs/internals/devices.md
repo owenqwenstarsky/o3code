@@ -2,8 +2,10 @@
 
 The environment server owns simulators and emulators the way it owns
 terminals: discovery, streaming, and agent access all run there, and every
-client reaches them through the environment connection. This is what makes the
-Device panel work over Tailscale and T3 Connect, including when an SSH host runs the devices.
+client reaches them through the environment connection. A workspace is a Linux
+container with no simulators of its own, so its devices come from another host (an
+SSH machine such as a Mac, an EAS Simulator session, or a Simlock pool) and still
+stream to every client through the workspace.
 
 ## Two external tools, one seam
 
@@ -74,7 +76,7 @@ hub binds loopback and the only way in is the
 stream, config, and screenshot routes and authenticates every request as an
 environment session. `<img>` and `WebSocket` cannot carry headers, so the proxy
 authenticates like the `/ws` upgrade: cookie, or a short-lived `wsTicket` that
-bearer and DPoP clients mint over authenticated HTTP. The ticket is stripped
+bearer clients mint over authenticated HTTP. The ticket is stripped
 before the request reaches the hub.
 
 Stream responses carry `Cache-Control: no-transform`; the compression
@@ -155,7 +157,7 @@ AVCC with a 409 naming the transport. The viewer still asks for AVCC first, so
 hubs that serve it pay nothing, and switches on that 409, or when its MJPEG
 image fails in a browser that has `RTCPeerConnection`. Offers are not trickled:
 serve-sim takes one offer with every candidate. The video element only feeds
-the same canvas sink, so the panel and the mobile WebView keep one surface.
+the same canvas sink, so the panel keeps one surface.
 Android asks serve-emu's `/api` before opening its video socket and streams
 WebRTC when it is advertised (EAS Simulator), keeping a separate `video=0`
 socket for input so input can reconnect without restarting video.

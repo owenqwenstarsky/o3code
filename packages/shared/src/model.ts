@@ -118,7 +118,8 @@ export function modelSelectionsEqual(left: ModelSelection, right: ModelSelection
 
 /**
  * Whether a composer's draft model pick is what the thread already runs. Web sends
- * `fastMode: false` for models with a fast toggle while mobile omits it, so off counts as unset.
+ * `fastMode: false` for models with a fast toggle while other selections omit it, so off counts as
+ * unset.
  */
 export function draftModelPickMatchesThread(pick: ModelSelection, thread: ModelSelection): boolean {
   const withoutFastModeOff = (selection: ModelSelection) =>

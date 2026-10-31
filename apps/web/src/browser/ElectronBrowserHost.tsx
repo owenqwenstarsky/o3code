@@ -10,7 +10,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import { type ComponentProps, useState } from "react";
 
-import { primaryEnvironmentIdAtom } from "~/state/primaryEnvironment";
+import { localEnvironmentIdAtom } from "~/state/primaryEnvironment";
 
 import { isElectron } from "~/env";
 import { useClientSettingsHydrated } from "~/hooks/useSettings";
@@ -97,7 +97,7 @@ function startAnnotationThemeSync(preview: DesktopPreviewBridge): () => void {
 function openLinkInPreview({ tabId, url, background }: DesktopPreviewOpenLinkEvent): void {
   const source = hostedBrowserSessions(
     readActivePreviewSessions(),
-    appAtomRegistry.get(primaryEnvironmentIdAtom),
+    appAtomRegistry.get(localEnvironmentIdAtom),
   ).find((session) => session.runtimeTabId === tabId);
   if (!source) return;
   void openUrlInPreview({
@@ -127,7 +127,7 @@ export function startElectronBrowserHost(): () => void {
 
 export function ElectronBrowserHost() {
   const previewByThreadKey = useActivePreviewSessions();
-  const primaryEnvironmentId = useAtomValue(primaryEnvironmentIdAtom);
+  const primaryEnvironmentId = useAtomValue(localEnvironmentIdAtom);
   useDesktopHostedPreviewSessions(primaryEnvironmentId);
   const sessions = hostedBrowserSessions(previewByThreadKey, primaryEnvironmentId);
 

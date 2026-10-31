@@ -20,27 +20,25 @@ with it. Who an install belongs to is a separate fact, sent as
 a rule can change and apply to all history.
 
 [Owner sources](../../apps/server/src/telemetry/Identify.ts), strongest first:
-T3 Connect, then the OpenAI and Claude person ids, then the client device. The
-server reports what it can read itself: the linked Connect account and provider
-logins. A connecting client reports its signed-in Connect account and its device,
-which links every environment opened from one phone, browser, or desktop. Use the
+the OpenAI and Claude person ids, then the client device. The server reports the
+provider logins it can read itself. A connecting client reports its device, which
+links every environment opened from one browser or desktop app. Use the
 OpenAI `user_id` claim, not the Codex `account_id` (the ChatGPT workspace, which a
-whole Team shares) or the token `sub` (one per login method). Two Connect accounts are never the same person, whatever
-weaker ids they share.
+whole Team shares) or the token `sub` (one per login method).
 
 Every id is SHA-256 hashed with [one helper](../../packages/shared/src/telemetryId.ts)
-on both sides, so a Connect account hashes the same on the client and the server.
-The server accepts only hashes from clients.
+on both sides, so an id hashes the same on the client and the server. The server
+accepts only hashes from clients.
 
 ## Attribution boundaries
 
 Client dimensions belong to the event's WebSocket connection. A server-global
-"current client" would misattribute simultaneous web, desktop, and mobile use.
+"current client" would misattribute simultaneous web and desktop use.
 Provider execution has its own events because a turn can outlive the requesting
 connection.
 
-Keep client and server dimensions separate. A desktop host can serve a phone or a
-remote browser, and a direct connection can cross a network. Older clients omit
+Keep client and server dimensions separate. A workspace serves browsers and
+desktop apps on other machines, and a direct connection can cross a network. Older clients omit
 metadata. Missing client values must stay unknown rather than being backfilled
 from server properties. The legacy `clientType` property describes how the server
 runs; use `surface` for the connected client.
@@ -48,7 +46,7 @@ runs; use `surface` for the connected client.
 ## Interpreting events
 
 Use `client.turn.requested` for active-use reports. There is no connection event,
-because T3 Connect sessions expire hourly and each reconnect would count again.
+because each reconnect would count again.
 A command whose id was already accepted is a retry, so it records nothing again.
 One identity can appear in several client groups during a period; adding those
 groups double-counts users.
@@ -108,6 +106,6 @@ send prompts, authentication material, raw provider payloads, user-assigned devi
 names, or conversation identifiers. Client metadata is best effort; invalid values
 must not reject a connection. PostHog person profiles remain disabled.
 
-Dev-runner servers and the CI archive smoke test turn telemetry off, which also
-stops relay tracing, because each would count as a new install. Set
-`T3CODE_TELEMETRY_ENABLED=true` to test analytics or relay tracing from a dev server.
+Dev-runner servers and the CI archive smoke test turn telemetry off, because each
+would count as a new install. Set `T3CODE_TELEMETRY_ENABLED=true` to test analytics
+from a dev server.

@@ -7,7 +7,6 @@ import {
   StoredOrchestrationShellSnapshot,
   StoredOrchestrationThreadSnapshot,
   decodeOrDiscardOrchestrationCache,
-  putRemoteDpopTokenInCatalog,
   registerConnectionInCatalog,
   removeCatalogValue,
   removeConnectionFromCatalog,
@@ -17,7 +16,6 @@ import {
   Persistence,
   makeStoredShellSnapshotEncoder,
 } from "@t3tools/client-runtime/platform";
-import { TokenStore } from "@t3tools/client-runtime/authorization";
 import {
   ConnectionTransientError,
   ConnectionBlockedError,
@@ -30,6 +28,7 @@ import {
 } from "@t3tools/client-runtime/connection";
 import { EnvironmentId, ServerConfig, ThreadId, VcsListRefsResult } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import { InstanceSessionStore } from "@t3tools/client-runtime/instance";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -714,25 +713,23 @@ export const layer = Layer.effectContext(
           ),
         })),
     });
-    const remoteTokenStore = TokenStore.make({
-      get: (environmentId) =>
-        catalog.read.pipe(
-          Effect.map((document) =>
-            Option.fromUndefinedOr(
-              document.remoteDpopTokens.find((token) => token.environmentId === environmentId),
-            ),
-          ),
+    const instanceSessionStore = InstanceSessionStore.of({
+      get: catalog.read.pipe(
+        Effect.map((document) => Option.fromUndefinedOr(document.instanceSession)),
+        Effect.catch((cause) =>
+          Effect.logWarning("Could not read the O3 instance sign-in.", {
+            error: cause.message,
+          }).pipe(Effect.as(Option.none())),
         ),
-      put: (token) => catalog.update((document) => putRemoteDpopTokenInCatalog(document, token)),
-      remove: (environmentId) =>
-        catalog.update((document) => ({
-          ...document,
-          remoteDpopTokens: removeCatalogValue(
-            document.remoteDpopTokens,
-            (value) => value.environmentId,
-            environmentId,
-          ),
-        })),
+      ),
+      set: Effect.fn("InstanceSessionStore.set")((session) =>
+        catalog
+          .update((document) => ({ ...document, instanceSession: session }))
+          .pipe(Effect.orDie),
+      ),
+      clear: catalog
+        .update(({ instanceSession: _removed, ...document }) => document)
+        .pipe(Effect.orDie),
     });
     const cacheStore = Persistence.EnvironmentCacheStore.of({
       loadShell: Effect.fn("Persistence.EnvironmentCacheStore.loadShell")(function (environmentId) {
@@ -966,8 +963,8 @@ export const layer = Layer.effectContext(
       Context.add(Persistence.ConnectionRegistrationStore, registrationStore),
       Context.add(ProfileStore.ConnectionProfileStore, profileStore),
       Context.add(CredentialStore.ConnectionCredentialStore, credentialStore),
-      Context.add(TokenStore.RemoteDpopAccessTokenStore, remoteTokenStore),
       Context.add(Persistence.EnvironmentCacheStore, cacheStore),
+      Context.add(InstanceSessionStore, instanceSessionStore),
     );
   }),
 );

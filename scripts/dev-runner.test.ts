@@ -71,10 +71,14 @@ const devServerInput = {
 
 it.layer(NodeServices.layer)("dev-runner", (it) => {
   describe("createDevRunnerEnv", () => {
-    it.effect("forwards the reusable auth token to web dev and removes it for desktop", () =>
+    it.effect("forwards the reusable auth token to web dev and gives desktop no backend", () =>
       Effect.gen(function* () {
         const input = {
-          baseEnv: { T3CODE_DEV_AUTH_TOKEN: "reusable-dev-auth-token-that-is-long-enough" },
+          baseEnv: {
+            T3CODE_DEV_AUTH_TOKEN: "reusable-dev-auth-token-that-is-long-enough",
+            VITE_HTTP_URL: "http://127.0.0.1:1234",
+            VITE_WS_URL: "ws://127.0.0.1:1234",
+          },
           serverOffset: 0,
           webOffset: 0,
           t3Home: undefined,
@@ -90,6 +94,9 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
 
         assert.equal(web.T3CODE_DEV_AUTH_TOKEN, input.baseEnv.T3CODE_DEV_AUTH_TOKEN);
         assert.equal(desktop.T3CODE_DEV_AUTH_TOKEN, undefined);
+        assert.equal(desktop.T3CODE_PORT, undefined);
+        assert.equal(desktop.VITE_HTTP_URL, undefined);
+        assert.equal(desktop.VITE_WS_URL, undefined);
       }),
     );
 
@@ -577,7 +584,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       it.effect("without --built keeps Vite behind the tailnet URL", () =>
         Effect.gen(function* () {
           const { env, vpArgs, tailscaleCalls } = yield* shareSpawned({});
-          assert.include(vpArgs, "dev");
+          assert.include(vpArgs, "dev:instance");
           assert.notInclude(vpArgs, "dev:built");
           assert.equal(env?.T3CODE_BUNDLED_DEV, "1");
           const serve = tailscaleCalls.find((args) => args.includes("--bg"));

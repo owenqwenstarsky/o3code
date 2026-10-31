@@ -11,7 +11,6 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { DESKTOP_DOWNLOAD_URL } from "~/branding";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { isHostedStaticApp } from "~/hostedPairing";
 import { useEnvironments } from "~/state/environments";
 
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
@@ -64,10 +63,9 @@ export function useHostedPromptLinkLanding(enabled: boolean): ReactNode | null {
   const { environments, isReady } = useEnvironments();
   const [opener, setOpener] = useLocalStorage(OPENER_STORAGE_KEY, null, Opener);
   const [continuedHref, setContinuedHref] = useState<string | null>(null);
-  const appPath =
-    enabled && isHostedStaticApp()
-      ? promptLinkAppPath(new URL(href, window.location.origin).href, window.location.origin)
-      : null;
+  const appPath = enabled
+    ? promptLinkAppPath(new URL(href, window.location.origin).href, window.location.origin)
+    : null;
   if (appPath === null || continuedHref === href) return null;
   const canContinue = isReady && environments.length > 0;
   if (opener === "browser") {

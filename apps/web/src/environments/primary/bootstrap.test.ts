@@ -51,30 +51,4 @@ describe("environmentBootstrap", () => {
       wsBaseUrl: "wss://remote.example.com/",
     });
   });
-
-  it("uses the vite proxy for desktop-managed loopback descriptor requests during local dev", () => {
-    vi.stubEnv("VITE_DEV_SERVER_URL", "http://127.0.0.1:5733");
-    vi.stubGlobal("window", {
-      location: new URL("http://127.0.0.1:5733/"),
-      history: {
-        replaceState: vi.fn(),
-      },
-      desktopBridge: {
-        getLocalEnvironmentEnabled: () => true,
-        getLocalEnvironmentBootstraps: () => [
-          {
-            id: "primary",
-            label: "Windows",
-            httpBaseUrl: "http://127.0.0.1:3773",
-            wsBaseUrl: "ws://127.0.0.1:3773",
-            bootstrapToken: "desktop-bootstrap-token",
-          },
-        ],
-      },
-    });
-
-    expect(resolvePrimaryEnvironmentHttpUrl("/.well-known/t3/environment")).toBe(
-      "http://127.0.0.1:5733/.well-known/t3/environment",
-    );
-  });
 });

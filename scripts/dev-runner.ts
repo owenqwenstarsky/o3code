@@ -63,15 +63,20 @@ export const DEFAULT_T3_HOME = Effect.map(Effect.service(Path.Path), (path) =>
   path.join(NodeOS.homedir(), ".t3"),
 );
 
+// Clients only sign in through an O3 instance, so browser dev runs an instance plus a stand-in
+// workspace (apps/server/scripts/dev-instance.ts) behind Vite.
+const INSTANCE_DEV_ARGS = [
+  "run",
+  "--filter=@t3tools/contracts",
+  "--filter=@t3tools/web",
+  "--filter=t3",
+  "--parallel",
+  "dev:instance",
+] as const;
+
 const MODE_ARGS = {
-  dev: [
-    "run",
-    "--filter=@t3tools/contracts",
-    "--filter=@t3tools/web",
-    "--filter=t3",
-    "--parallel",
-    "dev",
-  ],
+  dev: INSTANCE_DEV_ARGS,
+  "dev:instance": INSTANCE_DEV_ARGS,
   "dev:server": ["run", "--filter=t3", "dev"],
   "dev:web": ["run", "--filter=@t3tools/web", "dev"],
   "dev:desktop": ["run", "--filter=@t3tools/desktop", "--filter=@t3tools/web", "dev"],
@@ -145,7 +150,7 @@ export class DevRunnerProcessError extends Schema.TaggedError<DevRunnerProcessEr
   "DevRunnerProcessError",
   {
     operation: Schema.Literals(["spawn", "wait-for-exit"]),
-    mode: Schema.Literals(["dev", "dev:server", "dev:web", "dev:desktop"]),
+    mode: Schema.Literals(["dev", "dev:instance", "dev:server", "dev:web", "dev:desktop"]),
     executable: Schema.Literal("vp"),
     argumentCount: Schema.Number,
     shell: Schema.Boolean,
@@ -160,7 +165,7 @@ export class DevRunnerProcessError extends Schema.TaggedError<DevRunnerProcessEr
 export class DevRunnerProcessExitError extends Schema.TaggedError<DevRunnerProcessExitError>()(
   "DevRunnerProcessExitError",
   {
-    mode: Schema.Literals(["dev", "dev:server", "dev:web", "dev:desktop"]),
+    mode: Schema.Literals(["dev", "dev:instance", "dev:server", "dev:web", "dev:desktop"]),
     executable: Schema.Literal("vp"),
     argumentCount: Schema.Number,
     shell: Schema.Boolean,
@@ -175,7 +180,7 @@ export class DevRunnerProcessExitError extends Schema.TaggedError<DevRunnerProce
 export class DevRunnerHostNotProxiableError extends Schema.TaggedError<DevRunnerHostNotProxiableError>()(
   "DevRunnerHostNotProxiableError",
   {
-    mode: Schema.Literals(["dev", "dev:web"]),
+    mode: Schema.Literals(["dev", "dev:instance", "dev:web"]),
     host: Schema.String,
   },
 ) {
@@ -187,7 +192,7 @@ export class DevRunnerHostNotProxiableError extends Schema.TaggedError<DevRunner
 export class DevRunnerBuiltNeedsShareError extends Schema.TaggedError<DevRunnerBuiltNeedsShareError>()(
   "DevRunnerBuiltNeedsShareError",
   {
-    mode: Schema.Literals(["dev", "dev:server", "dev:web", "dev:desktop"]),
+    mode: Schema.Literals(["dev", "dev:instance", "dev:server", "dev:web", "dev:desktop"]),
   },
 ) {
   override get message(): string {
@@ -346,7 +351,7 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
     // An inherited HOST pins Vite's HMR socket via explicitHost in apps/web/vite.config.ts.
     // Only desktop mode should set it.
     delete output.HOST;
-    if (mode === "dev" || mode === "dev:web") {
+    if (mode === "dev" || mode === "dev:web" || mode === "dev:instance") {
       // Browser dev is single-origin: everything (including /ws) is proxied
       // through Vite, so the client must resolve its backend from
       // window.location.origin rather than a baked-in localhost URL.
@@ -363,11 +368,11 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
       delete output.T3CODE_SINGLE_ORIGIN_DEV;
     }
   } else {
-    output.T3CODE_PORT = String(serverPort);
-    output.VITE_HTTP_URL = `http://${DESKTOP_DEV_LOOPBACK_HOST}:${serverPort}`;
-    output.VITE_WS_URL = `ws://${DESKTOP_DEV_LOOPBACK_HOST}:${serverPort}`;
-    // Desktop pins the renderer to loopback on purpose; an ambient marker
-    // must not make Vite drop those URLs.
+    // The desktop runs no server: its renderer signs in to an O3 instance, which developers
+    // start separately with `vp run dev:instance`.
+    delete output.T3CODE_PORT;
+    delete output.VITE_HTTP_URL;
+    delete output.VITE_WS_URL;
     delete output.T3CODE_SINGLE_ORIGIN_DEV;
     delete output.T3CODE_MODE;
     delete output.T3CODE_NO_BROWSER;
@@ -400,7 +405,7 @@ export const createDevRunnerEnv = Effect.fn("dev-runner.createDevRunnerEnv")(fun
     delete output.T3CODE_DESKTOP_WS_URL;
   }
 
-  if (mode === "dev:server" || mode === "dev:web") {
+  if (mode === "dev:server" || mode === "dev:web" || mode === "dev:instance") {
     output.T3CODE_MODE = "web";
     delete output.T3CODE_DESKTOP_WS_URL;
   }
@@ -700,7 +705,7 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   );
 
   if (
-    (input.mode === "dev" || input.mode === "dev:web") &&
+    (input.mode === "dev" || input.mode === "dev:web" || input.mode === "dev:instance") &&
     input.host !== undefined &&
     !isProxiableBindHost(input.host)
   ) {

@@ -1,43 +1,37 @@
 # O3 Code
 
-O3 Code is an "agent harness control surface". It enables control of the agents on your machine from a web app, an Electron-based desktop app, and a mobile app.
+O3 Code is an "agent harness control surface" for teams. Your organization hosts it on one Linux
+server, an O3 instance, and everyone gets their own workspace: a container with their projects,
+terminal, and coding agents. People drive their workspace from the web app or the Electron desktop
+app, from any device on the organization's Tailscale tailnet.
 
-It is a fork of [T3 Code](https://github.com/pingdotgg/t3code), and keeps its focus: performant, remote-ready, and truly open.
+It is a fork of [T3 Code](https://github.com/pingdotgg/t3code), and keeps its focus: performant,
+remote-ready, and truly open.
 
-Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, O3 Code can control them.
+Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google
+Antigravity. Each person signs in to their own providers inside their workspace.
 
-## Installation
+## Get started
 
-> [!WARNING]
-> O3 Code currently supports Codex, Claude, Cursor, Grok Build, OpenCode, and Antigravity. Install and authenticate at least one provider before use:
->
-> - Codex: install [Codex CLI](https://developers.openai.com/codex/cli) and run `codex login`
-> - Claude: install [Claude Code](https://claude.com/product/claude-code) and run `claude auth login`
-> - Cursor: install [Cursor CLI](https://cursor.com/cli) and run `agent login`
-> - Grok Build: install [Grok Build CLI](https://x.ai/cli) and run `grok login`
-> - OpenCode: install [OpenCode](https://opencode.ai) and run `opencode auth login`
-> - Antigravity: enable it in Settings, then use **Install Antigravity** and **Sign in with Google**. No CLI is required.
+- **Running O3 Code for your organization:** [Run an O3 instance](./docs/user/instance-admin.md).
+- **Using it:** [Get started](./docs/user/install.md) covers signing in, your workspace, and
+  connecting providers.
 
-This fork does not publish releases, installers, or package-registry builds yet. Build and run it from source:
-see [Development](#development). The release pipeline was removed along with the upstream infrastructure it
-depended on; [docs/operations/release.md](./docs/operations/release.md) explains what a new one needs.
+This fork does not publish releases or prebuilt images yet. Admins build the instance and workspace
+images from this repository with Docker Compose, as the admin guide describes.
 
 ## Documentation
 
 Full docs live in [docs/](./docs). There's no docs site yet.
 
 - [FAQ](./docs/user/faq.md)
-- [Install and first run](./docs/user/install.md)
+- [Access and sharing](./docs/user/remote-access.md)
 - [Permission modes](./docs/user/permission-modes.md)
 - [Keyboard shortcuts](./docs/user/keybindings.md)
 - [Project settings](./docs/user/project-settings.md)
-- [Appearance preferences](./docs/user/appearance.md)
-- [Remote access from a phone or another machine](./docs/user/remote-access.md)
-- [Connect Claude Code, Codex, ChatGPT and other agents over MCP](./docs/user/outside-agents.md)
-- [Keeping app and server in sync](./docs/user/updating.md)
 - [Source control integrations](./docs/user/source-control.md)
+- [Connect Claude Code, Codex, and other agents over MCP](./docs/user/outside-agents.md)
 - Multiple accounts: [Codex](./docs/user/providers-codex.md) · [Claude](./docs/user/providers-claude.md)
-- [Run O3 Code as a background service](./docs/user/background-service.md)
 
 Building from source? Start at [docs/internals/overview.md](./docs/internals/overview.md).
 
@@ -65,8 +59,11 @@ Checkout their getting started guide for more information: https://viteplus.dev/
 
 ```bash
 vp i
-vp run dev
+vp run dev:instance
 ```
 
-Read [CONTRIBUTING.md](./CONTRIBUTING.md) and [AGENTS.md](./AGENTS.md) before opening a PR. Report bugs and
-request features in [issues](https://github.com/owenqwenstarsky/o3code/issues).
+`vp run dev:instance` runs an O3 instance and a stand-in workspace locally, without Docker or a
+tailnet. See the [development runbook](./docs/operations/development.md).
+
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) and [AGENTS.md](./AGENTS.md) before opening a PR. Report
+bugs and request features in [issues](https://github.com/owenqwenstarsky/o3code/issues).

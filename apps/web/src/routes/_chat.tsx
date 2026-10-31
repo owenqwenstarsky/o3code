@@ -47,11 +47,8 @@ function ChatRouteLayout() {
 
 export const Route = createFileRoute("/_chat")({
   beforeLoad: async ({ context, location }) => {
-    if (
-      context.authGateState.status !== "authenticated" &&
-      context.authGateState.status !== "hosted-static"
-    ) {
-      throw redirect({ to: "/pair", replace: true });
+    if (context.authGateState.status !== "hosted-static") {
+      throw redirect({ to: "/login", replace: true });
     }
     return { appModalPage: isAppModalPage(location.pathname) };
   },

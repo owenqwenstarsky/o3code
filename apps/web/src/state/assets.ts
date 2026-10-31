@@ -7,13 +7,13 @@ import { Atom } from "effect/reactivity";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { projectFaviconCache } from "../assets/projectFaviconCache";
 import { isElectron } from "../env";
-import { primaryEnvironmentIdAtom } from "./primaryEnvironment";
+import { localEnvironmentIdAtom } from "./primaryEnvironment";
 import { environmentProjectClonesAtom } from "./projectClones";
 import { environmentSession } from "./session";
 
 const localMediaEnvironment = Atom.make((get) => {
   if (!isElectron) return null;
-  const environmentId = get(primaryEnvironmentIdAtom);
+  const environmentId = get(localEnvironmentIdAtom);
   if (environmentId === null) return null;
   const connection = get(environmentSession.preparedConnectionValueAtom(environmentId));
   const config = get(environmentSession.initialConfigValueAtom(environmentId));

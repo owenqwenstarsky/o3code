@@ -11,16 +11,6 @@ Use **Change appearance** in the command palette to choose System, Light, or Dar
 the theme. **Cmd+Option+Shift+A** on macOS or **Ctrl+Alt+Shift+A** on Windows/Linux cycles through
 those modes. Customize these shortcuts under **Settings → Keybindings**.
 
-On mobile, open **Settings → Appearance**. Mobile has its own themes and text,
-code, and terminal preferences. It does not follow environment themes or defaults.
-
-On Android 12 or newer, choose the **Material You** theme in Appearance to use colors from
-your wallpaper. Selecting another theme replaces those colors. Like other themes, Material You
-can be selected separately for light and dark appearances.
-Android uses **Material You Layout** by default unless you have turned it off in Appearance.
-It changes shapes, spacing, and controls independently
-of the selected theme.
-
 ## Composer context
 
 Git-backed projects show branch and worktree controls below the composer while you create a thread.
@@ -32,7 +22,7 @@ applies to the web and desktop clients.
 ## Math
 
 Turn on **Render math** in **Settings → Appearance** to typeset LaTeX in messages and Markdown
-previews on web, desktop, and mobile. It reads `$…$`, `$$…$$`, `\(…\)`, and `\[…\]`, outside of code.
+previews on web and desktop. It reads `$…$`, `$$…$$`, `\(…\)`, and `\[…\]`, outside of code.
 Fenced `math` blocks also render. Formulas work in tables, including absolute-value bars.
 Dollar amounts such as `$5 and $10` stay text; write `\$` to keep any other dollar sign literal.
 Wide formulas scroll horizontally while the surrounding text wraps. Copying a formula or
@@ -56,15 +46,14 @@ change. Export your theme as JSON to share it.
 
 ## Environment themes
 
-Environment themes and defaults come from the server serving your web app or the desktop app's
-main local environment. app.t3.codes and additional connections do not use them.
+Environment themes and defaults come from your workspace.
 
-Select a published theme in **Settings → Appearance** to follow its palette as the server updates
+Select a published theme in **Settings → Appearance** to follow its palette as your workspace updates
 it. **Duplicate** makes an independent copy you can edit. A saved custom theme with the same ID
-takes precedence. If the server stops publishing the selected theme, O3 Code falls back to its
+takes precedence. If your workspace stops publishing the selected theme, O3 Code falls back to its
 standard theme.
 
-Run this on the server to set a default and switch connected clients to it:
+Run this in a workspace terminal to set a default and switch your signed-in devices to it:
 
 ```bash
 t3 theme set nightfall
@@ -79,8 +68,7 @@ the default and published themes.
 
 ### Publish a theme
 
-Save a theme exported from O3 Code into `~/.t3/userdata/themes/` on the server, or the `themes`
-directory under your custom state directory. The filename supplies the theme ID: `nightfall.json`
+Save a theme exported from O3 Code into `~/.t3/userdata/themes/` in your workspace. The filename supplies the theme ID: `nightfall.json`
 can be selected with `t3 theme set nightfall`. Keep the filename stable when updating its colors.
 Do not use `system`, `light`, `dark`, or a built-in theme's ID.
 

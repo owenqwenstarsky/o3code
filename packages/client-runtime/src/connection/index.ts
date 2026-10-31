@@ -8,7 +8,6 @@ export * from "./pullRequestRoutingPermissions.ts";
 export * from "./hostFreeze.ts";
 export * as Connection from "./layer.ts";
 export * from "./model.ts";
-export * as ConnectionOnboarding from "./onboarding.ts";
 export * from "./presentation.ts";
 export * as ProfileStore from "./profileStore.ts";
 export * from "./routes.ts";
@@ -19,6 +18,5 @@ export { EnvironmentNotRegisteredError, PlatformEnvironmentRemovalError } from "
 export * as EnvironmentSupervisor from "./supervisor.ts";
 export * as Wakeups from "./wakeups.ts";
 
-export { orchestrationProtocolCompatibilityError } from "./compatibility.ts";
 // Flat so consumers' inferred command types can name it.
 export { OutdatedHostUpdateError } from "./outdatedHostUpdate.ts";

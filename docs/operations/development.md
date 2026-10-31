@@ -7,19 +7,24 @@ pinned in `package.json` (Node 26), so no separate Node install is needed. From 
 
 ```sh
 vp i
-vp run dev
+vp run dev:instance
 ```
 
-Open the pairing URL printed by the dev runner. The bare origin does not authenticate
-a new browser.
+Open the web URL from the `[dev-runner]` output and sign in as `admin@o3.test` with
+`o3-dev-password`; the first sign-in asks for a new password, which the dev instance keeps.
+Every client signs in through an O3 instance, so this is the way to use the app locally: it runs
+an instance behind Vite and one stand-in workspace (a plain `t3 serve` on this checkout's dev
+home), with no Docker or tailnet ([dev-instance.ts](../../apps/server/scripts/dev-instance.ts)).
+The browser reaches the stand-in workspace directly on a loopback port, so the signed-in app works
+only from this machine.
 
 Prefer a container? See [Dev container](../internals/devcontainer.md) for VS Code and Codespaces setup.
 
 ## Choosing a dev process
 
-Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron client.
-`dev:server` and `dev:web` start those processes separately.
-See the [mobile README](../../apps/mobile/README.md) for native builds and Metro.
+Use `vp run dev:instance` for the full sign-in flow, `vp run dev` for a plain server and web
+(its UI stops at sign-in because nothing answers `/o3/api`), or `vp run dev:desktop` for the
+Electron client. `dev:server` and `dev:web` start those processes separately.
 
 Flags go directly after the task name, for example `vp run dev --home-dir /tmp/t3code-dev`.
 Add `--browser` to open a browser automatically.
@@ -46,7 +51,7 @@ different preference when needed.
 [dev-replay-agent.ts](../../apps/server/scripts/dev-replay-agent.ts). It plays recorded
 ACP transcripts with simulated streaming, so the real adapter, orchestration, and UI run
 without a paid model. Each scenario is a model, and each prompt plays the next recorded turn.
-Bundled servers, including desktop dev, skip it because they have no agent script.
+Servers without a Vite dev URL skip it, and that includes `dev:instance`'s stand-in workspace.
 Dev servers add it back on start, so turn it off in Settings instead of removing it.
 To add a scenario, point a `SCENARIOS` entry at a generic ACP replay fixture
 (`registry_transcript.ndjson`) or a file in [dev-replay](../../apps/server/scripts/dev-replay).
@@ -57,7 +62,9 @@ and vendor frames, so Grok and fx recordings lose their vendor-only behavior.
 
 `vp run dev --share` publishes the web port over the machine's tailnet and prints a pairing URL
 for that origin. Give the tester the complete URL, including its token. The dev runner removes
-its mapping on exit.
+its mapping on exit. The pairing URL authenticates the browser to the dev server, but the app
+still asks for an instance sign-in, and `dev:instance`'s stand-in workspace is loopback-only, so
+remote testing of the signed-in app does not work yet.
 
 Leave `VITE_HTTP_URL` and `VITE_WS_URL` unset. Vite proxies the backend through the browser's
 origin so the same build works over localhost and remote connections.
@@ -132,7 +139,7 @@ for the security model.
 changed files, `knip:check` when code or a manifest changes, the generated GraphQL checks, typecheck
 of the affected packages and their dependents, and the test files beside the changed files. It also
 runs the checks that read other files: the agent context budget when the server is affected, and
-React Compiler coverage for only the changed web and mobile files. It maps
+React Compiler coverage for only the changed web files. It maps
 files to packages with [ci-changes.cjs](../../.github/scripts/ci-changes.cjs), as CI does. It
 compares against the closest merge base with any remote's `main`, so a fork whose `main` lags
 upstream still compares against upstream, or with a ref you pass. CI still runs the full
@@ -163,7 +170,7 @@ TypeScript workspaces typecheck with `tsc`. The `typescript` catalog entry is
 `@tsc-rs/typescript`, the tsc-rs drop-in, with Effect diagnostics, quick fixes, and
 refactors built in. VS Code uses it through `js/ts.tsdk.path` in `.vscode/settings.json`.
 
-Use `vp run lint:mobile` for native mobile changes. CI owns the full suite; see
+CI owns the full suite; see
 [ci.yml](../../.github/workflows/ci.yml) for its current jobs.
 The [manual Windows lane](../../.github/workflows/windows-tests.yml) is available for focused
 Windows investigation while that suite is not a required gate.
@@ -247,12 +254,9 @@ rustup target add x86_64-pc-windows-msvc
 rustup target add aarch64-pc-windows-msvc
 ```
 
-NSIS is downloaded by electron-builder. WSL support additionally needs the Linux CLI archive
-passed as `--wsl-runtime`; see the
-[release runbook](./release.md#windows-payload-topology-and-update-validation).
+NSIS is downloaded by electron-builder.
 
 ### Signing and passkeys
 
 Add `--signed` after configuring the platform credentials in the
-[release runbook](./release.md). macOS passkeys need a signed, provisioned app; follow the
-[Connect setup](./connect-setup.md#desktop-passkeys) for local signing and renderer HMR.
+[release runbook](./release.md). In-app browser passkeys on macOS need a signed, provisioned app.

@@ -90,46 +90,32 @@ describe("searchSettings", () => {
     expect(searchSettings("pairing remote", ITEMS).map((item) => item.id)).toEqual([
       "network-access",
     ]);
-    expect(
-      searchSettings("remote pairing")
-        .slice(0, 2)
-        .map((item) => item.id),
-    ).toEqual(["network-access", "connections-environment"]);
+    expect(searchSettings("pairing code")[0]?.id).toBe("connections-environment");
   });
 
   it("hides desktop-only settings from browser search", () => {
     expect(SETTINGS_SEARCH_ITEMS.some((item) => item.id === "quit-confirmation")).toBe(true);
     expect(searchSettings("hold to quit")).toEqual([]);
-    expect(searchSettings("wsl")).toEqual([]);
     expect(searchSettings("update track")).toEqual([]);
   });
 
   it("hides settings whose controls are unavailable", () => {
     const available = filterAvailableSettingsSearchItems({
-      hasCloudPublicConfig: false,
       hasEnvironment: false,
       hasProviderSettingsEnvironment: false,
       hasMacProviderSettingsEnvironment: false,
-      canManageLocalBackend: false,
-      isWslSettingsRowVisible: false,
       hasThreadAutoSettlement: false,
     });
 
     const gatedIds = new Set<string>([
       "follow-change-request-templates",
       "git-fetch-interval",
-      "network-access",
-      "publish-agent-activity",
       "provider-health-check-interval",
       "cursor-keychain-usage",
       "source-control-writer-model",
       "review-guide-model",
       "review-guide-instructions",
       "source-control-writing-style",
-      "t3-connect",
-      "hold-webhooks-while-offline",
-      "tailscale-https",
-      "wsl-backend",
       "auto-settle-inactive-threads",
       "auto-settle-merged-threads",
       "days-before-auto-settle",
@@ -138,15 +124,11 @@ describe("searchSettings", () => {
     expect(available.map((item) => item.id).filter((id) => gatedIds.has(id))).toEqual([]);
   });
 
-  it("finds linked environments on a remote host without local maintenance access", () => {
+  it("finds linked environments only with a host that can link", () => {
     const availability = {
-      hasCloudPublicConfig: false,
       hasEnvironment: true,
       hasProviderSettingsEnvironment: true,
       hasMacProviderSettingsEnvironment: false,
-      canManageLocalBackend: false,
-      localEnvironmentDisabled: true,
-      isWslSettingsRowVisible: false,
       hasThreadAutoSettlement: false,
     };
     const results = (hasPeerLinkHost: boolean) =>
@@ -158,7 +140,7 @@ describe("searchSettings", () => {
     expect(results(true)).toContainEqual(
       expect.objectContaining({
         id: "linked-environments",
-        to: "/settings/connections",
+        to: "/settings/access",
         targetId: "linked-environments",
       }),
     );
@@ -232,12 +214,9 @@ describe("auto-settlement search availability", () => {
     const availability = getThreadAutoSettlementSearchAvailability(environments);
     expect(availability.eligibleEnvironmentIds).toEqual([capable.environmentId]);
     const items = filterAvailableSettingsSearchItems({
-      hasCloudPublicConfig: false,
       hasEnvironment: true,
       hasProviderSettingsEnvironment: true,
       hasMacProviderSettingsEnvironment: false,
-      canManageLocalBackend: false,
-      isWslSettingsRowVisible: false,
       hasThreadAutoSettlement: availability.eligibleEnvironmentIds.length > 0,
     });
     expect(searchSettings("auto-settle", items).map((item) => item.id)).toEqual([
@@ -326,7 +305,9 @@ describe("movedSettingsPath", () => {
       "/settings/worktrees",
     );
     expect(movedSettingsPath("/settings/appearance", "diff-color-scheme")).toBe("/settings/diffs");
-    expect(movedSettingsPath("/settings/connections", "network-access")).toBe("/settings/access");
+    expect(movedSettingsPath("/settings/connections", "remote-environments")).toBe(
+      "/settings/access",
+    );
     expect(movedSettingsPath("/settings/storage", "storage-worktrees")).toBe("/settings/worktrees");
     expect(movedSettingsPath("/settings/storage", "")).toBe("/settings/maintenance");
     expect(movedSettingsPath("/settings/integrations", "devices")).toBe("/settings/devices");
@@ -336,7 +317,6 @@ describe("movedSettingsPath", () => {
   it("leaves current pages alone", () => {
     expect(movedSettingsPath("/settings/general", "time-format")).toBeNull();
     expect(movedSettingsPath("/settings/projects", "project-defaults")).toBeNull();
-    expect(movedSettingsPath("/settings/connections", "remote-environments")).toBeNull();
     expect(movedSettingsPath("/settings/appearance", "theme")).toBeNull();
   });
 });

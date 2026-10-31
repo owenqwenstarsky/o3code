@@ -131,17 +131,9 @@
       "types": "./src/providerUpdateRequiredModels.ts",
       "default": "./src/providerUpdateRequiredModels.ts"
     },
-    "./voice-input": {
-      "types": "./src/voice-input/index.ts",
-      "default": "./src/voice-input/index.ts"
-    },
     "./t3ToolSummary": {
       "types": "./src/t3ToolSummary.ts",
       "default": "./src/t3ToolSummary.ts"
-    },
-    "./relay": {
-      "types": "./src/relay/index.ts",
-      "default": "./src/relay/index.ts"
     },
     "./state/auth": {
       "types": "./src/state/auth.ts",
@@ -254,10 +246,6 @@
     "./state/project-grouping": {
       "types": "./src/state/projectGrouping.ts",
       "default": "./src/state/projectGrouping.ts"
-    },
-    "./state/relay": {
-      "types": "./src/state/relayDiscovery.ts",
-      "default": "./src/state/relayDiscovery.ts"
     },
     "./state/review": {
       "types": "./src/state/review.ts",
@@ -487,10 +475,6 @@
       "types": "./src/reviewGuideTour.ts",
       "default": "./src/reviewGuideTour.ts"
     },
-    "./state/query-persistence": {
-      "types": "./src/state/queryPersistence.ts",
-      "default": "./src/state/queryPersistence.ts"
-    },
     "./pull-request-markdown": {
       "types": "./src/pullRequestMarkdown.ts",
       "default": "./src/pullRequestMarkdown.ts"
@@ -518,6 +502,10 @@
     "./provider-clients": {
       "types": "./src/providerClients.ts",
       "default": "./src/providerClients.ts"
+    },
+    "./instance": {
+      "types": "./src/instance/account.ts",
+      "default": "./src/instance/account.ts"
     }
   },
   "scripts": {

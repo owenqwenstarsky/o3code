@@ -25,7 +25,7 @@ provider instance's environment overrides to use ACP v1.
 3. Search the ACP Registry for the agent and select **Add** on its result.
 4. Confirm the name and instance ID, then complete the agent's sign-in step.
 
-Search only shows agents that can run on the connected server. Registry agents are third-party
+Search only shows agents that can run in your workspace. Registry agents are third-party
 code; review an agent's source and license before adding it.
 
 ## Add a local command
@@ -41,8 +41,7 @@ without expanding shell expressions.
 
 ## Where agents run
 
-Registry agents always run on the machine that hosts your O3 Code server. That stays true when you
-connect through `app.t3.codes`, T3 Connect, or a relay.
+Registry agents always run in your workspace, whichever device you connect from.
 
 Agents install under `tools/<agent-id>/<version>/` inside T3 home. O3 Code verifies SHA-256 when the Registry entry
 provides one; entries without a checksum retain the Registry's HTTPS distribution guarantee.
@@ -54,13 +53,11 @@ but keeps package installs. To use an existing local binary, set **Executable ov
 ## Signing in
 
 Open the agent's account section in **Settings → Providers** on web or desktop. Choose
-**Sign in** and, if the agent offers several methods, select one. For an installed, configured
-provider, mobile also offers **Settings → Providers**.
+**Sign in** and, if the agent offers several methods, select one.
 
 Browser sign-in shows the agent's URL and waits for you to open or copy it before telling the
 agent to proceed. The page opens on your device, while the agent runs on the environment.
-Terminal methods run in an in-app terminal on that environment. On mobile, send responses
-through the terminal response field. O3 Code reconnects after terminal login and waits for the
+Terminal methods run in an in-app terminal on that environment. O3 Code reconnects after terminal login and waits for the
 agent to confirm sign-in before reporting success. You can cancel or retry an expired attempt.
 
 Browser and terminal sign-in leave credentials in the agent's own store. Agents that use API keys
@@ -72,8 +69,8 @@ threads for instances of that same agent on the environment. Thread history and 
 are kept. ACP does not describe account isolation, so adding another instance does not guarantee
 a separate account; use the agent's own configuration to isolate accounts when supported.
 
-If an agent cannot complete its advertised flow remotely, its CLI remains available on the
-server. For example, Codex supports `codex login --device-auth`, and Grok Build supports
+If an agent cannot complete its advertised flow remotely, run its CLI in a workspace
+terminal. For example, Codex supports `codex login --device-auth`, and Grok Build supports
 `grok login --device-auth`.
 
 ## Models and options
