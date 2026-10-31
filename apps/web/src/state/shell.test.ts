@@ -60,7 +60,7 @@ function catalogState(environmentIds: readonly EnvironmentId[]): EnvironmentCata
   };
 }
 
-function makeHarness(requiresPrimaryEnvironment = true) {
+function makeHarness() {
   const catalog = Atom.make<EnvironmentCatalogState>({ isReady: false, entries: new Map() });
   const shells = Atom.family((_environmentId: EnvironmentId) =>
     Atom.make<EnvironmentShellState>(shellState("empty")),
@@ -68,7 +68,6 @@ function makeHarness(requiresPrimaryEnvironment = true) {
   const ready = createAllEnvironmentProjectSnapshotsReadyAtom({
     catalogValueAtom: catalog,
     shellStateValueAtom: shells,
-    requiresPrimaryEnvironment,
   });
   const registry = AtomRegistry.make();
   return { catalog, shells, ready, registry };
@@ -83,21 +82,8 @@ describe("project snapshot readiness", () => {
     registry.dispose();
   });
 
-  it("waits for primary discovery even if a persisted remote is already live", () => {
+  it("loads projects once a saved workspace is live, without a primary environment", () => {
     const { catalog, shells, ready, registry } = makeHarness();
-    registry.set(catalog, catalogState([REMOTE]));
-    registry.set(shells(REMOTE), shellState("live"));
-    expect(registry.get(ready)).toBe(false);
-
-    registry.set(catalog, catalogState([LOCAL, REMOTE]));
-    expect(registry.get(ready)).toBe(false);
-    registry.set(shells(LOCAL), shellState("live"));
-    expect(registry.get(ready)).toBe(true);
-    registry.dispose();
-  });
-
-  it("allows a hosted client to load projects without a primary environment", () => {
-    const { catalog, shells, ready, registry } = makeHarness(false);
     registry.set(catalog, catalogState([REMOTE]));
     expect(registry.get(ready)).toBe(false);
     registry.set(shells(REMOTE), shellState("live"));

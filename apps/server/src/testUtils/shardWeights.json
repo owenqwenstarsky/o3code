@@ -8,7 +8,6 @@
   "src/auth/http.test.ts": 0.5,
   "src/checkpointing/CheckpointDiffQuery.test.ts": 1.1,
   "src/checkpointing/CheckpointStore.test.ts": 0.9,
-  "src/cli/app.test.ts": 2.4,
   "src/cli/config.test.ts": 0.6,
   "src/cli/pair.test.ts": 2.4,
   "src/cli/project.test.ts": 2.4,

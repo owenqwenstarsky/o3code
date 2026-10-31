@@ -1,10 +1,10 @@
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { AsyncResult, type Atom } from "effect/reactivity";
+import { AsyncResult } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 
-import { act, render, stubGlobal } from "../../../test/render";
+import { render, stubGlobal } from "../../../test/render";
 
 const state = vi.hoisted(() => ({
   projects: [] as EnvironmentProject[],
@@ -13,13 +13,9 @@ const state = vi.hoisted(() => ({
   openLink: vi.fn(async () => undefined),
   navigate: vi.fn(async (): Promise<void> => undefined),
   openScratchProject: vi.fn(async () => null),
-  confirm: vi.fn(async (_message: string) => true),
-  connectPairing: vi.fn(async (_input: { pairingUrl: string }) => ({ _tag: "Success" })),
-  localEnvironmentDisabled: false,
 }));
 
-// One connected primary environment that can read pull requests. Its project list and
-// discovery flag start empty so a test can deliver links before they arrive.
+// One connected primary environment that can read pull requests.
 vi.mock(import("@tanstack/react-router"), async (original) => ({
   ...(await original()),
   useNavigate: (() => state.navigate) as never,
@@ -31,17 +27,11 @@ vi.mock(import("@tanstack/react-router"), async (original) => ({
 vi.mock(import("../../state/environments"), async (original) => ({
   ...(await original()),
   usePrimaryEnvironmentId: () => "local" as EnvironmentId,
-  usePrimaryEnvironment: (() =>
-    state.localEnvironmentDisabled
-      ? null
-      : {
-          environmentId: "local",
-          connection: { phase: "connected" },
-          serverConfig: {},
-        }) as never,
-}));
-vi.mock(import("../../localEnvironment"), () => ({
-  isLocalEnvironmentDisabled: () => state.localEnvironmentDisabled,
+  usePrimaryEnvironment: (() => ({
+    environmentId: "local",
+    connection: { phase: "connected" },
+    serverConfig: {},
+  })) as never,
 }));
 vi.mock(import("../../state/server"), async (original) => {
   const { Atom } = await import("effect/reactivity");
@@ -51,13 +41,6 @@ vi.mock(import("../../state/server"), async (original) => {
     environmentServerConfigsAtom: Atom.make(
       new Map([["local", { environment: { capabilities } }]]),
     ) as never,
-  };
-});
-vi.mock(import("../../state/shell"), async (original) => {
-  const { Atom } = await import("effect/reactivity");
-  return {
-    ...(await original()),
-    allReachableShellsLiveAtom: Atom.make(false).pipe(Atom.keepAlive),
   };
 });
 vi.mock(import("../../state/entities"), async (original) => ({
@@ -79,27 +62,7 @@ vi.mock("../../state/use-atom-query-runner", () => ({
   useAtomQueryRunner: () => state.preview,
 }));
 vi.mock("../../browser/useOpenLink", () => ({ useOpenLink: () => state.openLink }));
-vi.mock(import("../../confirmDialog"), async (original) => ({
-  ...(await original()),
-  requestConfirmDialog: state.confirm,
-}));
-vi.mock(import("../../connection/onboarding"), async (original) => ({
-  ...(await original()),
-  connectPairing: "connectPairing" as never,
-}));
-vi.mock(import("../../state/use-atom-command"), async (original) => {
-  const actual = await original();
-  return {
-    ...actual,
-    useAtomCommand: ((command: unknown, options: never) =>
-      command === "connectPairing"
-        ? state.connectPairing
-        : actual.useAtomCommand(command as never, options)) as never,
-  };
-});
-
-import { AppAtomRegistryProvider, appAtomRegistry } from "../../rpc/atomRegistry";
-import { allReachableShellsLiveAtom } from "../../state/shell";
+import { AppAtomRegistryProvider } from "../../rpc/atomRegistry";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../../diffPanelStore";
 import {
   selectActiveRightPanel,
@@ -108,7 +71,6 @@ import {
 } from "../../rightPanelStore";
 import { DesktopWebLinkCoordinator } from "./DesktopWebLinkCoordinator";
 
-const discoverySettled = allReachableShellsLiveAtom as Atom.Writable<boolean>;
 const environmentId = EnvironmentId.make("local");
 const projectId = ProjectId.make("effect");
 const project = {
@@ -140,13 +102,8 @@ const pullRequestView = {
   },
 };
 
-const pairingUrl = "https://vps.example.com/pair#token=ABC123";
-const pairLink = `t3code://pair?pairingUrl=${encodeURIComponent(pairingUrl)}`;
-
 function setup() {
   vi.clearAllMocks();
-  state.confirm.mockResolvedValue(true);
-  state.localEnvironmentDisabled = false;
   state.projects = [];
   state.routeParams = {};
   state.preview
@@ -154,7 +111,6 @@ function setup() {
     .mockResolvedValue(AsyncResult.success({ sources: [{ kind: "commit", headRef: sha }] }));
   useDiffPanelStore.setState({ byThreadKey: {}, branchBaseRefByThreadKey: {} });
   useRightPanelStore.setState({ byThreadKey: {}, userActionRevisionByThreadKey: {} });
-  appAtomRegistry.set(discoverySettled, false);
 }
 
 /** Mounts the coordinator behind a desktop bridge that hands over `urls` once the renderer is ready. */
@@ -185,22 +141,18 @@ async function mount(...urls: string[]) {
   return stack.move();
 }
 
-it("holds a launch PR link until project discovery settles, then opens the PR view", async () => {
+it("opens a launch PR link in the PR view", async () => {
+  setup();
+  state.projects = [project];
+  await using _coordinator = await mount(pullRequestUrl);
+  await vi.waitFor(() => expect(state.navigate).toHaveBeenCalledExactlyOnceWith(pullRequestView));
+  expect(state.openScratchProject).not.toHaveBeenCalled();
+});
+
+it("opens a PR link without a matching project in the browser", async () => {
   setup();
   await using _coordinator = await mount(pullRequestUrl);
-  expect(state.navigate).not.toHaveBeenCalled();
-  expect(state.openScratchProject).not.toHaveBeenCalled();
-
-  state.projects = [project];
-  const navigated = new Promise<void>((resolve) => {
-    state.navigate.mockImplementationOnce(async () => resolve());
-  });
-  await act(async () => {
-    appAtomRegistry.set(discoverySettled, true);
-    await navigated;
-  });
-  expect(state.navigate).toHaveBeenCalledExactlyOnceWith(pullRequestView);
-  expect(state.openScratchProject).not.toHaveBeenCalled();
+  await vi.waitFor(() => expect(state.openScratchProject).toHaveBeenCalledOnce());
 });
 
 const sha = "a".repeat(40);
@@ -210,12 +162,9 @@ const threadRef = scopeThreadRef(environmentId, ThreadId.make("thread"));
 it.each([
   ["github.com", "pull/9339/commits"],
   ["code.example.com:8443", "commit"],
-])("opens a %s/%s commit in the active thread's Diff pane after discovery", async (host, path) => {
+])("opens a %s/%s commit in the active thread's Diff pane", async (host, path) => {
   setup();
   state.routeParams = { environmentId: "local", threadId: "thread" };
-  await using _coordinator = await mount(`https://${host}/Effect-TS/effect/${path}/${sha}`);
-  expect(state.preview).not.toHaveBeenCalled();
-
   state.projects = [
     {
       ...project,
@@ -229,7 +178,7 @@ it.each([
       },
     } as EnvironmentProject,
   ];
-  await act(async () => appAtomRegistry.set(discoverySettled, true));
+  await using _coordinator = await mount(`https://${host}/Effect-TS/effect/${path}/${sha}`);
   await vi.waitFor(() => {
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, threadRef)).toBe(
       "diff",
@@ -251,7 +200,6 @@ it("opens a PR commit the workspace lacks in the thread's PR panel", async () =>
   state.routeParams = { environmentId: "local", threadId: "thread" };
   state.projects = [project];
   state.preview.mockResolvedValueOnce(AsyncResult.success({ sources: [] }));
-  appAtomRegistry.set(discoverySettled, true);
   await using _coordinator = await mount(commitUrl);
   await vi.waitFor(() =>
     expect(
@@ -267,7 +215,6 @@ it("opens a plain commit the workspace lacks like any other delivered link", asy
   state.routeParams = { environmentId: "local", threadId: "thread" };
   state.projects = [project];
   state.preview.mockResolvedValueOnce(AsyncResult.success({ sources: [] }));
-  appAtomRegistry.set(discoverySettled, true);
   const plainCommitUrl = `https://github.com/Effect-TS/effect/commit/${sha}`;
   await using _coordinator = await mount(plainCommitUrl);
   await vi.waitFor(() => expect(state.openScratchProject).toHaveBeenCalledOnce());
@@ -275,63 +222,4 @@ it("opens a plain commit the workspace lacks like any other delivered link", asy
   expect(state.openLink).not.toHaveBeenCalled();
   expect(useDiffPanelStore.getState().byThreadKey).toEqual({});
   expect(useRightPanelStore.getState().byThreadKey).toEqual({});
-});
-
-it("adds the backend from a pairing link after the user confirms its host", async () => {
-  setup();
-  await using _coordinator = await mount(pairLink);
-  await vi.waitFor(() =>
-    expect(state.connectPairing).toHaveBeenCalledExactlyOnceWith({ pairingUrl }),
-  );
-  expect(state.confirm).toHaveBeenCalledExactlyOnceWith(
-    "Add the backend at https://vps.example.com?",
-  );
-  expect(state.navigate).not.toHaveBeenCalled();
-});
-
-it("does not spend the pairing token when the user declines", async () => {
-  setup();
-  const otherPairingUrl = "https://other.example.com/pair#token=XYZ789";
-  state.confirm.mockResolvedValueOnce(false);
-  await using _coordinator = await mount(
-    pairLink,
-    `t3code://pair?pairingUrl=${encodeURIComponent(otherPairingUrl)}`,
-  );
-  await vi.waitFor(() => expect(state.connectPairing).toHaveBeenCalled());
-  expect(state.confirm).toHaveBeenCalledTimes(2);
-  expect(state.connectPairing).toHaveBeenCalledExactlyOnceWith({ pairingUrl: otherPairingUrl });
-});
-
-it("skips a repeat of a pairing link that already paired", async () => {
-  setup();
-  const otherPairingUrl = "https://other.example.com/pair#token=XYZ789";
-  await using _coordinator = await mount(
-    pairLink,
-    pairLink,
-    `t3code://pair?pairingUrl=${encodeURIComponent(otherPairingUrl)}`,
-  );
-  await vi.waitFor(() =>
-    expect(state.connectPairing).toHaveBeenLastCalledWith({ pairingUrl: otherPairingUrl }),
-  );
-  expect(state.confirm).toHaveBeenCalledTimes(2);
-  expect(state.connectPairing.mock.calls).toEqual([
-    [{ pairingUrl }],
-    [{ pairingUrl: otherPairingUrl }],
-  ]);
-});
-
-it("pairs with Local environment disabled, where there is no primary environment to wait for", async () => {
-  setup();
-  state.localEnvironmentDisabled = true;
-  await using _coordinator = await mount(pairLink);
-  await vi.waitFor(() =>
-    expect(state.connectPairing).toHaveBeenCalledExactlyOnceWith({ pairingUrl }),
-  );
-});
-
-it("does not hold a PR link for project discovery that never settles with Local environment disabled", async () => {
-  setup();
-  state.localEnvironmentDisabled = true;
-  await using _coordinator = await mount(pullRequestUrl);
-  await vi.waitFor(() => expect(state.openScratchProject).toHaveBeenCalledOnce());
 });

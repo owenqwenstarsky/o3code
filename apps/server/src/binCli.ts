@@ -12,7 +12,6 @@ import { acpMcpBridgeCommand, acpMcpCallCommand } from "./cli/acpMcpBridge.ts";
 import { authCommand } from "./cli/auth.ts";
 import { instanceCommand } from "./instance/cli.ts";
 import { environmentCommand } from "./cli/environment.ts";
-import { appCommand } from "./cli/app.ts";
 import { browserCommand } from "./cli/browser.ts";
 import { pairCommand } from "./cli/pair.ts";
 import { extendConnectionAttemptTimeout, keepOutboundFetchOnHttp1 } from "./outboundHttp.ts";
@@ -34,7 +33,7 @@ import { statusCommand, upCommand } from "./cli/up.ts";
 
 const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
-export const makeCli = () =>
+const makeCli = () =>
   Command.make("t3", { ...sharedServerCommandFlags }).pipe(
     Command.withDescription(
       "Run T3 Code in this terminal and open it in your browser. To use it from your other devices, run `t3 up`.",
@@ -51,7 +50,6 @@ export const makeCli = () =>
       acpMcpCallCommand,
       startCommand,
       serveCommand,
-      appCommand,
       pairCommand,
       authCommand,
       instanceCommand,

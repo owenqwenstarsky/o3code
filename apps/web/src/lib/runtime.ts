@@ -22,22 +22,9 @@ const primaryHttpRuntime = ManagedRuntime.make(
   PrimaryEnvironmentHttpClient.layer.pipe(Layer.provide(PrimaryEnvironmentHttpLayer.layer)),
 );
 
-export type PrimaryHttpEffectRunner = <A, E>(
-  effect: Effect.Effect<A, E, PrimaryEnvironmentHttpClient.PrimaryEnvironmentHttpClient>,
-) => Promise<A>;
-
-const livePrimaryHttpRunner: PrimaryHttpEffectRunner = (effect) =>
-  primaryHttpRuntime.runPromise(effect);
-
-let primaryHttpRunner = livePrimaryHttpRunner;
-
 export const runPrimaryHttp = <A, E>(
   effect: Effect.Effect<A, E, PrimaryEnvironmentHttpClient.PrimaryEnvironmentHttpClient>,
-) => primaryHttpRunner(effect);
-
-export function __setPrimaryHttpRunnerForTests(runner?: PrimaryHttpEffectRunner): void {
-  primaryHttpRunner = runner ?? livePrimaryHttpRunner;
-}
+) => primaryHttpRuntime.runPromise(effect);
 
 const layerRuntime = Layer.mergeAll(
   layerHttpClient,

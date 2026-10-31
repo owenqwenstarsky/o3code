@@ -8,9 +8,9 @@ import { parse } from "acorn";
 
 const expectedDesktopBridgeApis = [
   "getClientPlatform",
-  "getLocalEnvironmentBootstraps",
   "getPathForFile",
-  "pickFolder",
+  "getSystemLocale",
+  "openExternal",
 ];
 const preloadExecutionTimeoutMs = 1_000;
 const desktopPackage = JSON.parse(

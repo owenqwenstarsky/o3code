@@ -51,8 +51,6 @@ interface UpdateEverythingDialogProps {
   readonly title?: string;
   readonly confirmLabel?: string;
   readonly notes?: ReadonlyArray<string>;
-  /** Shown in place of running-thread counts; disables the confirm button. */
-  readonly disabledReason?: string | null;
   /** The confirmed work is starting; it cannot be cancelled from here. */
   readonly busy?: boolean;
 }
@@ -100,7 +98,6 @@ function UpdateEverythingDialogContent({
   title,
   confirmLabel = "Update",
   notes = [],
-  disabledReason = null,
   busy = false,
 }: UpdateEverythingDialogContentProps) {
   const stopped = useAtomValue(
@@ -214,11 +211,7 @@ function UpdateEverythingDialogContent({
         </div>
       </ScrollArea>
       <AlertDialogFooter>
-        {disabledReason !== null ? (
-          <p className="self-center text-sm max-sm:order-1 max-sm:text-center sm:mr-auto">
-            {disabledReason}
-          </p>
-        ) : running > 0 ? (
+        {running > 0 ? (
           <p className="self-center text-muted-foreground text-sm max-sm:order-1 max-sm:text-center sm:mr-auto">
             {stopped === 0
               ? `${threads} will be interrupted and can resume after the restart.`
@@ -230,7 +223,7 @@ function UpdateEverythingDialogContent({
         <AlertDialogClose ref={cancelRef} render={<Button variant="outline" disabled={busy} />}>
           Cancel
         </AlertDialogClose>
-        <Button disabled={disabledReason !== null || busy} onClick={onConfirm}>
+        <Button disabled={busy} onClick={onConfirm}>
           {confirmLabel}
         </Button>
       </AlertDialogFooter>

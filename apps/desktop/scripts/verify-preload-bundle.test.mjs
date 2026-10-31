@@ -4,12 +4,12 @@ import { verifyPreloadBundle } from "./verify-preload-bundle.mjs";
 
 const validPreload = `
   const electron = require("electron");
-  const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
+  const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
   electron.contextBridge.exposeInMainWorld("desktopBridge", {
     getClientPlatform: () => process.platform,
-    getLocalEnvironmentBootstraps: () => [],
     getPathForFile: () => "",
-    pickFolder: (options) => electron.ipcRenderer.invoke(PICK_FOLDER_CHANNEL, options),
+    getSystemLocale: () => null,
+    openExternal: (url) => electron.ipcRenderer.invoke(OPEN_EXTERNAL_CHANNEL, url),
   });
 `;
 
@@ -18,7 +18,7 @@ describe("desktop preload bundle verifier", () => {
     assert.throws(
       () =>
         verifyPreloadBundle(`
-          "desktopBridge getClientPlatform getLocalEnvironmentBootstraps pickFolder";
+          "desktopBridge getClientPlatform getPathForFile getSystemLocale openExternal";
           require("electron");
         `),
       /missing executable APIs/,

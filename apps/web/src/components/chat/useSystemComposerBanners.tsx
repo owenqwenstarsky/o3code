@@ -12,7 +12,6 @@ import { WifiOffIcon } from "lucide-react";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { environmentCatalog } from "../../connection/catalog";
 import { ConnectionDiagnosisHeadline } from "../settings/ConnectionDiagnosisDetails";
-import { isDesktopLocalConnectionTarget } from "../../connection/desktopLocal";
 import {
   useEnvironmentDisconnectDelay,
   useEnvironmentStateHeldFor,
@@ -109,8 +108,7 @@ export function useSystemComposerBanners(input: SystemComposerBannersInput) {
   const canDisconnectActiveEnvironment =
     disconnectDelayElapsed &&
     activeEnvironment !== null &&
-    activeEnvironment.entry.target._tag !== "PrimaryConnectionTarget" &&
-    !isDesktopLocalConnectionTarget(activeEnvironment.entry.target);
+    activeEnvironment.entry.target._tag !== "PrimaryConnectionTarget";
   const [disconnectingEnvironment, setDisconnectingEnvironment] = useState(false);
   const handleDisconnectActiveEnvironment = async (environmentId: EnvironmentId) => {
     setDisconnectingEnvironment(true);

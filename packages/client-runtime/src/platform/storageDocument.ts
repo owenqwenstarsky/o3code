@@ -18,12 +18,24 @@ export const StoredConnectionCredential = Schema.Struct({
 });
 export type StoredConnectionCredential = typeof StoredConnectionCredential.Type;
 
-// Catalogs saved while T3 Connect existed can hold relay routes; reading drops them.
+// Catalogs saved while T3 Connect and desktop SSH environments existed can hold relay and SSH
+// routes; reading drops them.
 const RetiredRelayConnectionTarget = Schema.TaggedStruct("RelayConnectionTarget", {
   environmentId: EnvironmentId,
 });
+const RetiredSshConnectionTarget = Schema.TaggedStruct("SshConnectionTarget", {
+  environmentId: EnvironmentId,
+  connectionId: Schema.String,
+});
+const RetiredSshConnectionProfile = Schema.TaggedStruct("SshConnectionProfile", {
+  connectionId: Schema.String,
+});
 const StoredConnectionTargets = Schema.Array(
-  Schema.Union([Schema.toEncoded(PersistedConnectionTarget), RetiredRelayConnectionTarget]),
+  Schema.Union([
+    Schema.toEncoded(PersistedConnectionTarget),
+    RetiredRelayConnectionTarget,
+    RetiredSshConnectionTarget,
+  ]),
 ).pipe(
   Schema.decodeTo(
     Schema.Array(PersistedConnectionTarget),
@@ -31,9 +43,24 @@ const StoredConnectionTargets = Schema.Array(
       decode: (targets): ReadonlyArray<typeof PersistedConnectionTarget.Encoded> =>
         targets.filter(
           (target): target is typeof PersistedConnectionTarget.Encoded =>
-            target._tag !== "RelayConnectionTarget",
+            target._tag === "BearerConnectionTarget",
         ),
       encode: (targets) => targets,
+    }),
+  ),
+);
+const StoredConnectionProfiles = Schema.Array(
+  Schema.Union([Schema.toEncoded(ConnectionProfile), RetiredSshConnectionProfile]),
+).pipe(
+  Schema.decodeTo(
+    Schema.Array(ConnectionProfile),
+    SchemaTransformation.transform({
+      decode: (profiles): ReadonlyArray<typeof ConnectionProfile.Encoded> =>
+        profiles.filter(
+          (profile): profile is typeof ConnectionProfile.Encoded =>
+            profile._tag === "BearerConnectionProfile",
+        ),
+      encode: (profiles) => profiles,
     }),
   ),
 );
@@ -41,7 +68,7 @@ const StoredConnectionTargets = Schema.Array(
 export const ConnectionCatalogDocument = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   targets: StoredConnectionTargets,
-  profiles: Schema.Array(ConnectionProfile),
+  profiles: StoredConnectionProfiles,
   credentials: Schema.Array(StoredConnectionCredential),
   // Pull request routing grants. The field name predates the rename and stays, so older and
   // newer clients sharing this document keep reading and revoking the same grants.
@@ -84,7 +111,6 @@ function connectionIdOf(target: ConnectionTarget): string | null {
     case "PrimaryConnectionTarget":
       return null;
     case "BearerConnectionTarget":
-    case "SshConnectionTarget":
       return target.connectionId;
   }
 }
@@ -148,7 +174,6 @@ export function registerConnectionInCatalog(
 
   switch (registration._tag) {
     case "BearerConnectionRegistration":
-    case "SshConnectionRegistration":
       return {
         ...next,
         profiles: replaceCatalogValue(

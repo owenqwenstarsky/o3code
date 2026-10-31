@@ -168,37 +168,12 @@ const renderScenariosProject = {
   },
 } satisfies TestProjectInlineConfiguration;
 
-function resolveDevProxyTarget(
-  backendPort: string | undefined,
-  wsUrl: string | undefined,
-): string | undefined {
+function resolveDevProxyTarget(backendPort: string | undefined): string | undefined {
   const port = Number(backendPort?.trim());
-  if (Number.isInteger(port) && port > 0) {
-    return `http://localhost:${port}/`;
-  }
-
-  // dev:desktop connects directly to the backend; derive its target from the explicit WebSocket URL.
-  if (!wsUrl) {
-    return undefined;
-  }
-
-  try {
-    const url = new URL(wsUrl);
-    if (url.protocol === "ws:") {
-      url.protocol = "http:";
-    } else if (url.protocol === "wss:") {
-      url.protocol = "https:";
-    }
-    url.pathname = "";
-    url.search = "";
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return undefined;
-  }
+  return Number.isInteger(port) && port > 0 ? `http://localhost:${port}/` : undefined;
 }
 
-const devProxyTarget = resolveDevProxyTarget(process.env.T3CODE_PORT, configuredWsUrl);
+const devProxyTarget = resolveDevProxyTarget(process.env.T3CODE_PORT);
 
 // Brotli quality 5 encodes in hundreds of ms; default quality 11 would replace transfer stalls with encode stalls.
 function devCompressionPlugin(): Plugin {

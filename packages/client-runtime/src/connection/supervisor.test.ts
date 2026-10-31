@@ -20,7 +20,6 @@ import {
   ConnectionBlockedError,
   ConnectionTransientError,
   PrimaryConnectionTarget,
-  SshConnectionTarget,
   type ConnectionAttemptError,
   type ConnectionTarget,
   type NetworkStatus,
@@ -40,11 +39,12 @@ const TARGET = new PrimaryConnectionTarget({
   wsBaseUrl: "wss://environment.example.test",
 });
 
-// A slower route than LAN that has no reachability check of its own.
-const FALLBACK_TARGET = new SshConnectionTarget({
+// A slower route than LAN.
+const FALLBACK_TARGET = new PrimaryConnectionTarget({
   environmentId: TARGET.environmentId,
   label: TARGET.label,
-  connectionId: "ssh",
+  httpBaseUrl: "https://fallback.example.test",
+  wsBaseUrl: "wss://fallback.example.test",
 });
 
 const TARGET_ENTRY: ConnectionCatalogEntry = {
@@ -726,7 +726,7 @@ describe("EnvironmentSupervisor", () => {
         supervisor.state,
         (state) => state.phase === "connected" && state.generation === 2,
       );
-      expect(yield* Ref.get(harness.hostChecks)).toEqual(["SshConnectionTarget"]);
+      expect(yield* Ref.get(harness.hostChecks)).toEqual(["PrimaryConnectionTarget"]);
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
@@ -1121,7 +1121,7 @@ describe("EnvironmentSupervisor routes", () => {
       yield* TestClock.adjust("500 millis");
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
-        "SshConnectionTarget",
+        "PrimaryConnectionTarget",
       );
       expect(yield* Ref.get(harness.prepareCount)).toBe(1);
     }).pipe(Effect.provide(TestClock.layer())),
@@ -1175,7 +1175,7 @@ describe("EnvironmentSupervisor routes", () => {
       yield* TestClock.adjust("500 millis");
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
-        "SshConnectionTarget",
+        "PrimaryConnectionTarget",
       );
     }).pipe(Effect.provide(TestClock.layer())),
   );
@@ -1283,7 +1283,7 @@ describe("EnvironmentSupervisor routes", () => {
             : Effect.succeed("unchecked"),
         prepare: (_attempt, target) => {
           attempted.push(target._tag);
-          return target._tag === "SshConnectionTarget"
+          return target._tag === "PrimaryConnectionTarget"
             ? Effect.fail(blocked("Pair this device again."))
             : Effect.succeed(preparedFor(target));
         },
@@ -1295,7 +1295,7 @@ describe("EnvironmentSupervisor routes", () => {
       yield* Deferred.await(checkingLan);
       yield* TestClock.adjust("2500 millis");
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
-      expect(attempted).toEqual(["SshConnectionTarget", "BearerConnectionTarget"]);
+      expect(attempted).toEqual(["PrimaryConnectionTarget", "BearerConnectionTarget"]);
     }).pipe(Effect.provide(TestClock.layer())),
   );
 
@@ -1312,7 +1312,7 @@ describe("EnvironmentSupervisor routes", () => {
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       const prepared = Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared));
-      expect(prepared.target._tag).toBe("SshConnectionTarget");
+      expect(prepared.target._tag).toBe("PrimaryConnectionTarget");
       expect(yield* Ref.get(harness.prepareCount)).toBe(1);
     }),
   );
@@ -1332,7 +1332,7 @@ describe("EnvironmentSupervisor routes", () => {
 
       yield* awaitState(supervisor.state, (state) => state.phase === "connected");
       const prepared = Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared));
-      expect(prepared.target._tag).toBe("SshConnectionTarget");
+      expect(prepared.target._tag).toBe("PrimaryConnectionTarget");
     }),
   );
 
@@ -1357,7 +1357,7 @@ describe("EnvironmentSupervisor routes", () => {
       const harness = yield* makeHarness({
         checkRoute: () => Effect.succeed("answered"),
         prepare: (_attempt, target) =>
-          target._tag === "SshConnectionTarget"
+          target._tag === "PrimaryConnectionTarget"
             ? Effect.fail(blocked("Pair this device again."))
             : Effect.fail(transient("LAN socket refused.")),
       });
@@ -1391,7 +1391,7 @@ describe("EnvironmentSupervisor routes", () => {
         (state) => state.phase === "connected" && state.generation === 1,
       );
       expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
-        "SshConnectionTarget",
+        "PrimaryConnectionTarget",
       );
 
       yield* Ref.set(lanReachable, true);
@@ -1573,7 +1573,7 @@ describe("EnvironmentSupervisor routes", () => {
         (state) => state.phase === "connected" && state.generation === 2,
       );
       expect(Option.getOrThrow(yield* SubscriptionRef.get(supervisor.prepared)).target._tag).toBe(
-        "SshConnectionTarget",
+        "PrimaryConnectionTarget",
       );
     }),
   );

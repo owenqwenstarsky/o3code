@@ -8,16 +8,11 @@ import { AsyncResult } from "effect/reactivity";
 
 import { APP_VERSION } from "~/branding";
 import { useDesktopUpdateState } from "~/state/desktopUpdate";
-import { useEnvironments } from "~/state/environments";
 import { npmReleaseAtom, npmReleaseFailureMessage } from "~/state/npmRelease";
 import { downloadLocalUpdate, installLocalUpdate } from "../sidebar/SidebarUpdatePill";
 import { UpdateEverythingDialog } from "../sidebar/UpdateEverythingDialog";
-import {
-  channelSwitchLabel,
-  localSwitchBlockReason,
-  type ChannelSwitchRelease,
-} from "../sidebar/updateEverything.logic";
-import { isHostedByThisApp, useUpdateEverything } from "../sidebar/useUpdateEverything";
+import { channelSwitchLabel, type ChannelSwitchRelease } from "../sidebar/updateEverything.logic";
+import { useUpdateEverything } from "../sidebar/useUpdateEverything";
 import { prepareLocalTrackSwitch } from "./updateTrackSwitch.logic";
 import {
   AlertDialog,
@@ -74,7 +69,6 @@ function SwitchPlan({
   readonly onClose: () => void;
 }) {
   const updateState = useDesktopUpdateState();
-  const { environments } = useEnvironments();
   const crossesLocal = desktopUpdateChannelOf(APP_VERSION) !== release.channel;
   // With its updater off (a .deb install, or no feed) this app stays put and only remotes move.
   const updatesOff = updateState?.enabled === false;
@@ -83,16 +77,6 @@ function SwitchPlan({
   const [checking, setChecking] = useState(false);
   const everything = useUpdateEverything(switchesLocal ? release.version : null, release);
   const label = channelSwitchLabel(release.channel);
-  // This app's reinstall restarts every server it hosts, so each of their databases must allow it.
-  const localBlocked = localSwitchBlockReason(
-    APP_VERSION,
-    release,
-    environments.filter(isHostedByThisApp).map((environment) => ({
-      connected: environment.connection.phase === "connected",
-      databaseMigration: environment.serverConfig?.environment.databaseMigration,
-    })),
-    window.desktopBridge?.getLocalEnvironmentBootstraps().length ?? 0,
-  );
 
   const run = async () => {
     const bridge = window.desktopBridge;
@@ -171,9 +155,6 @@ function SwitchPlan({
       restarts={everything.restarts}
       confirmLabel={checking ? "Checking…" : `Switch to ${label}`}
       busy={checking}
-      disabledReason={
-        !switchesLocal || localBlocked === null ? null : `This app cannot switch: ${localBlocked}.`
-      }
       onConfirm={() => void run()}
     />
   );

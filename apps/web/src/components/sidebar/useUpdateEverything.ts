@@ -2,8 +2,6 @@ import { useAtomValue } from "@effect/atom-react";
 import { PROVIDER_DISPLAY_NAMES } from "@t3tools/contracts";
 
 import { APP_VERSION } from "~/branding";
-import { isDesktopLocalConnectionTarget } from "~/connection/desktopLocal";
-import { isElectron } from "~/env";
 import { useEnvironments } from "~/state/environments";
 import { environmentIdsKey } from "~/state/environmentAtomList";
 import { environmentUpdateStatesAtom } from "~/state/server";
@@ -34,17 +32,6 @@ import {
 
 const UPDATE_RESTART_DELAY_MS = 5_000;
 
-/** Servers this desktop app runs; they update with it. */
-export function isHostedByThisApp(
-  environment: ReturnType<typeof useEnvironments>["environments"][number],
-) {
-  return (
-    isElectron &&
-    (environment.entry.target._tag === "PrimaryConnectionTarget" ||
-      isDesktopLocalConnectionTarget(environment.entry.target))
-  );
-}
-
 export type ReportLocalUpdateError = (title: string, description: string) => void;
 
 /** `channelSwitch` makes the run move the fleet to that release's track instead of updating it. */
@@ -62,7 +49,6 @@ export function useUpdateEverything(
     label: environment.label,
     serverConfig: environment.serverConfig,
     connected: environment.connection.phase === "connected",
-    hostedByThisApp: isHostedByThisApp(environment),
     canMaintain: canUpdateServer(sessionStates[index]!),
     updateState: updateStates[index]!,
   }));
@@ -71,7 +57,7 @@ export function useUpdateEverything(
     : collectServerUpdateTargets(machines, targetVersion);
   // Track-only hosts save a setting and restart nothing, so they are neither listed nor counted.
   const moving = servers.filter((server) => server.trackOnly !== true);
-  const restarts = collectRestartingMachines(machines, moving, localUpdateVersion !== null);
+  const restarts = collectRestartingMachines(machines, moving);
   const providerUpdates = useProviderUpdates();
   // A track switch moves app and servers only; provider updates stay a separate choice.
   const providers = channelSwitch ? { machines: [], updateAll: async () => [] } : providerUpdates;
@@ -79,7 +65,6 @@ export function useUpdateEverything(
 
   const view = describeUpdateEverything({
     localVersion: localUpdateVersion,
-    localMachines: machines.filter((machine) => machine.hostedByThisApp),
     servers: moving,
     skipped,
     providerMachines: providers.machines.map((machine) => ({

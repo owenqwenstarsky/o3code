@@ -20,7 +20,6 @@ import { AsyncResult, Atom } from "effect/reactivity";
 
 import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
-import { isHostedStaticApp } from "../hostedPairing";
 
 export const shellEnvironment = createShellEnvironmentAtoms(connectionAtomRuntime);
 export const environmentShell = createEnvironmentShellAtoms(connectionAtomRuntime);
@@ -89,28 +88,18 @@ export const allEnvironmentShellsBootstrappedAtom = Atom.make((get) => {
   return true;
 }).pipe(Atom.withLabel("web-all-environment-shells-bootstrapped"));
 
-// Catalog can precede primary discovery; an empty or incomplete catalog cannot prove absence.
-function catalogIsComplete(
-  catalog: EnvironmentCatalogState,
-  requiresPrimaryEnvironment: boolean,
-): boolean {
-  if (!catalog.isReady || catalog.entries.size === 0) return false;
-  return (
-    !requiresPrimaryEnvironment ||
-    Array.from(catalog.entries.values()).some(
-      (entry) => entry.target._tag === "PrimaryConnectionTarget",
-    )
-  );
+// An empty catalog cannot prove absence: the workspace may not be registered yet.
+function catalogIsComplete(catalog: EnvironmentCatalogState): boolean {
+  return catalog.isReady && catalog.entries.size > 0;
 }
 
 export function createAllEnvironmentProjectSnapshotsReadyAtom(input: {
   readonly catalogValueAtom: Atom.Atom<EnvironmentCatalogState>;
   readonly shellStateValueAtom: (environmentId: EnvironmentId) => Atom.Atom<EnvironmentShellState>;
-  readonly requiresPrimaryEnvironment: boolean;
 }) {
   return Atom.make((get) => {
     const catalog = get(input.catalogValueAtom);
-    if (!catalogIsComplete(catalog, input.requiresPrimaryEnvironment)) return false;
+    if (!catalogIsComplete(catalog)) return false;
     for (const environmentId of enabledEnvironmentIds(catalog)) {
       const shell = get(input.shellStateValueAtom(environmentId));
       if (shell.status !== "live" || Option.isNone(shell.snapshot)) return false;
@@ -123,12 +112,11 @@ export const allEnvironmentProjectSnapshotsReadyAtom =
   createAllEnvironmentProjectSnapshotsReadyAtom({
     catalogValueAtom: environmentCatalog.catalogValueAtom,
     shellStateValueAtom: environmentShell.stateValueAtom,
-    requiresPrimaryEnvironment: !isHostedStaticApp(),
   });
 
 export const allReachableShellsLiveAtom = Atom.make((get) => {
   const catalog = get(environmentCatalog.catalogValueAtom);
-  if (!catalogIsComplete(catalog, !isHostedStaticApp())) return false;
+  if (!catalogIsComplete(catalog)) return false;
   for (const environmentId of enabledEnvironmentIds(catalog)) {
     const shell = get(environmentShell.stateValueAtom(environmentId));
     if (shell.status === "live" && Option.isSome(shell.snapshot)) continue;
