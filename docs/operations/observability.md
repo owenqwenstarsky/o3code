@@ -145,11 +145,11 @@ You do not need any extra env vars. Just run the app normally and inspect `serve
 Examples:
 
 ```bash
-node --run dev
+vp run dev
 ```
 
 ```bash
-node --run dev:desktop
+vp run dev:desktop
 ```
 
 ### Option 2: Run With A Local LGTM Stack
@@ -198,13 +198,13 @@ export T3CODE_TRACE_TIMING_ENABLED=true
 Monorepo web/server dev:
 
 ```bash
-node --run dev
+vp run dev
 ```
 
 Monorepo desktop dev:
 
 ```bash
-node --run dev:desktop
+vp run dev:desktop
 ```
 
 A packaged desktop app reads the variables only when launched from that shell, not from Finder,
@@ -213,7 +213,7 @@ Spotlight, the dock, or the Start menu:
 ```bash
 T3CODE_OTLP_TRACES_URL=http://localhost:4318/v1/traces \
 T3CODE_OTLP_LOGS_URL=http://localhost:4318/v1/logs \
-"/Applications/T3 Code.app/Contents/MacOS/T3 Code"
+"/Applications/T3 Code (Beta).app/Contents/MacOS/T3 Code (Beta)"
 ```
 
 #### 4. Fully restart after changing env
