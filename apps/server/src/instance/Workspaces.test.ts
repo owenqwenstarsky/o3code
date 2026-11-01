@@ -41,43 +41,49 @@ const layerFakes = (host: FakeHost) =>
       WorkspaceRuntime.of({
         kind: "docker",
         info: Effect.succeed({ version: "test", cpus: 8, memoryBytes: 1 }),
-        create: Effect.fn("FakeRuntime.create")(function* (spec: WorkspaceRuntimeSpec) {
-          const containerId = `container-${host.created.length + 1}`;
-          host.created.push({ ...spec, containerId });
-          return containerId;
-        }),
-        start: Effect.fn("FakeRuntime.start")(function* (containerId: string) {
-          host.running.add(containerId);
-        }),
-        stop: Effect.fn("FakeRuntime.stop")(function* (containerId: string) {
-          host.stopped.push(containerId);
-          host.running.delete(containerId);
-        }),
-        restart: Effect.fn("FakeRuntime.restart")(function* (containerId: string) {
-          host.running.add(containerId);
-        }),
-        removeContainer: Effect.fn("FakeRuntime.removeContainer")(function* (containerId: string) {
-          host.removedContainers.push(containerId);
-          host.running.delete(containerId);
-        }),
-        removeData: Effect.fn("FakeRuntime.removeData")(function* (workspaceId: string) {
-          host.removedData.push(workspaceId);
-        }),
-        inspect: Effect.fn("FakeRuntime.inspect")(function* (containerId: string) {
-          return Option.some({
-            containerId,
-            running: host.running.has(containerId),
-            image: "o3code/workspace:test",
-            detail: host.running.has(containerId) ? "running" : "exited",
-          });
-        }),
-        probe: Effect.fn("FakeRuntime.probe")(function* (containerId: string) {
-          const spec = host.created.find((entry) => entry.containerId === containerId);
-          return { tailnetHostname: `o3-${spec?.slug}.tail.ts.net`, ready: true };
-        }),
-        logs: Effect.fn("FakeRuntime.logs")(function* () {
-          return "";
-        }),
+        create: (spec: WorkspaceRuntimeSpec) =>
+          Effect.sync(() => {
+            const containerId = `container-${host.created.length + 1}`;
+            host.created.push({ ...spec, containerId });
+            return containerId;
+          }),
+        start: (containerId: string) =>
+          Effect.sync(() => {
+            host.running.add(containerId);
+          }),
+        stop: (containerId: string) =>
+          Effect.sync(() => {
+            host.stopped.push(containerId);
+            host.running.delete(containerId);
+          }),
+        restart: (containerId: string) =>
+          Effect.sync(() => {
+            host.running.add(containerId);
+          }),
+        removeContainer: (containerId: string) =>
+          Effect.sync(() => {
+            host.removedContainers.push(containerId);
+            host.running.delete(containerId);
+          }),
+        removeData: (workspaceId: string) =>
+          Effect.sync(() => {
+            host.removedData.push(workspaceId);
+          }),
+        inspect: (containerId: string) =>
+          Effect.sync(() =>
+            Option.some({
+              containerId,
+              running: host.running.has(containerId),
+              image: "o3code/workspace:test",
+              detail: host.running.has(containerId) ? "running" : "exited",
+            }),
+          ),
+        probe: (containerId: string) =>
+          Effect.sync(() => {
+            const spec = host.created.find((entry) => entry.containerId === containerId);
+            return { tailnetHostname: `o3-${spec?.slug}.tail.ts.net`, ready: true };
+          }),
+        logs: () => Effect.succeed(""),
         diskUsage: Effect.succeed(new Map()),
       }),
     ),
@@ -85,15 +91,15 @@ const layerFakes = (host: FakeHost) =>
       TailscaleKeys,
       TailscaleKeys.of({
         mode: "oauth",
-        mintAuthKey: Effect.fn("FakeTailscale.mintAuthKey")(function* () {
-          host.mintedKeys += 1;
-          return Redacted.make(`tskey-${host.mintedKeys}`);
-        }),
-        deleteDeviceByHostname: Effect.fn("FakeTailscale.deleteDevice")(function* (
-          hostname: string,
-        ) {
-          host.deletedDevices.push(hostname);
-        }),
+        mintAuthKey: () =>
+          Effect.sync(() => {
+            host.mintedKeys += 1;
+            return Redacted.make(`tskey-${host.mintedKeys}`);
+          }),
+        deleteDeviceByHostname: (hostname: string) =>
+          Effect.sync(() => {
+            host.deletedDevices.push(hostname);
+          }),
       }),
     ),
     Layer.succeed(InstanceConfig, {
