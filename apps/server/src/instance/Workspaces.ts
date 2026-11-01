@@ -602,23 +602,27 @@ const make = Effect.gen(function* () {
         Effect.flatMap((records) =>
           Effect.forEach(
             records,
+            // Under the workspace's lock, so a container still being created is stopped too.
             (record) =>
-              patch(record.workspaceId, {
-                status: "stopped",
-                statusMessage: "Account disabled",
-              }).pipe(
-                Effect.andThen(
-                  record.containerId
-                    ? serialized(record.workspaceId)(runtime.stop(record.containerId)).pipe(
-                        Effect.catch((cause) =>
-                          Effect.logWarning("Failed to stop workspace.", {
-                            workspaceId: record.workspaceId,
-                            cause,
-                          }),
-                        ),
-                      )
-                    : Effect.void,
-                ),
+              serialized(record.workspaceId)(
+                Effect.gen(function* () {
+                  const current = yield* store.getWorkspace(record.workspaceId);
+                  if (Option.isNone(current)) return;
+                  if (current.value.containerId) {
+                    yield* runtime.stop(current.value.containerId).pipe(
+                      Effect.catch((cause) =>
+                        Effect.logWarning("Failed to stop workspace.", {
+                          workspaceId: record.workspaceId,
+                          cause,
+                        }),
+                      ),
+                    );
+                  }
+                  yield* patch(record.workspaceId, {
+                    status: "stopped",
+                    statusMessage: "Account disabled",
+                  });
+                }),
               ),
             { discard: true },
           ),
