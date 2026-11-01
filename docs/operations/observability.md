@@ -349,11 +349,11 @@ Good first searches:
 
 - service name `t3code-server` or `t3code-desktop`, plus a resource attribute such as
   `deployment.environment.name`
-- span names like `sendTurn` or a Git operation such as `GitVcsDriver.statusDetails.status`
+- span names like `ClaudeAdapterV2.startTurn` (each adapter has its own `startTurn` span) or a Git operation such as `GitVcsDriver.statusDetails.status`
 - Git spans whose `git.operation` attribute identifies the operation
 - orchestration spans with attributes like `orchestration_v2.command_type`
 
-Once you know traces are arriving, narrower TraceQL queries for names such as `sendTurn` or Git
+Once you know traces are arriving, narrower TraceQL queries for names such as `ClaudeAdapterV2.startTurn` or Git
 operation names become useful.
 
 ### Use Metrics To See Systemic Problems
@@ -599,12 +599,11 @@ resource attributes, such as `OTEL_RESOURCE_ATTRIBUTES=deployment.environment.na
 
 Each process reports its own build, not the one it talks to: the server, the desktop main process,
 and the UI each carry `t3code.release.channel` (`dev`, `stable`, `nightly`, or
-`preview`, from their own version; desktop PR builds count as `preview`, and a server not built by a
-release workflow reports `dev`) and `deployment.environment.name` (`development`, `production`, or
-`staging` for `preview`). On the server and the desktop main process either key in
-`OTEL_RESOURCE_ATTRIBUTES` wins. The UI never reads that variable: Vercel PR previews
-set `VITE_RELEASE_CHANNEL=preview` because their `APP_VERSION` must stay comparable with the
-server's.
+`preview`, from their own version; a server not built by a release workflow reports `dev`) and
+`deployment.environment.name` (`development`, `production`, or `staging` for `preview`). On the
+server and the desktop main process either key in `OTEL_RESOURCE_ATTRIBUTES` wins. The UI never
+reads that variable; a web build sets `VITE_RELEASE_CHANNEL` instead. This fork has no preview
+workflow that does so.
 
 Attributes specific to O3 Code use the `t3code.` prefix. The UI runs as `t3code-web` in both a
 browser and the desktop window, since it is the same code, and `t3code.client.surface` is `desktop`

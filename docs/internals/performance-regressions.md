@@ -109,8 +109,7 @@ Command palette results keep live VCS and linked pull-request queries leased to 
 viewport, including a small overscan region. Cached badges remain available while leases are
 released. Local Git status reads skip divergence calculations; callers that need ahead/behind
 counts keep the full status path. Cached fetch failures share the existing backoff and log only
-the actual failed attempt. Unchanged desktop environment bootstrap reads retain their array
-identity so polling does not invalidate subscribers.
+the actual failed attempt.
 
 Local trace records and provider event logs use asynchronous, serialized file writes and rotation.
 Batching synchronous appends still stalls the server event loop on slow storage, especially on
@@ -119,5 +118,4 @@ that time a stall survive it; records drop only while the disk stays stuck. Prov
 retains backpressure. Shutdown drains accepted writes before closing their scope.
 
 Focused coverage: `ProjectionSettlement.test.ts`, `ThreadSettlementService.test.ts`,
-`runtimeLayer.test.ts`, `GitVcsDriverCore.test.ts`, and
-`desktopLocal.test.ts`.
+`runtimeLayer.test.ts`, and `GitVcsDriverCore.test.ts`.

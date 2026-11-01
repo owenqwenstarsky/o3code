@@ -60,7 +60,7 @@ No. O3 Code is a serious developer tool. Locally runnable models are not capable
 
 ## Does my code go to O3 Code's servers?
 
-No. Your code and prompts go from your workspace to your provider (Anthropic, OpenAI, etc.), not to us. Your devices connect to your workspace directly over your tailnet. O3 Code does send basic product usage events (provider, model, token totals, that kind of thing). No prompts, no file contents. Your administrator can turn them off. [Product usage data](./telemetry.md)
+No. Your code and prompts go from your workspace to your provider (Anthropic, OpenAI, etc.). Your devices connect to your workspace directly over your tailnet. By default each workspace sends basic product usage events (provider, model, token totals, that kind of thing) to upstream T3 Code's endpoint at `ingest.t3.codes`. No prompts, no file contents. Your administrator can turn them off. [Product usage data](./telemetry.md)
 
 ## Worktrees are eating my disk. How do I clean them up?
 

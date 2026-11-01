@@ -201,8 +201,8 @@ thread is deleted, including archived threads and worktrees left by earlier dele
 server waits for sessions and terminals to stop and retries skipped worktrees after restart.
 Existing prompts for deleting a worktree manually remain available when this policy is off.
 
-Choose **Delete now** to run the enabled rules immediately. The latest results show which
-worktrees were removed or kept and why, plus any failures.
+Choose **Delete now** in **Settings → Maintenance → Cleanup** to run the enabled rules immediately.
+The latest results there show which worktrees were removed or kept and why, plus any failures.
 Results also list folders in the worktree folder that no thread uses, with their sizes; cleanup never removes them, so remove them manually if you want.
 
 Browser captures and rotated logs have separate retention periods. Expired capture links stop

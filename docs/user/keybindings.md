@@ -10,8 +10,9 @@ In **Settings → Chat → Send shortcut**, choose whether Enter sends, requires
 inserts a new line. This applies to the web and desktop composer at desktop widths.
 
 **Follow-up behavior** chooses Queue or Steer while the agent runs. Use
-`mod+Enter` to do the opposite for one message, even when the send shortcut
-requires a modifier. `mod+Alt+Enter` sends, keeps that thread running in the
+`mod+Enter` to do the opposite for one message. When your send shortcut requires
+`mod+Enter`, that sends with your default behavior and `mod+Shift+Enter` does the
+opposite. `mod+Alt+Enter` sends, keeps that thread running in the
 background, and opens a fresh new-thread composer. In a new thread, `mod+Enter`
 does the same. Change these shortcuts in **Settings → Keybindings** under
 **Composer: Opposite Queue or Steer Action**, **Composer: Start in Background**,
@@ -98,7 +99,7 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 ## When conditions
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
-`previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`,
+`previewOpen`, `rightPanelOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `draftThreadRoute`,
 `turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
 `draftThreadRoute` is true on a draft thread, including a restored draft, until it is first sent.
 `editableFocus` is true while a text field, the composer, or another editor has

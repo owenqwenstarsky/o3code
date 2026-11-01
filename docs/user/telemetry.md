@@ -1,10 +1,11 @@
 # Product usage data
 
-Each workspace's O3 Code server sends product usage events to O3 Code's own endpoint at
-`ingest.t3.codes`, associated with a hashed account or installation identifier. To count how many
+Each workspace's O3 Code server sends product usage events to upstream T3 Code's ingest endpoint at
+`ingest.t3.codes` unless your administrator points `T3CODE_POSTHOG_HOST` and `T3CODE_POSTHOG_KEY`
+elsewhere or turns telemetry off. Events are associated with a hashed account or installation identifier. To count how many
 installations one person uses, the server also sends hashed account identifiers: your OpenAI and
-Claude accounts when you are signed in, and a random identifier for each device that connects. The
-endpoint keeps a copy of each event and forwards events to PostHog. Events include the provider,
+Claude accounts when you are signed in, and a random identifier for each device that connects. That
+upstream endpoint keeps a copy of each event and forwards events to PostHog. Events include the provider,
 model, reasoning effort, permission mode, turn result, duration, release channel, and main-agent
 token totals when available.
 

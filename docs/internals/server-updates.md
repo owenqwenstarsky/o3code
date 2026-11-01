@@ -5,7 +5,7 @@
 A workspace runs `t3 serve` in the foreground of its container
 ([workspace-start.sh](../../docker/workspace-start.sh)); nothing inside it updates itself. An admin
 upgrades by recreating the container from a newer image
-([`Workspaces.upgradeAll`](../../apps/server/src/instance/Workspaces.ts)). The `o3-home-<user>`
+([`Workspaces.upgradeAll`](../../apps/server/src/instance/Workspaces.ts)). The workspace's `o3-home-<workspace id>`
 volume, and the database in it, survives, and the new server migrates it at startup. No launcher
 sits in between, so there is no snapshot to roll back to: a failed migration leaves the workspace
 down until the image is fixed or the volume is restored from a backup. A restart or recreation

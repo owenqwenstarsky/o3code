@@ -30,7 +30,8 @@ The composer banners are the reference.
   merging classes with `cn`. Variants and density are props on `Root`. A slot that needs a control
   renders `Button`.
 - [`ComposerBannerStack.tsx`](../../apps/web/src/components/chat/ComposerBannerStack.tsx) composes
-  the slots and owns only stack behavior: priority, expand and collapse, dismiss transitions.
+  the slots and owns only stack behavior: fixed group order (environment, then attention),
+  attached or detached layout, fade-in, and the dismiss button.
 - Consumers are a few lines of slots, and the slots carry the styling:
   [`ComposerPlanFollowUpBanner.tsx`](../../apps/web/src/components/chat/ComposerPlanFollowUpBanner.tsx)
   and [`ComposerStashBadge.tsx`](../../apps/web/src/components/chat/ComposerStashBadge.tsx).

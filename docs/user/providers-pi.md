@@ -20,7 +20,7 @@ npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 If `pi` is not on the server's `PATH`, set Pi's binary path to the executable. Provider environment
 variables and launch arguments are also available for installations that need a custom agent
 directory, endpoint, or model configuration. `--provider` must be paired with `--model`. O3 Code
-rejects launch arguments that change Pi's execution mode or select a session because T3 owns those
+rejects launch arguments that change Pi's execution mode or select a session because O3 Code owns those
 parts of the process lifecycle.
 
 On a remote or headless server, connect to that machine over SSH and run `pi`, then `/login`.
@@ -49,7 +49,7 @@ loads for the current workspace; selecting one uses Pi's native skill expansion.
 
 Pi loads its normal user extensions, and project extensions once the folder is trusted in Pi.
 Blocking `select`, `confirm`, `input`, and `editor` dialogs work in O3 Code. Notifications appear in
-the work log. Pi terminal decoration such as titles, status lines, and widgets does not have a T3
+the work log. Pi terminal decoration such as titles, status lines, and widgets does not have an O3
 Code equivalent.
 
 ## Permission Modes
