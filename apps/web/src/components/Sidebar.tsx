@@ -61,6 +61,7 @@ import {
 import type { OlderSettledScope } from "@t3tools/client-runtime/state/threads";
 
 import {
+  BoxIcon,
   CheckIcon,
   ChevronDownIcon,
   FolderIcon,
@@ -69,6 +70,7 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import {
+  Fragment,
   useEffect,
   useLayoutEffect,
   useReducer,
@@ -183,6 +185,7 @@ import {
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
+  resolveSidebarScopedProjectKeys,
   firstValidTimestampMs,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
@@ -815,12 +818,27 @@ function useSidebarLookups() {
   const projectGroupByScopeKey = new Map(
     projectGroups.map((project) => [project.projectKey, project] as const),
   );
-  const projectScopeItems = [
-    { value: "all", label: "All projects" },
+  // With one workspace a workspace filter changes nothing, so the picker lists them only from two.
+  const scopeWorkspaces = environments.filter((environment) =>
+    projects.some((project) => project.environmentId === environment.environmentId),
+  );
+  const workspaceScopeItems =
+    scopeWorkspaces.length < 2
+      ? []
+      : scopeWorkspaces.map((environment) => ({
+          kind: "workspace" as const,
+          value: `${WORKSPACE_SCOPE_PREFIX}${environment.environmentId}`,
+          label: environment.label,
+          environmentId: environment.environmentId,
+        }));
+  const projectScopeItems: SidebarScopeItem[] = [
+    { kind: "all", value: "all", label: "All projects" },
     ...pickableProjectGroups(projectGroups).map((project) => ({
+      kind: "project" as const,
       value: project.projectKey,
       label: project.displayName,
     })),
+    ...workspaceScopeItems,
   ];
   return {
     projects,
@@ -832,7 +850,29 @@ function useSidebarLookups() {
     projectDisplayNameByKey,
     projectGroupByScopeKey,
     projectScopeItems,
+    scopeWorkspaceIds: workspaceScopeItems.map((item) => item.environmentId),
   };
+}
+
+const WORKSPACE_SCOPE_PREFIX = "workspace:";
+
+type SidebarScopeItem =
+  | { readonly kind: "all" | "project"; readonly value: string; readonly label: string }
+  | {
+      readonly kind: "workspace";
+      readonly value: string;
+      readonly label: string;
+      readonly environmentId: EnvironmentId;
+    };
+
+function groupsInWorkspaces(
+  groups: readonly SidebarProjectSnapshot[],
+  workspaceIds: readonly EnvironmentId[],
+): SidebarProjectSnapshot[] {
+  if (workspaceIds.length === 0) return [...groups];
+  return groups.filter((group) =>
+    group.memberProjects.some((member) => workspaceIds.includes(member.environmentId)),
+  );
 }
 
 function ProjectScopeRowIcon(props: { isSelected: boolean; children: ReactNode }) {
@@ -896,6 +936,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectDisplayNameByKey,
     projectGroupByScopeKey,
     projectScopeItems: lookupProjectScopeItems,
+    scopeWorkspaceIds,
   } = useSidebarLookups();
   const delegatedUnderParent = useDelegatedUnderParent();
   const router = useRouter();
@@ -998,6 +1039,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const projectGroupsRef = useRef(projectGroups);
   const persistedProjectScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const setPersistedProjectScopeKeys = useUiStateStore((store) => store.setSidebarProjectScopeKeys);
+  const persistedWorkspaceScopeIds = useUiStateStore((store) => store.sidebarWorkspaceScopeIds);
+  const setPersistedWorkspaceScopeIds = useUiStateStore(
+    (store) => store.setSidebarWorkspaceScopeIds,
+  );
   const [projectScopeMenuState, dispatchProjectScopeMenu] = useReducer(
     reduceSidebarProjectScopeMenuState,
     { open: false, query: "" },
@@ -1065,6 +1110,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   // loaded. The stored keys are left alone, so the scope returns with its project.
   // An archived project's scope reads as all projects, matching the menu.
   const scopeGroups = pickableProjectGroups(projectGroups);
+  // A workspace that is gone, or the only one left, reads as every workspace; the stored ids stay.
+  const chosenWorkspaceIds = scopeWorkspaceIds.filter((environmentId) =>
+    persistedWorkspaceScopeIds.includes(environmentId),
+  );
+  const setWorkspaceScopeIds = (environmentIds: readonly EnvironmentId[]) => {
+    clearSelection();
+    setPersistedWorkspaceScopeIds(environmentIds);
+  };
   const archivedProjectKeys = new Set(
     projectGroups.filter((project) => project.archived).map((project) => project.projectKey),
   );
@@ -1074,19 +1127,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     settings: projectGroupingSettings,
     canClearMissingScope: allProjectSnapshotsReady && allProjectConfigsReady,
   }).filter((key) => !archivedProjectKeys.has(key));
-  const chosenProjectGroups = scopeGroups.filter((project) =>
-    chosenProjectScopeKeys.includes(project.projectKey),
+  const chosenProjectGroups = groupsInWorkspaces(scopeGroups, chosenWorkspaceIds).filter(
+    (project) => chosenProjectScopeKeys.includes(project.projectKey),
   );
-  const chosenScopeProjectKeys =
-    chosenProjectGroups.length === 0
-      ? null
-      : new Set(
-          chosenProjectGroups.flatMap((project) =>
-            project.memberProjectRefs.map(
-              (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
-            ),
-          ),
-        );
+  const chosenScopeProjectKeys = resolveSidebarScopedProjectKeys({
+    projects,
+    projectRefs:
+      chosenProjectGroups.length === 0
+        ? null
+        : chosenProjectGroups.flatMap((project) => project.memberProjectRefs),
+    workspaceIds: chosenWorkspaceIds,
+  });
   const threads = useQuietThreadShells();
   const routeRowThreadKey =
     routeThreadRef === null
@@ -1116,7 +1167,32 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     findThread: (key) => threads.find((candidate) => threadShellKey(candidate) === key),
   });
   const projectScopeKeys = revealWidensScope ? [] : chosenProjectScopeKeys;
-  const projectScopeKey = projectScopeKeys.length === 0 ? null : projectScopeKeys.join("\n");
+  const workspaceScopeIds = revealWidensScope ? [] : chosenWorkspaceIds;
+  const scopeKeyParts = [
+    ...workspaceScopeIds.map((environmentId) => `${WORKSPACE_SCOPE_PREFIX}${environmentId}`),
+    ...projectScopeKeys,
+  ];
+  const projectScopeKey = scopeKeyParts.length === 0 ? null : scopeKeyParts.join("\n");
+  const workspaceGroups = groupsInWorkspaces(scopeGroups, workspaceScopeIds);
+  const workspaceGroupKeys = new Set(workspaceGroups.map((project) => project.projectKey));
+  const scopedWorkspaceLabels = workspaceScopeIds.map(
+    (environmentId) => environmentLabelById.get(environmentId) ?? environmentId,
+  );
+  const chooseWorkspaceScope = (environmentId: EnvironmentId, toggle: boolean) => {
+    const current = workspaceScopeIds;
+    if (toggle) {
+      setWorkspaceScopeIds(
+        current.includes(environmentId)
+          ? current.filter((candidate) => candidate !== environmentId)
+          : [...current, environmentId],
+      );
+      return;
+    }
+    // Choosing the only chosen workspace again clears it, the way out of a workspace filter.
+    setWorkspaceScopeIds(
+      current.length === 1 && current[0] === environmentId ? [] : [environmentId],
+    );
+  };
   const toggleProjectScopeKey = (key: string) =>
     setProjectScopeKeys(
       projectScopeKeys.includes(key)
@@ -1132,7 +1208,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (!revealWidensScope) return;
     clearSelection();
     setPersistedProjectScopeKeys([]);
-  }, [clearSelection, revealWidensScope, setPersistedProjectScopeKeys]);
+    setPersistedWorkspaceScopeIds([]);
+  }, [
+    clearSelection,
+    revealWidensScope,
+    setPersistedProjectScopeKeys,
+    setPersistedWorkspaceScopeIds,
+  ]);
   const revealActiveRow = useActiveRowReveal(routeReveal, routeRowThreadKey);
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
   const scratchMachineLabelFor = (
@@ -1150,7 +1232,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   };
   // Pinning from a row keeps rows in place while the menu is open.
   const projectScopeItems = useOrderWhileOpen(
-    lookupProjectScopeItems,
+    lookupProjectScopeItems.filter(
+      (item) => item.kind !== "project" || workspaceGroupKeys.has(item.value),
+    ),
     (item) => item.value,
     projectScopeMenuState.open,
   );
@@ -1169,7 +1253,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const scopedProjectRefs = scopedProjectGroups.flatMap((project) => project.memberProjectRefs);
   const scopedProjectKeys = revealWidensScope ? null : chosenScopeProjectKeys;
   const threadSearch = useThreadSearch(
-    connectedEnvironmentIds,
+    workspaceScopeIds.length === 0
+      ? connectedEnvironmentIds
+      : connectedEnvironmentIds.filter((environmentId) =>
+          workspaceScopeIds.includes(environmentId),
+        ),
     threadSearchQuery,
     scopedProjectGroups.length === 0
       ? {}
@@ -1325,7 +1413,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     folderGroups: boringSidebarEnabled
       ? scopedProjectGroups.length === 0
         ? // An archived project keeps a folder for its active threads, below the rest.
-          [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
+          groupsInWorkspaces(
+            [...scopeGroups, ...projectGroups.filter((project) => project.archived)],
+            workspaceScopeIds,
+          )
         : scopedProjectGroups
       : null,
     keepEmptyFolders: (group) =>
@@ -2977,12 +3068,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       return;
                     }
                     if (!item) return;
-                    if (item.value === "all") {
+                    const toggle =
+                      eventDetails.event instanceof MouseEvent && eventDetails.event.shiftKey;
+                    if (item.kind === "workspace") {
+                      // Canceling keeps the menu open and the query intact, as a shift-clicked project does.
+                      if (toggle) eventDetails.cancel();
+                      chooseWorkspaceScope(item.environmentId, toggle);
+                    } else if (item.value === "all") {
                       setProjectScopeKeys([]);
-                    } else if (
-                      eventDetails.event instanceof MouseEvent &&
-                      eventDetails.event.shiftKey
-                    ) {
+                    } else if (toggle) {
                       // Canceling skips Base UI's commit, which would freeze the search query, and its close.
                       eventDetails.cancel();
                       toggleProjectScopeKey(item.value);
@@ -2997,7 +3091,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         label={
                           scopedProjectGroups.length > 0
                             ? `Filter threads by project: ${scopedProjectGroups.map((project) => project.displayName).join(", ")}`
-                            : "Filter threads by project"
+                            : scopedWorkspaceLabels.length > 0
+                              ? `Filter threads by workspace: ${scopedWorkspaceLabels.join(", ")}`
+                              : "Filter threads by project"
                         }
                       />
                     }
@@ -3016,6 +3112,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                       <span className="flex shrink-0">
                         <ProjectFavicon project={scopedProjectGroups[0]} className="size-4" />
                       </span>
+                    ) : scopedWorkspaceLabels.length > 0 ? (
+                      <BoxIcon className="size-4" />
                     ) : (
                       <ListFilterIcon className="size-4" />
                     )}
@@ -3039,6 +3137,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         }
                         const scopeKey = highlightedProjectScopeKeyRef.current;
                         const project = scopeKey ? projectGroupByScopeKey.get(scopeKey) : null;
+                        const workspaceItem = projectScopeItems.find(
+                          (item) => item.kind === "workspace" && item.value === scopeKey,
+                        );
                         // The thread pin shortcut pins the highlighted project here.
                         if (
                           project &&
@@ -3052,6 +3153,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         }
                         if (event.ctrlKey || event.altKey || event.metaKey) return;
                         if (event.shiftKey && event.key === "Enter") {
+                          if (workspaceItem?.kind === "workspace") {
+                            event.preventDefault();
+                            chooseWorkspaceScope(workspaceItem.environmentId, true);
+                            return;
+                          }
                           if (!project) return;
                           event.preventDefault();
                           toggleProjectScopeKey(project.projectKey);
@@ -3075,6 +3181,38 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     <ComboboxEmpty>No matching projects.</ComboboxEmpty>
                     <ComboboxList aria-multiselectable>
                       {(item: (typeof projectScopeItems)[number]) => {
+                        if (item.kind === "workspace") {
+                          const isSelected = workspaceScopeIds.includes(item.environmentId);
+                          const isFirst =
+                            filteredProjectScopeItems.find(
+                              (candidate) => candidate.kind === "workspace",
+                            ) === item;
+                          return (
+                            <Fragment key={item.value}>
+                              {isFirst ? (
+                                <div
+                                  role="presentation"
+                                  className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground"
+                                >
+                                  Workspaces
+                                </div>
+                              ) : null}
+                              <ComboboxItem
+                                hideIndicator
+                                value={item}
+                                aria-selected={isSelected}
+                                data-selected={undefined}
+                              >
+                                <ProjectScopeRowIcon isSelected={isSelected}>
+                                  <BoxIcon className="size-4 shrink-0" />
+                                </ProjectScopeRowIcon>
+                                <span className="min-w-0 flex-1 truncate text-sm">
+                                  {item.label}
+                                </span>
+                              </ComboboxItem>
+                            </Fragment>
+                          );
+                        }
                         const project = projectGroupByScopeKey.get(item.value) ?? null;
                         const isSelected = project
                           ? projectScopeKeys.includes(item.value)
@@ -3594,6 +3732,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 "No threads in these projects yet"
               ) : scopedProjectGroups[0] ? (
                 `No threads in ${scopedProjectGroups[0].displayName} yet`
+              ) : scopedWorkspaceLabels.length === 1 ? (
+                `No threads in ${scopedWorkspaceLabels[0]} yet`
               ) : (
                 "No threads yet"
               )}

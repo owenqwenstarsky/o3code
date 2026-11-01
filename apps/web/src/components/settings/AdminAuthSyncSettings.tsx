@@ -1,12 +1,16 @@
 import type {
   InstanceAuthGroup,
+  InstanceAdminWorkspace,
   InstanceAuthGroupId,
-  InstanceUserWithWorkspaces,
   InstanceWorkspaceId,
 } from "@t3tools/contracts/instance";
 import { useState } from "react";
 
-import { adminAuthGroupsAtom, adminUsersAtom, instanceRequest } from "../../instance/instanceState";
+import {
+  adminAuthGroupsAtom,
+  adminWorkspacesAtom,
+  instanceRequest,
+} from "../../instance/instanceState";
 import { useEnvironmentQuery } from "../../state/query";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -32,7 +36,7 @@ const setWorkspaceAuthGroup = (
     ),
   );
 
-/** The sign-in sync group picker for one workspace, shown on the user page. */
+/** The sign-in sync group picker for one workspace, shown on the Workspaces page. */
 export function WorkspaceAuthGroupRow({ workspaceId }: { workspaceId: InstanceWorkspaceId }) {
   const groups = useEnvironmentQuery(adminAuthGroupsAtom);
   const current =
@@ -111,17 +115,15 @@ function NameForm({
 interface WorkspaceChoice {
   readonly id: InstanceWorkspaceId;
   readonly label: string;
-  readonly workspace: InstanceUserWithWorkspaces["workspaces"][number];
+  readonly workspace: InstanceAdminWorkspace;
 }
 
-function workspaceChoices(users: ReadonlyArray<InstanceUserWithWorkspaces>) {
-  return users.flatMap(({ user, workspaces }) =>
-    workspaces.map((workspace): WorkspaceChoice => ({
-      id: workspace.id,
-      label: workspaces.length > 1 ? `${user.name} · ${workspace.label}` : user.name,
-      workspace,
-    })),
-  );
+function workspaceChoices(workspaces: ReadonlyArray<InstanceAdminWorkspace>) {
+  return workspaces.map((workspace): WorkspaceChoice => ({
+    id: workspace.id,
+    label: workspace.label,
+    workspace,
+  }));
 }
 
 function AuthGroupSection({
@@ -266,12 +268,12 @@ function AuthGroupSection({
 
 export function AdminAuthSyncPanel() {
   const groups = useEnvironmentQuery(adminAuthGroupsAtom);
-  const users = useEnvironmentQuery(adminUsersAtom);
+  const workspaces = useEnvironmentQuery(adminWorkspacesAtom);
   const [creating, setCreating] = useState(false);
-  const choices = workspaceChoices(users.data?.users ?? []);
+  const choices = workspaceChoices(workspaces.data?.workspaces ?? []);
   const refresh = () => {
     groups.refresh();
-    users.refresh();
+    workspaces.refresh();
   };
 
   const create = (name: string) =>
@@ -289,7 +291,7 @@ export function AdminAuthSyncPanel() {
 
   return (
     <SettingsPageContainer>
-      <QueryError error={groups.error ?? users.error} />
+      <QueryError error={groups.error ?? workspaces.error} />
       <SettingsSection
         title="Sign-in sync"
         headerAction={

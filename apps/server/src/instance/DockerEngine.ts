@@ -7,7 +7,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-const API_VERSION = "v1.43";
+// Docker Engine 25+; Engine 29 refuses anything older.
+const API_VERSION = "v1.44";
 
 export class DockerEngineError extends Schema.TaggedError<DockerEngineError>()(
   "DockerEngineError",
@@ -31,6 +32,11 @@ export interface DockerContainerState {
   readonly exitCode: number;
   readonly error: string;
   readonly startedAt: string;
+  /** Host ports bound to container TCP ports, from the container's own config. */
+  readonly publishedPorts: ReadonlyArray<{
+    readonly containerPort: number;
+    readonly hostPort: number;
+  }>;
 }
 
 export interface DockerContainerSpec {
@@ -46,6 +52,11 @@ export interface DockerContainerSpec {
   readonly pids: number;
   readonly capAdd: ReadonlyArray<string>;
   readonly devices: ReadonlyArray<string>;
+  readonly publish?: ReadonlyArray<{
+    readonly containerPort: number;
+    readonly hostIp: string;
+    readonly hostPort: number;
+  }>;
 }
 
 export interface DockerInfo {
@@ -124,7 +135,30 @@ const InspectResponse = Schema.Struct({
     Error: Schema.optionalKey(Schema.String),
     StartedAt: Schema.optionalKey(Schema.String),
   }),
+  HostConfig: Schema.optionalKey(
+    Schema.Struct({
+      PortBindings: Schema.optionalKey(
+        Schema.NullOr(
+          Schema.Record(
+            Schema.String,
+            Schema.NullOr(
+              Schema.Array(Schema.Struct({ HostPort: Schema.optionalKey(Schema.String) })),
+            ),
+          ),
+        ),
+      ),
+    }),
+  ),
 });
+
+const publishedPorts = (raw: typeof InspectResponse.Type) =>
+  Object.entries(raw.HostConfig?.PortBindings ?? {}).flatMap(([key, bindings]) => {
+    const containerPort = Number.parseInt(key, 10);
+    return (bindings ?? []).flatMap((binding) => {
+      const hostPort = Number.parseInt(binding.HostPort ?? "", 10);
+      return Number.isInteger(containerPort) && hostPort > 0 ? [{ containerPort, hostPort }] : [];
+    });
+  });
 
 const CreateResponse = Schema.Struct({ Id: Schema.String });
 const decodeErrorBody = Schema.decodeOption(
@@ -353,8 +387,25 @@ const makeDockerEngine = (socketPath: string) => {
           Hostname: spec.hostname,
           Env: Object.entries(spec.env).map(([key, value]) => `${key}=${value}`),
           Labels: spec.labels,
+          ...(spec.publish
+            ? {
+                ExposedPorts: Object.fromEntries(
+                  spec.publish.map((port) => [`${port.containerPort}/tcp`, {}]),
+                ),
+              }
+            : {}),
           HostConfig: {
             NetworkMode: spec.network,
+            ...(spec.publish
+              ? {
+                  PortBindings: Object.fromEntries(
+                    spec.publish.map((port) => [
+                      `${port.containerPort}/tcp`,
+                      [{ HostIp: port.hostIp, HostPort: String(port.hostPort) }],
+                    ]),
+                  ),
+                }
+              : {}),
             Mounts: spec.mounts.map((mount) => ({
               Type: "volume",
               Source: mount.volume,
@@ -441,6 +492,7 @@ const makeDockerEngine = (socketPath: string) => {
                     exitCode: raw.State.ExitCode,
                     error: raw.State.Error ?? "",
                     startedAt: raw.State.StartedAt ?? "",
+                    publishedPorts: publishedPorts(raw),
                   }),
                 ),
               ),

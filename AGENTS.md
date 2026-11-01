@@ -1,6 +1,6 @@
 # O3 Code
 
-O3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web and desktop clients. Organizations host O3 Code on an [O3 instance](docs/internals/o3-instance.md), which holds accounts and runs one or more workspaces per user; clients sign in there and reach each workspace, an environment, directly over Tailscale.
+O3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web and desktop clients. Organizations host O3 Code on an [O3 instance](docs/internals/o3-instance.md), which holds accounts and runs workspaces that users are members of; clients sign in there and reach each workspace, an environment, directly over Tailscale.
 
 O3 Code is a fork of [T3 Code](https://github.com/pingdotgg/t3code). Product names and docs say O3 Code; code identifiers (the `@t3tools/*` packages, `T3CODE_*` environment variables, the `~/.t3` data directory, the `t3` CLI) are still the upstream names. Keep them as they are unless a task says to rename them, and do not mix the two in one identifier.
 
@@ -54,8 +54,8 @@ We need to be on the same page with terminology. When communicating, use this la
 - **project** means an environment-local workspace record rooted at a directory.
 - **thread** means the durable conversation and work history for a project.
 - **turn** means one user-to-agent cycle, including follow-up work such as checkpointing.
-- **instance** (or **O3 instance**) means the control plane (`t3 instance serve`) that holds accounts and runs one or more workspaces per user.
-- **workspace** means one of a user's containers on an instance, running a normal O3 server. Each is an environment; one is the user's default.
+- **instance** (or **O3 instance**) means the control plane (`t3 instance serve`) that holds accounts and runs workspaces, each shared by its members.
+- **workspace** means a container on an instance, running a normal O3 server, that one or more users are members of. Each is an environment; each user has one default.
 - **O3 home** means the base data directory. Runtime state normally lives below its userdata directory.
 
 ## The three ways to hurt yourself
@@ -103,6 +103,7 @@ The most common defect in this repo is a change that works on the path you teste
 - Setup runs in the background. While `.t3/setup-running` names a live PID, wait for it and do not run `vp i`. It ends with `.t3/setup-done` or `.t3/setup-failed` (with the error tail). With no marker at all, setup never ran here, so run `vp i` yourself.
 - `vp run dev` starts an O3 instance, one stand-in workspace, and the web app behind Vite, without Docker or a tailnet. Sign in as `admin@o3.test` / `o3-dev-password` (you choose a new password on first sign-in). The workspace's state is the worktree's `.t3`; the instance's is `.t3/o3-instance`. In a worktree, state defaults to that worktree's gitignored `.t3`, which deliberately outranks an ambient `T3CODE_HOME` so you cannot land on shared state by accident. An explicit `--home-dir` still wins.
 - Ports derive from the worktree path and are stable across restarts, but read the real ones from the `[dev-runner]` line since occupied ports shift.
+- `vp run dev --docker` runs each workspace as a real Docker Desktop container on a loopback port instead of the stand-in, for testing several workspaces. See [Development](docs/operations/development.md#docker-workspaces).
 - Sharing over the tailnet: run `vp run dev --share` in the background and wait for the `shared on tailnet:` line. Give that URL to the browser; it signs in like any client, and the stand-in workspace is published on the tailnet for as long as dev runs. Do not wire up `tailscale serve` by hand, and do not share the dev admin's password beyond the person testing.
 - Stop what you started, by the PID you tracked. See rule 1.
 - Need a second checkout? `git worktree add` it next to this worktree, not in `/tmp`. Remove it when done.

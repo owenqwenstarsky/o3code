@@ -87,9 +87,8 @@ export const InstanceToolId = TrimmedNonEmptyString;
 
 export const InstanceWorkspace = Schema.Struct({
   id: InstanceWorkspaceId,
-  userId: InstanceUserId,
   label: Schema.String,
-  /** The workspace clients treat as this user's home environment. */
+  /** Whether this is the listed user's home environment; false where no user is in view. */
   isDefault: Schema.Boolean,
   slug: Schema.String,
   status: InstanceWorkspaceStatus,
@@ -106,6 +105,27 @@ export const InstanceWorkspace = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type InstanceWorkspace = typeof InstanceWorkspace.Type;
+
+export const InstanceWorkspaceMember = Schema.Struct({
+  userId: InstanceUserId,
+  email: Schema.String,
+  name: Schema.String,
+  disabled: Schema.Boolean,
+  /** Whether this workspace is the member's default. */
+  isDefault: Schema.Boolean,
+});
+export type InstanceWorkspaceMember = typeof InstanceWorkspaceMember.Type;
+
+export const InstanceAdminWorkspace = Schema.Struct({
+  ...InstanceWorkspace.fields,
+  members: Schema.Array(InstanceWorkspaceMember),
+});
+export type InstanceAdminWorkspace = typeof InstanceAdminWorkspace.Type;
+
+export const InstanceAdminWorkspaceList = Schema.Struct({
+  workspaces: Schema.Array(InstanceAdminWorkspace),
+});
+export type InstanceAdminWorkspaceList = typeof InstanceAdminWorkspaceList.Type;
 
 export const InstanceDescriptor = Schema.Struct({
   kind: Schema.Literal("o3-instance"),
@@ -176,12 +196,27 @@ export const InstanceOk = Schema.Struct({ ok: Schema.Boolean });
 
 // Admin
 
+/** A new user gets a fresh workspace (labelled after them unless given), joins existing ones, or neither. */
+export const InstanceNewUserWorkspace = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("new"),
+    label: Schema.optionalKey(InstanceWorkspaceLabel),
+    tools: Schema.optionalKey(Schema.Array(InstanceToolId)),
+    limits: Schema.optionalKey(InstanceWorkspaceLimits),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("existing"),
+    workspaceIds: Schema.Array(InstanceWorkspaceId),
+  }),
+]);
+export type InstanceNewUserWorkspace = typeof InstanceNewUserWorkspace.Type;
+
 export const InstanceCreateUserRequest = Schema.Struct({
   email: Email,
   name: TrimmedNonEmptyString,
   role: InstanceUserRole,
-  tools: Schema.optionalKey(Schema.Array(InstanceToolId)),
-  limits: Schema.optionalKey(InstanceWorkspaceLimits),
+  /** Defaults to a new workspace. */
+  workspace: Schema.optionalKey(InstanceNewUserWorkspace),
 });
 export type InstanceCreateUserRequest = typeof InstanceCreateUserRequest.Type;
 
@@ -194,6 +229,7 @@ export type InstanceUserWithWorkspaces = typeof InstanceUserWithWorkspaces.Type;
 
 export const InstanceCreateUserResult = Schema.Struct({
   user: InstanceUser,
+  /** The user's default workspace, if they have one. */
   workspace: Schema.NullOr(InstanceWorkspace),
   temporaryPassword: Schema.String,
 });
@@ -219,11 +255,13 @@ export const InstanceUserSessionParams = Schema.Struct({
 
 export const InstanceResetPasswordResult = Schema.Struct({ temporaryPassword: Schema.String });
 
-export const InstanceDeleteUserRequest = Schema.Struct({ deleteData: Schema.Boolean });
-
 export const InstanceWorkspaceAction = Schema.Literals(["start", "stop", "restart", "recreate"]);
 export type InstanceWorkspaceAction = typeof InstanceWorkspaceAction.Type;
 export const InstanceWorkspaceParams = Schema.Struct({ workspaceId: InstanceWorkspaceId });
+export const InstanceWorkspaceMemberParams = Schema.Struct({
+  workspaceId: InstanceWorkspaceId,
+  userId: InstanceUserId,
+});
 export const InstanceWorkspaceActionParams = Schema.Struct({
   workspaceId: InstanceWorkspaceId,
   action: InstanceWorkspaceAction,
@@ -233,6 +271,7 @@ export const InstanceCreateWorkspaceRequest = Schema.Struct({
   label: InstanceWorkspaceLabel,
   tools: Schema.optionalKey(Schema.Array(InstanceToolId)),
   limits: Schema.optionalKey(InstanceWorkspaceLimits),
+  memberUserIds: Schema.optionalKey(Schema.Array(InstanceUserId)),
 });
 export type InstanceCreateWorkspaceRequest = typeof InstanceCreateWorkspaceRequest.Type;
 
@@ -669,7 +708,6 @@ class InstanceAdminApi extends HttpApiGroup.make("admin")
     HttpApiEndpoint.post("deleteUser", p("/admin/users/:userId/delete"), {
       headers: BearerHeaders,
       params: InstanceUserParams,
-      payload: InstanceDeleteUserRequest,
       success: InstanceOk,
       error: TargetErrors,
     }),
@@ -695,13 +733,55 @@ class InstanceAdminApi extends HttpApiGroup.make("admin")
     ),
   )
   .add(
-    HttpApiEndpoint.post("createWorkspace", p("/admin/users/:userId/workspaces"), {
+    HttpApiEndpoint.post(
+      "setDefaultWorkspace",
+      p("/admin/users/:userId/default-workspace/:workspaceId"),
+      {
+        headers: BearerHeaders,
+        params: InstanceWorkspaceMemberParams,
+        success: InstanceUserWithWorkspaces,
+        error: TargetErrors,
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get("listWorkspaces", p("/admin/workspaces"), {
       headers: BearerHeaders,
-      params: InstanceUserParams,
+      success: InstanceAdminWorkspaceList,
+      error: CommonErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("createWorkspace", p("/admin/workspaces"), {
+      headers: BearerHeaders,
       payload: InstanceCreateWorkspaceRequest,
-      success: InstanceWorkspace,
+      success: InstanceAdminWorkspace,
       error: TargetErrors,
     }),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "addWorkspaceMember",
+      p("/admin/workspaces/:workspaceId/members/:userId"),
+      {
+        headers: BearerHeaders,
+        params: InstanceWorkspaceMemberParams,
+        success: InstanceAdminWorkspace,
+        error: TargetErrors,
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "removeWorkspaceMember",
+      p("/admin/workspaces/:workspaceId/members/:userId/remove"),
+      {
+        headers: BearerHeaders,
+        params: InstanceWorkspaceMemberParams,
+        success: InstanceAdminWorkspace,
+        error: TargetErrors,
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.post("workspaceAction", p("/admin/workspaces/:workspaceId/actions/:action"), {
@@ -716,14 +796,6 @@ class InstanceAdminApi extends HttpApiGroup.make("admin")
       headers: BearerHeaders,
       params: InstanceWorkspaceParams,
       payload: InstanceUpdateWorkspaceRequest,
-      success: InstanceWorkspace,
-      error: TargetErrors,
-    }),
-  )
-  .add(
-    HttpApiEndpoint.post("setDefaultWorkspace", p("/admin/workspaces/:workspaceId/default"), {
-      headers: BearerHeaders,
-      params: InstanceWorkspaceParams,
       success: InstanceWorkspace,
       error: TargetErrors,
     }),

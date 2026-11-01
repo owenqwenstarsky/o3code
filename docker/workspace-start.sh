@@ -24,5 +24,14 @@ for tool in "${tools[@]}"; do
   fi
 done
 
+# A fresh home has no git identity, and project creation and agents commit. Members can override it.
+if ! git config --global user.email >/dev/null; then
+  git config --global user.name "${O3_WORKSPACE_LABEL:-O3 workspace}"
+  git config --global user.email "${O3_WORKSPACE_SLUG:-workspace}@workspace.o3.invalid"
+fi
+
 cd "$HOME/projects"
-exec t3 serve --host 127.0.0.1 --port 3773 --base-dir "$HOME/.t3"
+# Docker's port forwarding reaches the container's interface, not its loopback.
+host=127.0.0.1
+[ "${O3_PUBLISH:-tailnet}" = "loopback" ] && host=0.0.0.0
+exec t3 serve --host "$host" --port 3773 --base-dir "$HOME/.t3"

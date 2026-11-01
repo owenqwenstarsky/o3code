@@ -114,7 +114,7 @@ export class InstanceAuth extends Context.Service<
     /** Revokes one of the user's sessions and the workspace tokens minted from it. */
     readonly revokeSession: (userId: string, sessionId: string) => Effect.Effect<boolean>;
     readonly revokeAllForUser: (userId: string) => Effect.Effect<void>;
-    /** The caller checks that the workspace belongs to the principal. */
+    /** The caller checks that the principal is a member of the workspace. */
     readonly issueWorkspaceToken: (
       principal: InstancePrincipalValue,
       workspaceId: string,
@@ -416,11 +416,12 @@ const make = Effect.gen(function* () {
       // A token is only good at the workspace it was minted for.
       if (subject === null) return inactive;
       // The static dev runtime is one server standing in for every workspace.
-      if (workspaceId !== STATIC_WORKSPACE_ID) {
-        if (subject.workspaceId !== workspaceId) return inactive;
-        const workspace = yield* store.getWorkspace(workspaceId);
-        if (Option.isNone(workspace) || workspace.value.userId !== subject.userId) return inactive;
+      if (workspaceId !== STATIC_WORKSPACE_ID && subject.workspaceId !== workspaceId) {
+        return inactive;
       }
+      // Membership is checked on every introspection, so removing someone ends their access.
+      const members = yield* store.listMembers(subject.workspaceId);
+      if (!members.some((member) => member.userId === subject.userId)) return inactive;
       const parent = yield* authSessions
         .getById({ sessionId: AuthSessionId.make(subject.parentSessionId) })
         .pipe(Effect.orDie);

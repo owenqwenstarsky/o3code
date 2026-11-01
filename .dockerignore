@@ -12,7 +12,13 @@ release-cli
 apps/mobile
 apps/marketing
 infra
+# The root vite.config.ts imports this, and every package's config loads it.
+!infra/task-cache/src/remoteCache.ts
+# pnpm then sees a workspace project there, which the lockfile expects to have a manifest.
+!infra/task-cache/package.json
 native
+# The web build's third-party license notices read this.
+!native/libghostty-vt/LICENSE
 packaging
 evals
 artifacts

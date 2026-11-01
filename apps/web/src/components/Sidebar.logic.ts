@@ -20,6 +20,8 @@ import {
   isListedThreadLineage,
   type ContextMenuItem,
   type EnvironmentId,
+  type ProjectId,
+  type ScopedProjectRef,
   type ThreadId,
 } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
@@ -1084,6 +1086,35 @@ export function pullRequestMatchesSearchQuery(
   if (normalizedQuery.length === 0) return false;
   const haystack = normalizeSearchText(threadPullRequestSearchTerms(pullRequest).join(" "));
   return normalizedQuery.split(" ").every((token) => haystack.includes(token));
+}
+
+/**
+ * The sidebar's thread scope as `environmentId:projectId` keys, or null for every thread.
+ * Chosen projects narrow to the chosen workspaces; workspaces alone take all their projects.
+ */
+export function resolveSidebarScopedProjectKeys(input: {
+  readonly projects: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly id: ProjectId;
+  }>;
+  readonly projectRefs: ReadonlyArray<ScopedProjectRef> | null;
+  readonly workspaceIds: ReadonlyArray<EnvironmentId>;
+}): ReadonlySet<string> | null {
+  const inWorkspaces = (environmentId: EnvironmentId) =>
+    input.workspaceIds.length === 0 || input.workspaceIds.includes(environmentId);
+  if (input.projectRefs !== null) {
+    return new Set(
+      input.projectRefs
+        .filter((ref) => inWorkspaces(ref.environmentId))
+        .map((ref) => `${ref.environmentId}:${ref.projectId}`),
+    );
+  }
+  if (input.workspaceIds.length === 0) return null;
+  return new Set(
+    input.projects
+      .filter((project) => inWorkspaces(project.environmentId))
+      .map((project) => `${project.environmentId}:${project.id}`),
+  );
 }
 
 export function filterSidebarProjectScopeItems<TItem extends { readonly value: string }>(input: {

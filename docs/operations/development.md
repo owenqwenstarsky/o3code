@@ -38,7 +38,9 @@ The first start in a worktree seeds its empty database from a read-only copy of
 and dev starts with an empty database. `--no-seed` or `T3CODE_DEV_SEED=0` skips seeding.
 To copy a larger source, run `vp run migrate-dev-db` with dev stopped. It may use
 substantial disk space before pruning.
-Never run a development server against the live `~/.t3/userdata`.
+Never run a development server against the live `~/.t3/userdata`. The dev runner refuses a home of
+`~/.t3` itself or anything inside `~/.t3/userdata`; other homes under `~/.t3`, such as worktrees,
+are fine.
 See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
 
 Read ports from the `[dev-runner]` output. Worktrees derive stable preferences from their paths,
@@ -57,6 +59,20 @@ To add a scenario, point a `SCENARIOS` entry at a generic ACP replay fixture
 (`registry_transcript.ndjson`) or a file in [dev-replay](../../apps/server/scripts/dev-replay).
 The agent replays session updates, permission requests, and questions. It drops session setup
 and vendor frames, so Grok and fx recordings lose their vendor-only behavior.
+
+### Docker workspaces
+
+The stand-in serves every workspace from one server, so several workspaces look like one
+environment to the client. To test real workspaces, start Docker Desktop and run
+`vp run dev --docker`. The instance then creates a container per workspace from
+`o3code/workspace:dev`, built from this checkout the first time (several minutes). Each container
+publishes its server on a `127.0.0.1` port instead of joining the tailnet, so it needs no Tailscale
+key. With `--share`, the dev runner publishes each of those ports on this machine's tailnet
+address too, for as long as dev runs, and the instance hands out those URLs. Containers run the image's
+code, not your edits: rebuild with `T3CODE_DEV_DOCKER_REBUILD=1 vp run dev --docker`, then
+recreate the workspace from Settings → Admin. The instance keeps this mode's state in
+`.t3/o3-instance-docker`, apart from the stand-in's. Containers keep running after dev stops;
+stop or delete them from the admin page or with `docker ps --filter label=dev.o3code.managed`.
 
 ### Sharing and remote debugging
 
