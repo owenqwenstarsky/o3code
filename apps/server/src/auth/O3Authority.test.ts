@@ -15,7 +15,7 @@ import * as ServerSecretStore from "./ServerSecretStore.ts";
 import * as SessionStore from "./SessionStore.ts";
 
 interface FakeInstance {
-  answer: "active" | "inactive" | "other-user" | "down";
+  answer: "active" | "inactive" | "other-workspace" | "down";
   calls: number;
   authorization: string | undefined;
 }
@@ -35,7 +35,9 @@ const layerFakeInstance = (instance: FakeInstance) =>
             ? { active: false }
             : {
                 active: true,
-                userId: instance.answer === "other-user" ? "user-2" : "user-1",
+                userId: "user-1",
+                // The same user's other workspace.
+                workspaceId: instance.answer === "other-workspace" ? "ws-2" : "ws-1",
                 email: "user@acme.test",
                 name: "User",
                 role: "member",
@@ -65,7 +67,7 @@ const layerAuthority = (instance: FakeInstance) =>
         ConfigProvider.fromEnv({
           env: {
             T3CODE_O3_INSTANCE_URL: "http://instance.test",
-            T3CODE_O3_USER_ID: "user-1",
+            T3CODE_O3_WORKSPACE_ID: "ws-1",
             T3CODE_O3_WORKSPACE_SECRET: "workspace-secret",
           },
         }),
@@ -90,7 +92,7 @@ it.effect(
       expect(again.sessionId).toBe(first.sessionId);
       expect(first.subject).toBe("o3:user-1");
       expect(instance.calls).toBe(1);
-      expect(instance.authorization).toBe("Bearer user-1:workspace-secret");
+      expect(instance.authorization).toBe("Bearer ws-1:workspace-secret");
       expect(yield* activeSessionIds).toEqual([first.sessionId]);
 
       // A live socket makes no requests; the periodic recheck notices the revocation.
@@ -103,8 +105,8 @@ it.effect(
   },
 );
 
-it.effect("refuses another user's token and tolerates a brief instance outage", () => {
-  const instance: FakeInstance = { answer: "other-user", calls: 0, authorization: undefined };
+it.effect("refuses another workspace's token and tolerates a brief instance outage", () => {
+  const instance: FakeInstance = { answer: "other-workspace", calls: 0, authorization: undefined };
   return Effect.gen(function* () {
     const authority = yield* O3Authority.O3Authority;
     const foreign = yield* authority.authenticate("o3w_foreign").pipe(Effect.flip);

@@ -1,6 +1,6 @@
 # O3 Code
 
-O3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web and desktop clients. Organizations host O3 Code on an [O3 instance](docs/internals/o3-instance.md), which holds accounts and runs one workspace per user; clients sign in there and reach their environment, that workspace, directly over Tailscale.
+O3 Code is a minimal GUI for coding agents. A Node WebSocket server wraps provider CLIs and agents (Codex, Claude Code, Cursor, Grok, OpenCode, Antigravity) and serves web and desktop clients. Organizations host O3 Code on an [O3 instance](docs/internals/o3-instance.md), which holds accounts and runs one or more workspaces per user; clients sign in there and reach each workspace, an environment, directly over Tailscale.
 
 O3 Code is a fork of [T3 Code](https://github.com/pingdotgg/t3code). Product names and docs say O3 Code; code identifiers (the `@t3tools/*` packages, `T3CODE_*` environment variables, the `~/.t3` data directory, the `t3` CLI) are still the upstream names. Keep them as they are unless a task says to rename them, and do not mix the two in one identifier.
 
@@ -54,8 +54,8 @@ We need to be on the same page with terminology. When communicating, use this la
 - **project** means an environment-local workspace record rooted at a directory.
 - **thread** means the durable conversation and work history for a project.
 - **turn** means one user-to-agent cycle, including follow-up work such as checkpointing.
-- **instance** (or **O3 instance**) means the control plane (`t3 instance serve`) that holds accounts and runs one workspace per user.
-- **workspace** means a user's container on an instance, running a normal O3 server. It is that user's environment.
+- **instance** (or **O3 instance**) means the control plane (`t3 instance serve`) that holds accounts and runs one or more workspaces per user.
+- **workspace** means one of a user's containers on an instance, running a normal O3 server. Each is an environment; one is the user's default.
 - **O3 home** means the base data directory. Runtime state normally lives below its userdata directory.
 
 ## The three ways to hurt yourself

@@ -8,8 +8,8 @@ import { runInstance } from "./instanceState";
 // Notices a revoked session within minutes; tokens are only re-minted near expiry.
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
-const refreshWorkspace = InstanceAccount.pipe(
-  Effect.flatMap((account) => account.refreshWorkspace),
+const refreshWorkspaces = InstanceAccount.pipe(
+  Effect.flatMap((account) => account.refreshWorkspaces),
   Effect.as("connected" as const),
   Effect.catchTags({
     InstanceSignedOutError: () => Effect.succeed("signed-out" as const),
@@ -32,7 +32,7 @@ export function InstanceWorkspaceCoordinator() {
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
-      void runInstance(refreshWorkspace).then((outcome) => {
+      void runInstance(refreshWorkspaces).then((outcome) => {
         if (!cancelled && outcome === "signed-out") void navigate({ to: "/login", replace: true });
       });
     };

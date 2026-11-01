@@ -49,6 +49,7 @@ import { Route as ChatSettingsAboutRouteImport } from './routes/_chat.settings.a
 import { Route as ChatDraftDraftIdRouteImport } from './routes/_chat.draft.$draftId'
 import { Route as ChatEnvironmentIdThreadIdRouteImport } from './routes/_chat.$environmentId.$threadId'
 import { Route as ChatSettingsAdminToolsRouteImport } from './routes/_chat.settings.admin.tools'
+import { Route as ChatSettingsAdminSyncRouteImport } from './routes/_chat.settings.admin.sync'
 import { Route as ChatSettingsAdminOverviewRouteImport } from './routes/_chat.settings.admin.overview'
 import { Route as ChatSettingsAdminInstanceRouteImport } from './routes/_chat.settings.admin.instance'
 import { Route as ChatSettingsAdminAuditRouteImport } from './routes/_chat.settings.admin.audit'
@@ -259,6 +260,11 @@ const ChatSettingsAdminToolsRoute = ChatSettingsAdminToolsRouteImport.update({
   path: '/admin/tools',
   getParentRoute: () => ChatSettingsRoute,
 } as any)
+const ChatSettingsAdminSyncRoute = ChatSettingsAdminSyncRouteImport.update({
+  id: '/admin/sync',
+  path: '/admin/sync',
+  getParentRoute: () => ChatSettingsRoute,
+} as any)
 const ChatSettingsAdminOverviewRoute =
   ChatSettingsAdminOverviewRouteImport.update({
     id: '/admin/overview',
@@ -331,6 +337,7 @@ export interface FileRoutesByFullPath {
   '/settings/admin/audit': typeof ChatSettingsAdminAuditRoute
   '/settings/admin/instance': typeof ChatSettingsAdminInstanceRoute
   '/settings/admin/overview': typeof ChatSettingsAdminOverviewRoute
+  '/settings/admin/sync': typeof ChatSettingsAdminSyncRoute
   '/settings/admin/tools': typeof ChatSettingsAdminToolsRoute
   '/settings/admin/users/$userId': typeof ChatSettingsAdminUsersUserIdRoute
   '/settings/admin/users/': typeof ChatSettingsAdminUsersIndexRoute
@@ -377,6 +384,7 @@ export interface FileRoutesByTo {
   '/settings/admin/audit': typeof ChatSettingsAdminAuditRoute
   '/settings/admin/instance': typeof ChatSettingsAdminInstanceRoute
   '/settings/admin/overview': typeof ChatSettingsAdminOverviewRoute
+  '/settings/admin/sync': typeof ChatSettingsAdminSyncRoute
   '/settings/admin/tools': typeof ChatSettingsAdminToolsRoute
   '/settings/admin/users/$userId': typeof ChatSettingsAdminUsersUserIdRoute
   '/settings/admin/users': typeof ChatSettingsAdminUsersIndexRoute
@@ -425,6 +433,7 @@ export interface FileRoutesById {
   '/_chat/settings/admin/audit': typeof ChatSettingsAdminAuditRoute
   '/_chat/settings/admin/instance': typeof ChatSettingsAdminInstanceRoute
   '/_chat/settings/admin/overview': typeof ChatSettingsAdminOverviewRoute
+  '/_chat/settings/admin/sync': typeof ChatSettingsAdminSyncRoute
   '/_chat/settings/admin/tools': typeof ChatSettingsAdminToolsRoute
   '/_chat/settings/admin/users/$userId': typeof ChatSettingsAdminUsersUserIdRoute
   '/_chat/settings/admin/users/': typeof ChatSettingsAdminUsersIndexRoute
@@ -473,6 +482,7 @@ export interface FileRouteTypes {
     | '/settings/admin/audit'
     | '/settings/admin/instance'
     | '/settings/admin/overview'
+    | '/settings/admin/sync'
     | '/settings/admin/tools'
     | '/settings/admin/users/$userId'
     | '/settings/admin/users/'
@@ -519,6 +529,7 @@ export interface FileRouteTypes {
     | '/settings/admin/audit'
     | '/settings/admin/instance'
     | '/settings/admin/overview'
+    | '/settings/admin/sync'
     | '/settings/admin/tools'
     | '/settings/admin/users/$userId'
     | '/settings/admin/users'
@@ -566,6 +577,7 @@ export interface FileRouteTypes {
     | '/_chat/settings/admin/audit'
     | '/_chat/settings/admin/instance'
     | '/_chat/settings/admin/overview'
+    | '/_chat/settings/admin/sync'
     | '/_chat/settings/admin/tools'
     | '/_chat/settings/admin/users/$userId'
     | '/_chat/settings/admin/users/'
@@ -862,6 +874,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatSettingsAdminToolsRouteImport
       parentRoute: typeof ChatSettingsRoute
     }
+    '/_chat/settings/admin/sync': {
+      id: '/_chat/settings/admin/sync'
+      path: '/admin/sync'
+      fullPath: '/settings/admin/sync'
+      preLoaderRoute: typeof ChatSettingsAdminSyncRouteImport
+      parentRoute: typeof ChatSettingsRoute
+    }
     '/_chat/settings/admin/overview': {
       id: '/_chat/settings/admin/overview'
       path: '/admin/overview'
@@ -930,6 +949,7 @@ interface ChatSettingsRouteChildren {
   ChatSettingsAdminAuditRoute: typeof ChatSettingsAdminAuditRoute
   ChatSettingsAdminInstanceRoute: typeof ChatSettingsAdminInstanceRoute
   ChatSettingsAdminOverviewRoute: typeof ChatSettingsAdminOverviewRoute
+  ChatSettingsAdminSyncRoute: typeof ChatSettingsAdminSyncRoute
   ChatSettingsAdminToolsRoute: typeof ChatSettingsAdminToolsRoute
   ChatSettingsAdminUsersUserIdRoute: typeof ChatSettingsAdminUsersUserIdRoute
   ChatSettingsAdminUsersIndexRoute: typeof ChatSettingsAdminUsersIndexRoute
@@ -965,6 +985,7 @@ const ChatSettingsRouteChildren: ChatSettingsRouteChildren = {
   ChatSettingsAdminAuditRoute: ChatSettingsAdminAuditRoute,
   ChatSettingsAdminInstanceRoute: ChatSettingsAdminInstanceRoute,
   ChatSettingsAdminOverviewRoute: ChatSettingsAdminOverviewRoute,
+  ChatSettingsAdminSyncRoute: ChatSettingsAdminSyncRoute,
   ChatSettingsAdminToolsRoute: ChatSettingsAdminToolsRoute,
   ChatSettingsAdminUsersUserIdRoute: ChatSettingsAdminUsersUserIdRoute,
   ChatSettingsAdminUsersIndexRoute: ChatSettingsAdminUsersIndexRoute,

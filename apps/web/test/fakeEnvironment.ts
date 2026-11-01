@@ -415,7 +415,13 @@ export function installFakeEnvironment(fixtures: ReadonlyArray<FakeThread>): Dis
     if (url.origin !== window.location.origin) return realFetch(input, init);
     if (url.pathname === "/.well-known/t3/environment") return json(encodedDescriptor);
     if (url.pathname === "/o3/api/auth/me") {
-      return json({ user: instanceUser, workspace: instanceWorkspace(), sessionId: "session-1" });
+      const workspace = instanceWorkspace();
+      return json({
+        user: instanceUser,
+        workspace,
+        workspaces: [workspace],
+        sessionId: "session-1",
+      });
     }
     if (url.pathname === "/api/auth/session") {
       return json({
@@ -450,7 +456,10 @@ const instanceUser = {
 };
 
 const instanceWorkspace = () => ({
+  id: "workspace-render",
   userId: instanceUser.id,
+  label: "Default",
+  isDefault: true,
   slug: "render",
   status: "running",
   statusMessage: null,
@@ -479,7 +488,7 @@ export async function signInToFakeWorkspace(): Promise<void> {
       BearerConnectionTarget,
       EnvironmentRegistry,
     },
-    { INSTANCE_WORKSPACE_CONNECTION_PREFIX, InstanceSessionStore },
+    { INSTANCE_DEFAULT_WORKSPACE_CONNECTION_PREFIX, InstanceSessionStore },
     { executeAtomQuery },
     { Atom },
     { connectionAtomRuntime },
@@ -492,7 +501,7 @@ export async function signInToFakeWorkspace(): Promise<void> {
     import("~/connection/runtime"),
     import("~/rpc/atomRegistry"),
   ]);
-  const connectionId = `${INSTANCE_WORKSPACE_CONNECTION_PREFIX}${ENVIRONMENT_ID}`;
+  const connectionId = `${INSTANCE_DEFAULT_WORKSPACE_CONNECTION_PREFIX}${ENVIRONMENT_ID}`;
   const httpBaseUrl = window.location.origin;
   const signIn = Effect.gen(function* () {
     yield* (yield* EnvironmentRegistry.EnvironmentRegistry).register(
@@ -518,9 +527,15 @@ export async function signInToFakeWorkspace(): Promise<void> {
       sessionToken: "o3s_render",
       userId: instanceUser.id,
       email: instanceUser.email,
-      environmentId: ENVIRONMENT_ID,
-      workspaceTokenExpiresAt: "2099-01-01T00:00:00.000Z",
-      workspaceHttpBaseUrl: httpBaseUrl,
+      workspaces: [
+        {
+          workspaceId: "workspace-render",
+          environmentId: ENVIRONMENT_ID,
+          httpBaseUrl,
+          tokenExpiresAt: "2099-01-01T00:00:00.000Z",
+          isDefault: true,
+        },
+      ],
     });
   });
   const result = await executeAtomQuery(

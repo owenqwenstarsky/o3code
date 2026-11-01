@@ -14,6 +14,7 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerHttp from "../http.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { loopbackUrlHostForAddress } from "../startupAccess.ts";
+import * as AuthSync from "./AuthSync.ts";
 import * as InstanceAuth from "./InstanceAuth.ts";
 import * as InstanceConfig from "./InstanceConfig.ts";
 import * as InstanceHttp from "./http.ts";
@@ -26,6 +27,7 @@ import * as Workspaces from "./Workspaces.ts";
 
 /** Instance services over an already-provided database and `ServerConfig`. */
 export const layerServices = InstanceUsers.layer.pipe(
+  Layer.provideMerge(AuthSync.layer),
   Layer.provideMerge(Workspaces.layer),
   Layer.provideMerge(InstanceAuth.layer),
   Layer.provideMerge(TailscaleKeys.layer),

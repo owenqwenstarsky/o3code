@@ -22,10 +22,10 @@ export type WorkspaceRuntimeConfig =
       readonly network: string;
     }
   | {
-      /** Every user's workspace is one already-running T3 server; for development only. */
+      /** Every workspace is one already-running T3 server; for development only. */
       readonly kind: "static";
       readonly url: string;
-      /** The dev server's `T3CODE_O3_WORKSPACE_SECRET`, with `T3CODE_O3_USER_ID=static`. */
+      /** The dev server's `T3CODE_O3_WORKSPACE_SECRET`, with `T3CODE_O3_WORKSPACE_ID=static`. */
       readonly secret: Redacted.Redacted<string>;
     };
 

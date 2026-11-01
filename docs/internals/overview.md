@@ -1,7 +1,7 @@
 # Architecture
 
 O3 Code keeps execution in the environment that owns the workspace. Web and desktop
-clients control it over authenticated RPC. For each user that environment is their workspace on an
+clients control it over authenticated RPC. For each user those environments are their workspaces on an
 [O3 instance](./o3-instance.md), reached over the tailnet. A client must never substitute its own
 filesystem, provider credentials, or machine state for the environment's; the desktop app is a
 client of the workspace like the web app.

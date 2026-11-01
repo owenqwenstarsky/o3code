@@ -11,6 +11,7 @@ import {
   mySessionsAtom,
   runInstance,
 } from "../../instance/instanceState";
+import { useRefreshWhileSettling } from "../../instance/useRefreshWhileSettling";
 import { useEnvironmentQuery } from "../../state/query";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Badge } from "../ui/badge";
@@ -31,6 +32,24 @@ export function workspaceStatusBadge(workspace: InstanceWorkspace | null) {
     default:
       return <Badge variant="info">{workspace.statusMessage ?? "Starting"}</Badge>;
   }
+}
+
+/** One badge for all of a user's workspaces. */
+export function workspaceSummaryBadge(workspaces: ReadonlyArray<InstanceWorkspace>) {
+  if (workspaces.length <= 1) return workspaceStatusBadge(workspaces[0] ?? null);
+  const running = workspaces.filter((workspace) => workspace.status === "running").length;
+  const failing = workspaces.some((workspace) => workspace.status === "error");
+  return (
+    <Badge variant={failing ? "warning" : running === workspaces.length ? "success" : "outline"}>
+      {running} of {workspaces.length} running
+    </Badge>
+  );
+}
+
+function workspaceDescription(workspace: InstanceWorkspace) {
+  return workspace.tailnetHostname
+    ? `Reachable on your tailnet at ${workspace.tailnetHostname}.`
+    : (workspace.statusMessage ?? "Your administrator manages your workspace.");
 }
 
 export function describeDevice(session: {
@@ -151,23 +170,26 @@ export function AccountSettingsPanel() {
   const me = useEnvironmentQuery(instanceMeAtom);
   const session = useEnvironmentQuery(instanceSessionAtom);
   const devices = useEnvironmentQuery(mySessionsAtom);
-  const [restarting, setRestarting] = useState(false);
+  const [restarting, setRestarting] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
 
   const user = me.data?.user ?? null;
-  const workspace = me.data?.workspace ?? null;
+  const workspaces = me.data?.workspaces ?? [];
+  useRefreshWhileSettling(me, workspaces);
   const instance = session.data?._tag === "Some" ? session.data.value : null;
 
-  const restartWorkspace = async () => {
-    setRestarting(true);
+  const restartWorkspace = async (workspace: InstanceWorkspace) => {
+    setRestarting(workspace.id);
     try {
-      await instanceRequest((client, headers) => client.account.restartWorkspace({ headers }));
-      toastManager.add({ type: "info", title: "Restarting your workspace" });
+      await instanceRequest((client, headers) =>
+        client.account.restartMyWorkspace({ headers, params: { workspaceId: workspace.id } }),
+      );
+      toastManager.add({ type: "info", title: `Restarting ${workspace.label}` });
       me.refresh();
     } catch (cause) {
       toastManager.add({ type: "error", title: "Couldn't restart", description: errorText(cause) });
     }
-    setRestarting(false);
+    setRestarting(null);
   };
 
   const revoke = async (sessionId: string) => {
@@ -211,7 +233,7 @@ export function AccountSettingsPanel() {
         <ChangePasswordRow />
         <SettingsRow
           title="Sign out"
-          description="Forgets this device's sign-in. Your workspace keeps running."
+          description="Forgets this device's sign-in. Your workspaces keep running."
           control={
             <Button
               disabled={signingOut}
@@ -225,32 +247,41 @@ export function AccountSettingsPanel() {
         />
       </SettingsSection>
 
-      <SettingsSection title="Workspace">
-        <SettingsRow
-          title="Status"
-          description={
-            workspace?.tailnetHostname
-              ? `Reachable on your tailnet at ${workspace.tailnetHostname}.`
-              : (workspace?.statusMessage ?? "Your administrator manages your workspace.")
-          }
-          status={workspaceStatusBadge(workspace)}
-          control={
-            <Button
-              disabled={restarting || workspace === null}
-              size="sm"
-              variant="outline"
-              onClick={() => void restartWorkspace()}
-            >
-              {restarting ? "Restarting…" : "Restart"}
-            </Button>
-          }
-        />
-        {workspace ? (
+      <SettingsSection title={workspaces.length > 1 ? "Workspaces" : "Workspace"}>
+        {workspaces.length === 0 && me.data ? (
           <SettingsRow
-            title="Installed tools"
-            description={workspace.tools.length > 0 ? workspace.tools.join(", ") : "None"}
+            title="No workspace"
+            description="Your administrator manages your workspaces."
+            status={workspaceStatusBadge(null)}
           />
         ) : null}
+        {workspaces.map((workspace) => (
+          <SettingsRow
+            key={workspace.id}
+            title={workspaces.length > 1 ? workspace.label : "Status"}
+            description={`${workspaceDescription(workspace)} Tools: ${
+              workspace.tools.length > 0 ? workspace.tools.join(", ") : "none"
+            }.`}
+            status={
+              <span className="flex items-center gap-1.5">
+                {workspaces.length > 1 && workspace.isDefault ? (
+                  <Badge variant="secondary">Default</Badge>
+                ) : null}
+                {workspaceStatusBadge(workspace)}
+              </span>
+            }
+            control={
+              <Button
+                disabled={restarting !== null}
+                size="sm"
+                variant="outline"
+                onClick={() => void restartWorkspace(workspace)}
+              >
+                {restarting === workspace.id ? "Restarting…" : "Restart"}
+              </Button>
+            }
+          />
+        ))}
       </SettingsSection>
 
       <SettingsSection title="Signed-in devices">

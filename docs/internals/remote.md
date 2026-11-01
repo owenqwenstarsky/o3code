@@ -1,7 +1,7 @@
 # Remote architecture
 
-Every user works in one environment: their workspace on an O3 instance, a container running the
-ordinary O3 server. Clients connect to it over HTTP and WebSocket. The workspace owns providers,
+Every user works in their workspaces on an O3 instance: containers running the ordinary O3 server,
+each its own environment. Clients connect to each over HTTP and WebSocket. A workspace owns providers,
 execution, files, and durable state; clients own only presentation and local preferences. See
 [O3 instances](./o3-instance.md) for the control plane and [access and
 sharing](../user/remote-access.md) for the user's view.

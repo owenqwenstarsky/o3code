@@ -15,9 +15,16 @@ export const INSTANCE_API_PREFIX = "/o3/api";
 /** Instance sessions authenticate `/o3/api`; workspace tokens authenticate one workspace. */
 export const INSTANCE_SESSION_TOKEN_PREFIX = "o3s_";
 export const INSTANCE_WORKSPACE_TOKEN_PREFIX = "o3w_";
+/** The static dev runtime serves every user from one server, so its credential names no workspace. */
+export const STATIC_WORKSPACE_ID = "static";
 
 export const InstanceUserId = TrimmedNonEmptyString.pipe(Schema.brand("InstanceUserId"));
 export type InstanceUserId = typeof InstanceUserId.Type;
+
+export const InstanceWorkspaceId = TrimmedNonEmptyString.pipe(Schema.brand("InstanceWorkspaceId"));
+export type InstanceWorkspaceId = typeof InstanceWorkspaceId.Type;
+
+export const InstanceWorkspaceLabel = TrimmedNonEmptyString.check(Schema.isMaxLength(40));
 
 export const InstanceUserRole = Schema.Literals(["admin", "member"]);
 export type InstanceUserRole = typeof InstanceUserRole.Type;
@@ -79,7 +86,11 @@ export type InstanceWorkspaceLimits = typeof InstanceWorkspaceLimits.Type;
 export const InstanceToolId = TrimmedNonEmptyString;
 
 export const InstanceWorkspace = Schema.Struct({
+  id: InstanceWorkspaceId,
   userId: InstanceUserId,
+  label: Schema.String,
+  /** The workspace clients treat as this user's home environment. */
+  isDefault: Schema.Boolean,
   slug: Schema.String,
   status: InstanceWorkspaceStatus,
   statusMessage: Schema.NullOr(Schema.String),
@@ -121,7 +132,10 @@ export type InstanceLoginResult = typeof InstanceLoginResult.Type;
 
 export const InstanceMe = Schema.Struct({
   user: InstanceUser,
+  /** The default workspace; older clients only read this. */
   workspace: Schema.NullOr(InstanceWorkspace),
+  /** Every workspace, default first. */
+  workspaces: Schema.Array(InstanceWorkspace),
   sessionId: Schema.String,
 });
 export type InstanceMe = typeof InstanceMe.Type;
@@ -171,11 +185,12 @@ export const InstanceCreateUserRequest = Schema.Struct({
 });
 export type InstanceCreateUserRequest = typeof InstanceCreateUserRequest.Type;
 
-export const InstanceUserWithWorkspace = Schema.Struct({
+export const InstanceUserWithWorkspaces = Schema.Struct({
   user: InstanceUser,
-  workspace: Schema.NullOr(InstanceWorkspace),
+  /** Default first. */
+  workspaces: Schema.Array(InstanceWorkspace),
 });
-export type InstanceUserWithWorkspace = typeof InstanceUserWithWorkspace.Type;
+export type InstanceUserWithWorkspaces = typeof InstanceUserWithWorkspaces.Type;
 
 export const InstanceCreateUserResult = Schema.Struct({
   user: InstanceUser,
@@ -192,7 +207,7 @@ export const InstanceUpdateUserRequest = Schema.Struct({
 export type InstanceUpdateUserRequest = typeof InstanceUpdateUserRequest.Type;
 
 export const InstanceUserList = Schema.Struct({
-  users: Schema.Array(InstanceUserWithWorkspace),
+  users: Schema.Array(InstanceUserWithWorkspaces),
 });
 export type InstanceUserList = typeof InstanceUserList.Type;
 
@@ -208,16 +223,27 @@ export const InstanceDeleteUserRequest = Schema.Struct({ deleteData: Schema.Bool
 
 export const InstanceWorkspaceAction = Schema.Literals(["start", "stop", "restart", "recreate"]);
 export type InstanceWorkspaceAction = typeof InstanceWorkspaceAction.Type;
+export const InstanceWorkspaceParams = Schema.Struct({ workspaceId: InstanceWorkspaceId });
 export const InstanceWorkspaceActionParams = Schema.Struct({
-  userId: InstanceUserId,
+  workspaceId: InstanceWorkspaceId,
   action: InstanceWorkspaceAction,
 });
 
+export const InstanceCreateWorkspaceRequest = Schema.Struct({
+  label: InstanceWorkspaceLabel,
+  tools: Schema.optionalKey(Schema.Array(InstanceToolId)),
+  limits: Schema.optionalKey(InstanceWorkspaceLimits),
+});
+export type InstanceCreateWorkspaceRequest = typeof InstanceCreateWorkspaceRequest.Type;
+
 export const InstanceUpdateWorkspaceRequest = Schema.Struct({
+  label: Schema.optionalKey(InstanceWorkspaceLabel),
   tools: Schema.optionalKey(Schema.Array(InstanceToolId)),
   limits: Schema.optionalKey(InstanceWorkspaceLimits),
 });
 export type InstanceUpdateWorkspaceRequest = typeof InstanceUpdateWorkspaceRequest.Type;
+
+export const InstanceDeleteWorkspaceRequest = Schema.Struct({ deleteData: Schema.Boolean });
 
 export const InstanceWorkspaceLogs = Schema.Struct({ text: Schema.String });
 
@@ -250,6 +276,8 @@ export const InstanceOverview = Schema.Struct({
   disabledUsers: NonNegativeInt,
   workspacesRunning: NonNegativeInt,
   workspacesTotal: NonNegativeInt,
+  /** Memory limits summed over workspaces that are not stopped; limits are caps, so this can exceed the host. */
+  committedMemoryBytes: NonNegativeInt,
   runtime: Schema.Struct({
     kind: Schema.Literals(["docker", "static"]),
     reachable: Schema.Boolean,
@@ -292,7 +320,80 @@ export const InstanceAuditPage = Schema.Struct({
 });
 export type InstanceAuditPage = typeof InstanceAuditPage.Type;
 
+// Sign-in sync
+
+/** Agent CLIs whose credential file a sign-in sync group shares; nothing else is synced. */
+export const InstanceAuthSyncProvider = Schema.Literals(["claude", "codex", "grok", "opencode"]);
+export type InstanceAuthSyncProvider = typeof InstanceAuthSyncProvider.Type;
+
+export const InstanceAuthGroupId = TrimmedNonEmptyString.pipe(Schema.brand("InstanceAuthGroupId"));
+export type InstanceAuthGroupId = typeof InstanceAuthGroupId.Type;
+
+export const InstanceAuthGroup = Schema.Struct({
+  id: InstanceAuthGroupId,
+  name: Schema.String,
+  workspaceIds: Schema.Array(InstanceWorkspaceId),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type InstanceAuthGroup = typeof InstanceAuthGroup.Type;
+
+export const InstanceAuthGroupList = Schema.Struct({ groups: Schema.Array(InstanceAuthGroup) });
+export type InstanceAuthGroupList = typeof InstanceAuthGroupList.Type;
+
+export const InstanceAuthGroupParams = Schema.Struct({ groupId: InstanceAuthGroupId });
+export const InstanceAuthGroupRequest = Schema.Struct({
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(60)),
+});
+export const InstanceSetWorkspaceAuthGroupRequest = Schema.Struct({
+  groupId: Schema.NullOr(InstanceAuthGroupId),
+});
+
 // Workspace -> instance
+
+/** Credential files are small; anything larger is not a sign-in. */
+const AuthSyncContent = Schema.String.check(Schema.isMaxLength(65_536));
+
+export const InstanceAuthSyncPullRequest = Schema.Struct({
+  /** The group version this workspace last applied, per provider. */
+  known: Schema.Array(
+    Schema.Struct({ provider: InstanceAuthSyncProvider, version: NonNegativeInt }),
+  ),
+});
+
+export const InstanceAuthSyncFile = Schema.Struct({
+  provider: InstanceAuthSyncProvider,
+  version: NonNegativeInt,
+  /** Sent only when newer than the caller's known version; null means signed out. */
+  content: Schema.optionalKey(Schema.NullOr(AuthSyncContent)),
+});
+
+export const InstanceAuthSyncPullResult = Schema.Struct({
+  groupId: Schema.NullOr(InstanceAuthGroupId),
+  files: Schema.Array(InstanceAuthSyncFile),
+});
+export type InstanceAuthSyncPullResult = typeof InstanceAuthSyncPullResult.Type;
+
+export const InstanceAuthSyncPushRequest = Schema.Struct({
+  provider: InstanceAuthSyncProvider,
+  /** Accepted only while the group's version still equals this one. */
+  baseVersion: NonNegativeInt,
+  content: Schema.NullOr(AuthSyncContent),
+});
+
+export const InstanceAuthSyncPushResult = Schema.Struct({
+  groupId: Schema.NullOr(InstanceAuthGroupId),
+  accepted: Schema.Boolean,
+  /** The group's copy after the push: the new one, or the newer one that won. */
+  current: Schema.NullOr(
+    Schema.Struct({
+      provider: InstanceAuthSyncProvider,
+      version: NonNegativeInt,
+      content: Schema.NullOr(AuthSyncContent),
+    }),
+  ),
+});
+export type InstanceAuthSyncPushResult = typeof InstanceAuthSyncPushResult.Type;
 
 export const InstanceIntrospectRequest = Schema.Struct({ token: Schema.String });
 
@@ -300,6 +401,7 @@ export const InstanceIntrospectResult = Schema.Union([
   Schema.Struct({
     active: Schema.Literal(true),
     userId: InstanceUserId,
+    workspaceId: InstanceWorkspaceId,
     email: Schema.String,
     name: Schema.String,
     role: InstanceUserRole,
@@ -406,10 +508,10 @@ export class InstanceAdminAuth extends HttpApiMiddleware.Service<
 
 export class InstanceWorkspacePrincipal extends Context.Service<
   InstanceWorkspacePrincipal,
-  { readonly userId: InstanceUserId }
+  { readonly workspaceId: InstanceWorkspaceId }
 >()("@t3tools/contracts/instance/InstanceWorkspacePrincipal") {}
 
-/** The calling workspace, proven by `Authorization: Bearer <userId>:<workspace secret>`. */
+/** The calling workspace, proven by `Authorization: Bearer <workspaceId>:<workspace secret>`. */
 export class InstanceWorkspaceAuth extends HttpApiMiddleware.Service<
   InstanceWorkspaceAuth,
   { provides: InstanceWorkspacePrincipal }
@@ -475,6 +577,7 @@ class InstanceAccountApi extends HttpApiGroup.make("account")
       error: TargetErrors,
     }),
   )
+  // The three singular `/workspace` routes act on the default workspace for older clients.
   .add(
     HttpApiEndpoint.get("workspace", p("/workspace"), {
       headers: BearerHeaders,
@@ -492,6 +595,22 @@ class InstanceAccountApi extends HttpApiGroup.make("account")
   .add(
     HttpApiEndpoint.post("restartWorkspace", p("/workspace/restart"), {
       headers: BearerHeaders,
+      success: InstanceWorkspace,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("myWorkspaceToken", p("/workspaces/:workspaceId/token"), {
+      headers: BearerHeaders,
+      params: InstanceWorkspaceParams,
+      success: InstanceWorkspaceTokenResult,
+      error: [...TargetErrors, InstanceForbiddenError],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("restartMyWorkspace", p("/workspaces/:workspaceId/restart"), {
+      headers: BearerHeaders,
+      params: InstanceWorkspaceParams,
       success: InstanceWorkspace,
       error: TargetErrors,
     }),
@@ -525,7 +644,7 @@ class InstanceAdminApi extends HttpApiGroup.make("admin")
     HttpApiEndpoint.get("getUser", p("/admin/users/:userId"), {
       headers: BearerHeaders,
       params: InstanceUserParams,
-      success: InstanceUserWithWorkspace,
+      success: InstanceUserWithWorkspaces,
       error: TargetErrors,
     }),
   )
@@ -534,7 +653,7 @@ class InstanceAdminApi extends HttpApiGroup.make("admin")
       headers: BearerHeaders,
       params: InstanceUserParams,
       payload: InstanceUpdateUserRequest,
-      success: InstanceUserWithWorkspace,
+      success: InstanceUserWithWorkspaces,
       error: TargetErrors,
     }),
   )
@@ -576,7 +695,16 @@ class InstanceAdminApi extends HttpApiGroup.make("admin")
     ),
   )
   .add(
-    HttpApiEndpoint.post("workspaceAction", p("/admin/users/:userId/workspace/:action"), {
+    HttpApiEndpoint.post("createWorkspace", p("/admin/users/:userId/workspaces"), {
+      headers: BearerHeaders,
+      params: InstanceUserParams,
+      payload: InstanceCreateWorkspaceRequest,
+      success: InstanceWorkspace,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("workspaceAction", p("/admin/workspaces/:workspaceId/actions/:action"), {
       headers: BearerHeaders,
       params: InstanceWorkspaceActionParams,
       success: InstanceWorkspace,
@@ -584,18 +712,76 @@ class InstanceAdminApi extends HttpApiGroup.make("admin")
     }),
   )
   .add(
-    HttpApiEndpoint.post("updateWorkspace", p("/admin/users/:userId/workspace"), {
+    HttpApiEndpoint.post("updateWorkspace", p("/admin/workspaces/:workspaceId/settings"), {
       headers: BearerHeaders,
-      params: InstanceUserParams,
+      params: InstanceWorkspaceParams,
       payload: InstanceUpdateWorkspaceRequest,
       success: InstanceWorkspace,
       error: TargetErrors,
     }),
   )
   .add(
-    HttpApiEndpoint.get("workspaceLogs", p("/admin/users/:userId/workspace/logs"), {
+    HttpApiEndpoint.post("setDefaultWorkspace", p("/admin/workspaces/:workspaceId/default"), {
       headers: BearerHeaders,
-      params: InstanceUserParams,
+      params: InstanceWorkspaceParams,
+      success: InstanceWorkspace,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("deleteWorkspace", p("/admin/workspaces/:workspaceId/delete"), {
+      headers: BearerHeaders,
+      params: InstanceWorkspaceParams,
+      payload: InstanceDeleteWorkspaceRequest,
+      success: InstanceOk,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("setWorkspaceAuthGroup", p("/admin/workspaces/:workspaceId/auth-group"), {
+      headers: BearerHeaders,
+      params: InstanceWorkspaceParams,
+      payload: InstanceSetWorkspaceAuthGroupRequest,
+      success: InstanceAuthGroupList,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("listAuthGroups", p("/admin/auth-groups"), {
+      headers: BearerHeaders,
+      success: InstanceAuthGroupList,
+      error: CommonErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("createAuthGroup", p("/admin/auth-groups"), {
+      headers: BearerHeaders,
+      payload: InstanceAuthGroupRequest,
+      success: InstanceAuthGroup,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("renameAuthGroup", p("/admin/auth-groups/:groupId"), {
+      headers: BearerHeaders,
+      params: InstanceAuthGroupParams,
+      payload: InstanceAuthGroupRequest,
+      success: InstanceAuthGroup,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("deleteAuthGroup", p("/admin/auth-groups/:groupId/delete"), {
+      headers: BearerHeaders,
+      params: InstanceAuthGroupParams,
+      success: InstanceOk,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("workspaceLogs", p("/admin/workspaces/:workspaceId/logs"), {
+      headers: BearerHeaders,
+      params: InstanceWorkspaceParams,
       success: InstanceWorkspaceLogs,
       error: TargetErrors,
     }),
@@ -645,6 +831,22 @@ class InstanceInternalApi extends HttpApiGroup.make("internal")
       headers: BearerHeaders,
       payload: InstanceIntrospectRequest,
       success: InstanceIntrospectResult,
+      error: CommonErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("authSyncPull", p("/internal/auth-sync/pull"), {
+      headers: BearerHeaders,
+      payload: InstanceAuthSyncPullRequest,
+      success: InstanceAuthSyncPullResult,
+      error: CommonErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("authSyncPush", p("/internal/auth-sync/push"), {
+      headers: BearerHeaders,
+      payload: InstanceAuthSyncPushRequest,
+      success: InstanceAuthSyncPushResult,
       error: CommonErrors,
     }),
   )

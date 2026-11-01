@@ -89,7 +89,7 @@ const children = [
         T3CODE_DEV_AUTH_TOKEN: undefined,
         T3CODE_PORT: String(workspacePort),
         T3CODE_O3_INSTANCE_URL: instanceUrl,
-        T3CODE_O3_USER_ID: "static",
+        T3CODE_O3_WORKSPACE_ID: "static",
         T3CODE_O3_WORKSPACE_SECRET: secret,
       },
     },

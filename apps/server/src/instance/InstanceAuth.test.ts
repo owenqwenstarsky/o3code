@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { EnvironmentId } from "@t3tools/contracts";
-import { InstanceUserId } from "@t3tools/contracts/instance";
+import { InstanceWorkspaceId } from "@t3tools/contracts/instance";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -9,15 +9,17 @@ import * as Redacted from "effect/Redacted";
 import { FetchHttpClient, HttpServerRequest } from "effect/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import { SessionStore } from "../auth/SessionStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { demuxDockerStream } from "./DockerEngine.ts";
 import { InstanceAuth } from "./InstanceAuth.ts";
 import { InstanceConfig } from "./InstanceConfig.ts";
+import { InstanceStore } from "./InstanceStore.ts";
 import { InstanceUsers } from "./InstanceUsers.ts";
 import { layerServices } from "./server.ts";
-import { slugCandidate } from "./Workspaces.ts";
+import { Workspaces, slugCandidate } from "./Workspaces.ts";
 
 const layerConfig = Layer.succeed(InstanceConfig, {
   initialName: "Acme",
@@ -81,7 +83,9 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
       expect(session.user.mustChangePassword).toBe(true);
       const auth = yield* InstanceAuth;
       const principal = yield* auth.authenticate(bearer(session.sessionToken));
-      const refused = yield* auth.issueWorkspaceToken(principal).pipe(Effect.flip);
+      const refused = yield* auth
+        .issueWorkspaceToken(principal, all[0]!.workspaces[0]!.id)
+        .pipe(Effect.flip);
       expect(refused._tag).toBe("InstanceForbiddenError");
     }),
   );
@@ -114,27 +118,104 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
       );
       const session = yield* login("bob@acme.test", "bob-password-1");
       const principal = yield* auth.authenticate(bearer(session.sessionToken));
-      const workspace = yield* auth.issueWorkspaceToken(principal);
+      const mainId = created.workspace.id;
+      const workspace = yield* auth.issueWorkspaceToken(principal, mainId);
 
       const asInstance = yield* auth.authenticate(bearer(workspace.token)).pipe(Effect.flip);
       expect(asInstance._tag).toBe("InstanceUnauthorizedError");
-      expect(
-        yield* auth.introspect({ token: session.sessionToken, workspaceUserId: created.user.id }),
-      ).toEqual({ active: false });
-
-      const active = yield* auth.introspect({
-        token: workspace.token,
-        workspaceUserId: created.user.id,
+      expect(yield* auth.introspect({ token: session.sessionToken, workspaceId: mainId })).toEqual({
+        active: false,
       });
-      expect(active).toMatchObject({ active: true, userId: created.user.id, role: "member" });
 
-      // Another user's workspace must not accept Bob's token.
+      const active = yield* auth.introspect({ token: workspace.token, workspaceId: mainId });
+      expect(active).toMatchObject({
+        active: true,
+        userId: created.user.id,
+        workspaceId: mainId,
+        role: "member",
+      });
+
+      // A token opens only the workspace it was minted for, even among Bob's own.
+      const workspaces = yield* Workspaces;
+      const second = yield* workspaces.create({
+        userId: created.user.id,
+        email: created.user.email,
+        label: "Second",
+        tools: [],
+        limits: created.workspace.limits,
+      });
+      yield* workspaces.drain;
+      expect(yield* auth.introspect({ token: workspace.token, workspaceId: second.id })).toEqual({
+        active: false,
+      });
       expect(
-        yield* auth.introspect({
-          token: workspace.token,
-          workspaceUserId: InstanceUserId.make("someone-else"),
-        }),
+        yield* auth.introspect({ token: workspace.token, workspaceId: "someone-else" }),
       ).toEqual({ active: false });
+
+      // A deleted workspace stops accepting the tokens minted for it.
+      const secondToken = yield* auth.issueWorkspaceToken(principal, second.id);
+      expect(
+        (yield* auth.introspect({ token: secondToken.token, workspaceId: second.id })).active,
+      ).toBe(true);
+      yield* workspaces.remove(second.id, false);
+      expect(yield* auth.introspect({ token: secondToken.token, workspaceId: second.id })).toEqual({
+        active: false,
+      });
+    }),
+  );
+
+  it.effect("accepts tokens minted before workspaces had their own ids at the migrated one", () =>
+    Effect.gen(function* () {
+      const users = yield* InstanceUsers;
+      const auth = yield* InstanceAuth;
+      const store = yield* InstanceStore;
+      const sessions = yield* SessionStore;
+      const created = yield* users.create(
+        null,
+        { email: "erin@acme.test", name: "Erin", role: "member" },
+        { password: "erin-password-1", mustChangePassword: false },
+      );
+      // Migration 002 gave each existing workspace its user's id.
+      const migratedId = InstanceWorkspaceId.make(created.user.id);
+      yield* store.insertWorkspace({
+        workspaceId: migratedId,
+        userId: created.user.id,
+        label: "Migrated",
+        isDefault: false,
+        slug: "erin-migrated",
+        status: "running",
+        statusMessage: null,
+        containerId: "static",
+        tailnetHostname: null,
+        image: "o3code/workspace:test",
+        tools: [],
+        limits: created.workspace.limits,
+        secretHash: "unused",
+        diskUsageBytes: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      });
+      const session = yield* login("erin@acme.test", "erin-password-1");
+      const principal = yield* auth.authenticate(bearer(session.sessionToken));
+      const legacy = yield* sessions.issue({
+        subject: `o3-ws:${created.user.id}:${principal.sessionId}`,
+        method: "bearer-access-token",
+        scopes: [],
+      });
+      const token = `o3w_${legacy.token}`;
+      expect(yield* auth.introspect({ token, workspaceId: migratedId })).toMatchObject({
+        active: true,
+        workspaceId: migratedId,
+      });
+      expect(yield* auth.introspect({ token, workspaceId: created.workspace.id })).toEqual({
+        active: false,
+      });
+
+      // Revoking the session ends legacy tokens too.
+      yield* auth.revokeSession(created.user.id, principal.sessionId);
+      expect(yield* auth.introspect({ token, workspaceId: migratedId })).toEqual({
+        active: false,
+      });
     }),
   );
 
@@ -149,23 +230,34 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
           { email: "carol@acme.test", name: "Carol", role: "admin" },
           { password: "carol-password-1", mustChangePassword: false },
         );
-        const introspect = (token: string) =>
-          auth.introspect({ token, workspaceUserId: created.user.id });
+        const mainId = created.workspace.id;
+        const second = yield* (yield* Workspaces).create({
+          userId: created.user.id,
+          email: created.user.email,
+          label: "Second",
+          tools: [],
+          limits: created.workspace.limits,
+        });
+        const introspect = (token: string, workspaceId: string = mainId) =>
+          auth.introspect({ token, workspaceId });
 
-        // Logout revokes the session's workspace tokens.
+        // Logout revokes the session's workspace tokens, for every workspace.
         const first = yield* login("carol@acme.test", "carol-password-1");
         const firstPrincipal = yield* auth.authenticate(bearer(first.sessionToken));
-        const firstToken = yield* auth.issueWorkspaceToken(firstPrincipal);
+        const firstToken = yield* auth.issueWorkspaceToken(firstPrincipal, mainId);
+        const firstSecondToken = yield* auth.issueWorkspaceToken(firstPrincipal, second.id);
         yield* auth.logout(firstPrincipal.sessionId, created.user.id);
         expect(yield* introspect(firstToken.token)).toEqual({ active: false });
+        expect(yield* introspect(firstSecondToken.token, second.id)).toEqual({ active: false });
 
         // A password change keeps the current device and signs out the others.
         const current = yield* login("carol@acme.test", "carol-password-1");
         const other = yield* login("carol@acme.test", "carol-password-1");
         const currentPrincipal = yield* auth.authenticate(bearer(current.sessionToken));
         const otherPrincipal = yield* auth.authenticate(bearer(other.sessionToken));
-        const currentToken = yield* auth.issueWorkspaceToken(currentPrincipal);
-        const otherToken = yield* auth.issueWorkspaceToken(otherPrincipal);
+        const currentToken = yield* auth.issueWorkspaceToken(currentPrincipal, mainId);
+        const currentSecondToken = yield* auth.issueWorkspaceToken(currentPrincipal, second.id);
+        const otherToken = yield* auth.issueWorkspaceToken(otherPrincipal, mainId);
         yield* auth.changePassword({
           principal: currentPrincipal,
           currentPassword: "carol-password-1",
@@ -173,6 +265,7 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
           ipAddress: null,
         });
         expect((yield* introspect(currentToken.token)).active).toBe(true);
+        expect((yield* introspect(currentSecondToken.token, second.id)).active).toBe(true);
         expect(yield* introspect(otherToken.token)).toEqual({ active: false });
         const otherSession = yield* auth.authenticate(bearer(other.sessionToken)).pipe(Effect.flip);
         expect(otherSession._tag).toBe("InstanceUnauthorizedError");
@@ -190,6 +283,11 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
         expect(yield* introspect(currentToken.token)).toEqual({ active: false });
         const disabledLogin = yield* login("carol@acme.test", "carol-password-2").pipe(Effect.flip);
         expect(disabledLogin).toMatchObject({ reason: "account_disabled" });
+        // A disabled user's workspaces stay stopped, so none is added until they're enabled.
+        const addWhileDisabled = yield* users
+          .addWorkspace(created.user.id, { label: "Third" })
+          .pipe(Effect.flip);
+        expect(addWhileDisabled._tag).toBe("InstanceBadRequestError");
 
         const selfDisable = yield* users
           .update(davePrincipal, admin.user.id, { disabled: true })

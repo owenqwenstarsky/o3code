@@ -10,10 +10,8 @@ import { InstanceConfig } from "./InstanceConfig.ts";
 
 const WORKSPACE_T3_PORT = 3773;
 
-/** The static dev runtime serves every user, so its workspace credential names no user. */
-export const STATIC_WORKSPACE_USER = "static";
-
 export interface WorkspaceRuntimeSpec {
+  readonly workspaceId: string;
   readonly userId: string;
   readonly slug: string;
   readonly image: string;
@@ -58,20 +56,23 @@ export class WorkspaceRuntime extends Context.Service<
     readonly stop: (containerId: string) => Effect.Effect<void, WorkspaceRuntimeError>;
     readonly restart: (containerId: string) => Effect.Effect<void, WorkspaceRuntimeError>;
     readonly removeContainer: (containerId: string) => Effect.Effect<void, WorkspaceRuntimeError>;
-    readonly removeData: (userId: string) => Effect.Effect<void, WorkspaceRuntimeError>;
+    readonly removeData: (workspaceId: string) => Effect.Effect<void, WorkspaceRuntimeError>;
     readonly inspect: (
       containerIdOrSlug: string,
     ) => Effect.Effect<Option.Option<WorkspaceRuntimeState>, WorkspaceRuntimeError>;
     readonly probe: (containerId: string) => Effect.Effect<WorkspaceProbe, WorkspaceRuntimeError>;
     readonly logs: (containerId: string) => Effect.Effect<string, WorkspaceRuntimeError>;
+    /** Home volume sizes by workspace id. */
     readonly diskUsage: Effect.Effect<ReadonlyMap<string, number>, WorkspaceRuntimeError>;
   }
 >()("t3/instance/WorkspaceRuntime") {}
 
 export const containerName = (slug: string) => `o3-ws-${slug}`;
 const tailnetHostnameFor = (slug: string) => `o3-${slug}`;
-const homeVolumeName = (userId: string) => `o3-home-${userId}`;
-const tailscaleVolumeName = (userId: string) => `o3-tailscale-${userId}`;
+const HOME_VOLUME_PREFIX = "o3-home-";
+// Per workspace: two containers sharing the tailscale volume would share one tailnet identity.
+const homeVolumeName = (workspaceId: string) => `${HOME_VOLUME_PREFIX}${workspaceId}`;
+const tailscaleVolumeName = (workspaceId: string) => `o3-tailscale-${workspaceId}`;
 
 const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network: string) =>
   WorkspaceRuntime.of({
@@ -86,9 +87,13 @@ const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network
     create: Effect.fn("WorkspaceRuntime.create")(function* (spec) {
       yield* engine.ensureImage(spec.image);
       yield* engine.ensureNetwork(network);
-      const labels = { "dev.o3code.managed": "true", "dev.o3code.user": spec.userId };
-      yield* engine.ensureVolume(homeVolumeName(spec.userId), labels);
-      yield* engine.ensureVolume(tailscaleVolumeName(spec.userId), labels);
+      const labels = {
+        "dev.o3code.managed": "true",
+        "dev.o3code.user": spec.userId,
+        "dev.o3code.workspace": spec.workspaceId,
+      };
+      yield* engine.ensureVolume(homeVolumeName(spec.workspaceId), labels);
+      yield* engine.ensureVolume(tailscaleVolumeName(spec.workspaceId), labels);
       const name = containerName(spec.slug);
       // A container left behind by an interrupted create would block the name.
       yield* engine.removeContainer(name);
@@ -106,12 +111,12 @@ const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network
             ? { O3_TS_AUTHKEY: Redacted.value(spec.tailscaleAuthKey) }
             : {}),
           T3CODE_O3_INSTANCE_URL: spec.instanceUrl,
-          T3CODE_O3_USER_ID: spec.userId,
+          T3CODE_O3_WORKSPACE_ID: spec.workspaceId,
           T3CODE_O3_WORKSPACE_SECRET: spec.workspaceSecret,
         },
         mounts: [
-          { volume: homeVolumeName(spec.userId), target: "/home/o3" },
-          { volume: tailscaleVolumeName(spec.userId), target: "/var/lib/tailscale" },
+          { volume: homeVolumeName(spec.workspaceId), target: "/home/o3" },
+          { volume: tailscaleVolumeName(spec.workspaceId), target: "/var/lib/tailscale" },
         ],
         cpus: spec.limits.cpus,
         memoryBytes: spec.limits.memoryMb * 1024 * 1024,
@@ -125,10 +130,10 @@ const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network
     stop: engine.stopContainer,
     restart: engine.restartContainer,
     removeContainer: engine.removeContainer,
-    removeData: Effect.fn("WorkspaceRuntime.removeData")((userId) =>
+    removeData: Effect.fn("WorkspaceRuntime.removeData")((workspaceId) =>
       engine
-        .removeVolume(homeVolumeName(userId))
-        .pipe(Effect.andThen(engine.removeVolume(tailscaleVolumeName(userId)))),
+        .removeVolume(homeVolumeName(workspaceId))
+        .pipe(Effect.andThen(engine.removeVolume(tailscaleVolumeName(workspaceId)))),
     ),
     inspect: Effect.fn("WorkspaceRuntime.inspect")((containerIdOrSlug) =>
       engine.inspectContainer(containerIdOrSlug).pipe(
@@ -171,7 +176,9 @@ const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network
         (sizes) =>
           new Map(
             [...sizes].flatMap(([name, size]) =>
-              name.startsWith("o3-home-") ? [[name.slice("o3-home-".length), size] as const] : [],
+              name.startsWith(HOME_VOLUME_PREFIX)
+                ? [[name.slice(HOME_VOLUME_PREFIX.length), size] as const]
+                : [],
             ),
           ),
       ),

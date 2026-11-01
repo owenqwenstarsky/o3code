@@ -1,8 +1,9 @@
 # O3 instances
 
 An O3 instance (`t3 instance serve`, [apps/server/src/instance](../../apps/server/src/instance))
-is a control plane above ordinary T3 servers. It owns accounts, the admin API, and one Docker
-workspace per user. Each workspace runs an unmodified `t3 serve`. Clients reach workspaces
+is a control plane above ordinary T3 servers. It owns accounts, the admin API, and one or more
+Docker workspaces per user, one of them the user's default. Each workspace runs an unmodified
+`t3 serve`. Clients reach workspaces
 directly; the instance never proxies their traffic. See the [admin guide](../user/instance-admin.md)
 for deployment.
 
@@ -10,8 +11,8 @@ for deployment.
 
 A workspace joins the tailnet with a single-use, tagged auth key that the instance mints, and
 serves O3 Code through Tailscale Serve under its own `ts.net` name. That gives every workspace a
-separate HTTPS origin, so HTML renders, previews, and guest pages from one user's workspace cannot
-act as another user or as an admin who opens them. A shared proxy hostname would lose that
+separate HTTPS origin, so HTML renders, previews, and guest pages from one workspace cannot act in
+another, whether it belongs to another user, the same user, or an admin who opens them. A shared proxy hostname would lose that
 isolation. Do not route workspaces through the instance's origin.
 
 Tailscale runs in kernel mode (`NET_ADMIN`, `/dev/net/tun`) so tools inside the workspace reach
@@ -21,13 +22,14 @@ Userspace mode would need a proxy for every outbound tailnet connection.
 ## Two tokens, two audiences
 
 Sign-in returns an instance session (`o3s_`), accepted only by `/o3/api`. The client then mints a
-workspace token (`o3w_`) bound to the user's workspace and to the session that minted it, and
-saves it as an ordinary bearer credential for that environment. A workspace never receives an
+workspace token (`o3w_`) for each workspace, bound to that workspace and to the session that
+minted it, and saves it as an ordinary bearer credential for that environment. A workspace never receives an
 instance session, so a token that leaks inside a workspace (for example to a prompt-injected agent)
-cannot call admin APIs. Both are rows in the reused [SessionStore](../../apps/server/src/auth/SessionStore.ts),
-told apart by subject (`o3-user:` and `o3-ws:<user>:<session>`), which gives listing, expiry, and
-revocation for free. Revoking a session ends the workspace tokens minted from it because
-introspection checks the parent session.
+cannot call admin APIs or open the user's other workspaces. Both are rows in the reused
+[SessionStore](../../apps/server/src/auth/SessionStore.ts), told apart by subject (`o3-user:` and
+`o3-ws:<user>:<workspace>:<session>`), which gives listing, expiry, and revocation for free.
+Revoking a session ends the workspace tokens minted from it because introspection checks the parent
+session.
 
 ## Workspaces check tokens with the instance
 
@@ -51,15 +53,42 @@ beside the T3 tables under a separate migration history (`o3_instance_migrations
 migration list stays the only one that decides T3 schema.
 
 Docker is reached through its Engine API over the unix socket
-([DockerEngine](../../apps/server/src/instance/DockerEngine.ts)), and every workspace operation for a
-user is serialized. The database records intent (`provisioning`, `starting`, `stopped`); a reconcile
-loop compares it with `docker inspect` and probes workspaces that are not yet confirmed running.
+([DockerEngine](../../apps/server/src/instance/DockerEngine.ts)), and every container operation on
+a workspace is serialized. Adding, removing, renaming, and re-defaulting workspaces share one
+instance-wide lock, because slugs are unique across users and a user keeps exactly one default. The
+database records intent (`provisioning`, `starting`, `stopped`); a reconcile loop compares it with
+`docker inspect` and probes workspaces that are not yet confirmed running.
+
+## Migrated workspaces share their user's id
+
+Workspaces created before several were allowed per user took their user's id as their workspace id
+([002_MultipleWorkspaces](../../apps/server/src/instance/Migrations/002_MultipleWorkspaces.ts)). That
+kept the `o3-home-<id>` and `o3-tailscale-<id>` volume names, the credential running containers
+present (`<workspace id>:<secret>`), and tokens minted with the older `o3-ws:<user>:<session>`
+subject valid without moving data. The cost is a trap: code that passes a user id where a workspace
+id belongs works on migrated data and fails only on newer workspaces, so tests use workspaces whose
+id differs from their user's.
+
+## Sign-in sync relays copies
+
+A sign-in sync group shares only the agent CLIs' credential files
+([O3AuthSync](../../apps/server/src/auth/O3AuthSync.ts) lists them). Those files sit beside each
+CLI's settings and history, so linking directories or mounting a shared volume would share far more,
+and CLIs that replace the file on save would silently break a symlink. Instead each workspace's
+server polls the instance and keeps a local copy in step: the instance
+([AuthSync](../../apps/server/src/instance/AuthSync.ts)) stores one encrypted copy per group and
+provider with a version, and accepts a write only from the version it is based on, so concurrent
+refreshes resolve to one winner that every member then adopts. Rotating refresh tokens still mean
+two workspaces refreshing at once can sign one out; relaying copies within seconds makes that rare,
+not impossible. The dev stand-in workspace never syncs, because it runs in the developer's home.
 
 ## Clients
 
-The web app is served by the instance and the desktop app connects to it; both treat the user's
-workspace as the primary environment, registered as a saved bearer environment whose connection id
-starts with `o3:` ([account.ts](../../packages/client-runtime/src/instance/account.ts)). There is
+The web app is served by the instance and the desktop app connects to it; both register each of the
+user's workspaces as a saved bearer environment whose connection id starts with `o3:`
+([account.ts](../../packages/client-runtime/src/instance/account.ts)). The default workspace's id
+starts with `o3:default:` and is the primary environment, so the catalog alone answers which
+workspace is home, with no wait on the stored session. There is
 never an environment on the user's own machine, so code that needs local files, the desktop
 preview browser, or local media checks `localEnvironmentIdAtom`, which is always empty, not the
 primary.

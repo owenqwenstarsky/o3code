@@ -2,6 +2,7 @@ import {
   InstanceAuditEvent,
   InstanceUserId,
   InstanceUserRole,
+  InstanceWorkspaceId,
   InstanceWorkspaceLimits,
   InstanceWorkspaceStatus,
 } from "@t3tools/contracts/instance";
@@ -14,6 +15,8 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as Migrator from "effect/sql/Migrator";
 
 import Migration0001 from "./Migrations/001_InstanceCore.ts";
+import Migration0002 from "./Migrations/002_MultipleWorkspaces.ts";
+import Migration0003 from "./Migrations/003_AuthSyncGroups.ts";
 
 export class InstanceStoreError extends Schema.TaggedError<InstanceStoreError>()(
   "InstanceStoreError",
@@ -39,7 +42,10 @@ export const UserRecord = Schema.Struct({
 export type UserRecord = typeof UserRecord.Type;
 
 export const WorkspaceRecord = Schema.Struct({
+  workspaceId: InstanceWorkspaceId,
   userId: InstanceUserId,
+  label: Schema.String,
+  isDefault: Schema.BooleanFromBit,
   slug: Schema.String,
   status: InstanceWorkspaceStatus,
   statusMessage: Schema.NullOr(Schema.String),
@@ -49,7 +55,6 @@ export const WorkspaceRecord = Schema.Struct({
   tools: Schema.fromJsonString(Schema.Array(Schema.String)),
   limits: Schema.fromJsonString(InstanceWorkspaceLimits),
   secretHash: Schema.String,
-  tailscaleDeviceId: Schema.NullOr(Schema.String),
   diskUsageBytes: Schema.NullOr(Schema.Int),
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -80,8 +85,9 @@ export type UserPatch = Partial<
   >
 >;
 
+/** `isDefault` changes only through `setDefaultWorkspace`, which keeps one default per user. */
 export type WorkspacePatch = Partial<
-  Omit<WorkspaceRecord, "userId" | "slug" | "createdAt" | "updatedAt">
+  Omit<WorkspaceRecord, "workspaceId" | "userId" | "isDefault" | "slug" | "createdAt" | "updatedAt">
 >;
 
 export class InstanceStore extends Context.Service<
@@ -105,15 +111,25 @@ export class InstanceStore extends Context.Service<
       ReadonlyArray<WorkspaceRecord>,
       InstanceStoreError
     >;
-    readonly getWorkspace: (
+    /** Default first, then oldest first. */
+    readonly listWorkspacesForUser: (
       userId: string,
+    ) => Effect.Effect<ReadonlyArray<WorkspaceRecord>, InstanceStoreError>;
+    readonly getWorkspace: (
+      workspaceId: string,
     ) => Effect.Effect<Option.Option<WorkspaceRecord>, InstanceStoreError>;
     readonly insertWorkspace: (
       workspace: WorkspaceRecord,
     ) => Effect.Effect<void, InstanceStoreError>;
     readonly updateWorkspace: (
-      userId: string,
+      workspaceId: string,
       patch: WorkspacePatch,
+      updatedAt: string,
+    ) => Effect.Effect<void, InstanceStoreError>;
+    readonly deleteWorkspace: (workspaceId: string) => Effect.Effect<void, InstanceStoreError>;
+    readonly setDefaultWorkspace: (
+      userId: string,
+      workspaceId: string,
       updatedAt: string,
     ) => Effect.Effect<void, InstanceStoreError>;
     readonly getSetting: (key: string) => Effect.Effect<Option.Option<string>, InstanceStoreError>;
@@ -139,10 +155,10 @@ const USER_COLUMNS = `
   created_at AS "createdAt", updated_at AS "updatedAt", last_login_at AS "lastLoginAt"`;
 
 const WORKSPACE_COLUMNS = `
-  user_id AS "userId", slug, status, status_message AS "statusMessage",
+  workspace_id AS "workspaceId", user_id AS "userId", label, is_default AS "isDefault", slug, status, status_message AS "statusMessage",
   container_id AS "containerId", tailnet_hostname AS "tailnetHostname", image,
   tools_json AS "tools", limits_json AS "limits", secret_hash AS "secretHash",
-  tailscale_device_id AS "tailscaleDeviceId", disk_usage_bytes AS "diskUsageBytes",
+  disk_usage_bytes AS "diskUsageBytes",
   created_at AS "createdAt", updated_at AS "updatedAt"`;
 
 const USER_PATCH_COLUMNS: Record<keyof UserPatch, string> = {
@@ -156,6 +172,7 @@ const USER_PATCH_COLUMNS: Record<keyof UserPatch, string> = {
 };
 
 const WORKSPACE_PATCH_COLUMNS: Record<keyof WorkspacePatch, string> = {
+  label: "label",
   status: "status",
   statusMessage: "status_message",
   containerId: "container_id",
@@ -164,7 +181,6 @@ const WORKSPACE_PATCH_COLUMNS: Record<keyof WorkspacePatch, string> = {
   tools: "tools_json",
   limits: "limits_json",
   secretHash: "secret_hash",
-  tailscaleDeviceId: "tailscale_device_id",
   diskUsageBytes: "disk_usage_bytes",
 };
 
@@ -188,20 +204,21 @@ const make = Effect.gen(function* () {
 
   const patchRow = (
     table: string,
+    keyColumn: "user_id" | "workspace_id",
     columns: Record<string, string>,
     patch: Record<string, unknown>,
     updatedAt: string,
-    userId: string,
+    key: string,
   ) => {
     const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
     const assignments = [...entries.map(([key]) => `${columns[key]} = ?`), "updated_at = ?"];
     const values = entries.map(([, value]) =>
       typeof value === "boolean" ? (value ? 1 : 0) : value,
     );
-    return sql.unsafe(`UPDATE ${table} SET ${assignments.join(", ")} WHERE user_id = ?`, [
+    return sql.unsafe(`UPDATE ${table} SET ${assignments.join(", ")} WHERE ${keyColumn} = ?`, [
       ...values,
       updatedAt,
-      userId,
+      key,
     ]);
   };
 
@@ -234,7 +251,7 @@ const make = Effect.gen(function* () {
       `.pipe(Effect.asVoid, fail("insertUser")),
     ),
     updateUser: Effect.fn("InstanceStore.updateUser")((userId, patch, updatedAt) =>
-      patchRow("o3_users", USER_PATCH_COLUMNS, patch, updatedAt, userId).pipe(
+      patchRow("o3_users", "user_id", USER_PATCH_COLUMNS, patch, updatedAt, userId).pipe(
         Effect.andThen(
           patch.email === undefined
             ? Effect.void
@@ -250,8 +267,13 @@ const make = Effect.gen(function* () {
     listWorkspaces: Effect.fn("InstanceStore.listWorkspaces")(() =>
       selectWorkspaces("ORDER BY created_at ASC", []).pipe(fail("listWorkspaces")),
     ),
-    getWorkspace: Effect.fn("InstanceStore.getWorkspace")((userId) =>
-      selectWorkspaces("WHERE user_id = ?", [userId]).pipe(
+    listWorkspacesForUser: Effect.fn("InstanceStore.listWorkspacesForUser")((userId) =>
+      selectWorkspaces("WHERE user_id = ? ORDER BY is_default DESC, created_at ASC", [userId]).pipe(
+        fail("listWorkspacesForUser"),
+      ),
+    ),
+    getWorkspace: Effect.fn("InstanceStore.getWorkspace")((workspaceId) =>
+      selectWorkspaces("WHERE workspace_id = ?", [workspaceId]).pipe(
         Effect.map((rows) => Option.fromNullishOr(rows[0])),
         fail("getWorkspace"),
       ),
@@ -261,13 +283,14 @@ const make = Effect.gen(function* () {
         Effect.flatMap(
           (row) => sql`
             INSERT INTO o3_workspaces (
-              user_id, slug, status, status_message, container_id, tailnet_hostname, image,
-              tools_json, limits_json, secret_hash, tailscale_device_id, disk_usage_bytes,
-              created_at, updated_at
+              workspace_id, user_id, label, is_default, slug, status, status_message,
+              container_id, tailnet_hostname, image, tools_json, limits_json, secret_hash,
+              disk_usage_bytes, created_at, updated_at
             ) VALUES (
-              ${row.userId}, ${row.slug}, ${row.status}, ${row.statusMessage}, ${row.containerId},
-              ${row.tailnetHostname}, ${row.image}, ${row.tools}, ${row.limits}, ${row.secretHash},
-              ${row.tailscaleDeviceId}, ${row.diskUsageBytes}, ${row.createdAt}, ${row.updatedAt}
+              ${row.workspaceId}, ${row.userId}, ${row.label}, ${row.isDefault}, ${row.slug},
+              ${row.status}, ${row.statusMessage}, ${row.containerId}, ${row.tailnetHostname},
+              ${row.image}, ${row.tools}, ${row.limits}, ${row.secretHash},
+              ${row.diskUsageBytes}, ${row.createdAt}, ${row.updatedAt}
             )
           `,
         ),
@@ -275,13 +298,40 @@ const make = Effect.gen(function* () {
         fail("insertWorkspace"),
       ),
     ),
-    updateWorkspace: Effect.fn("InstanceStore.updateWorkspace")((userId, patch, updatedAt) =>
+    updateWorkspace: Effect.fn("InstanceStore.updateWorkspace")((workspaceId, patch, updatedAt) =>
       Effect.gen(function* () {
         const encoded: Record<string, unknown> = { ...patch };
         if (patch.tools !== undefined) encoded.tools = encodeTools(patch.tools);
         if (patch.limits !== undefined) encoded.limits = encodeLimits(patch.limits);
-        yield* patchRow("o3_workspaces", WORKSPACE_PATCH_COLUMNS, encoded, updatedAt, userId);
+        yield* patchRow(
+          "o3_workspaces",
+          "workspace_id",
+          WORKSPACE_PATCH_COLUMNS,
+          encoded,
+          updatedAt,
+          workspaceId,
+        );
       }).pipe(fail("updateWorkspace")),
+    ),
+    deleteWorkspace: Effect.fn("InstanceStore.deleteWorkspace")((workspaceId) =>
+      sql`DELETE FROM o3_workspaces WHERE workspace_id = ${workspaceId}`.pipe(
+        Effect.asVoid,
+        fail("deleteWorkspace"),
+      ),
+    ),
+    setDefaultWorkspace: Effect.fn("InstanceStore.setDefaultWorkspace")(
+      (userId, workspaceId, updatedAt) =>
+        Effect.gen(function* () {
+          // Clear first: the partial unique index allows one default per user at any moment.
+          yield* sql`
+            UPDATE o3_workspaces SET is_default = 0, updated_at = ${updatedAt}
+            WHERE user_id = ${userId} AND is_default = 1 AND workspace_id != ${workspaceId}
+          `;
+          yield* sql`
+            UPDATE o3_workspaces SET is_default = 1, updated_at = ${updatedAt}
+            WHERE user_id = ${userId} AND workspace_id = ${workspaceId}
+          `;
+        }).pipe(sql.withTransaction, fail("setDefaultWorkspace")),
     ),
     getSetting: Effect.fn("InstanceStore.getSetting")((key) =>
       sql<{
@@ -329,7 +379,11 @@ const runInstanceMigrations = Migrator.make({});
 const layerMigrations = Layer.effectDiscard(
   runInstanceMigrations({
     table: "o3_instance_migrations",
-    loader: Migrator.fromRecord({ "1_InstanceCore": Migration0001 }),
+    loader: Migrator.fromRecord({
+      "1_InstanceCore": Migration0001,
+      "2_MultipleWorkspaces": Migration0002,
+      "3_AuthSyncGroups": Migration0003,
+    }),
   }),
 );
 

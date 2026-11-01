@@ -28,7 +28,7 @@ import { runInstanceServer } from "./server.ts";
 
 const serveCommand = Command.make("serve", { ...sharedServerCommandFlags }).pipe(
   Command.withDescription(
-    "Run an O3 instance: email and password accounts, the admin panel, and one Docker workspace per user.",
+    "Run an O3 instance: email and password accounts, the admin panel, and Docker workspaces for each user.",
   ),
   Command.withHandler(
     Effect.fn("instance.serve")(function* (flags) {
