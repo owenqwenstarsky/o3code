@@ -2142,19 +2142,32 @@ layer("GitHubPullRequestApi.layer", (it) => {
   );
 
   it.effect.each([
-    { description: "an open PR", head: { state: "OPEN" }, source: {} },
-    { description: "the base branch", head: { headRefName: "main" }, source: {} },
+    { description: "an open PR", head: { state: "OPEN" }, source: {}, reason: "open-pr" },
+    {
+      description: "the base branch",
+      head: { headRefName: "main" },
+      source: {},
+      reason: "unsafe-branch",
+    },
     {
       description: "the default branch",
       head: {},
       source: { defaultBranchRef: { name: "feat/delete" } },
+      reason: "unsafe-branch",
     },
     {
       description: "a changed branch",
       head: {},
       source: { ref: { target: { __typename: "Commit", oid: "new-commit" } } },
+      reason: "head-changed",
     },
-  ])("refuses to delete $description", ({ head, source }) =>
+    {
+      description: "a vanished source repository",
+      head: {},
+      source: null,
+      reason: "source-unavailable",
+    },
+  ])("refuses to delete $description", ({ head, source, reason }) =>
     Effect.gen(function* () {
       route(
         ["PullRequestBranchToDelete", branchToDelete(head)],
@@ -2173,7 +2186,7 @@ layer("GitHubPullRequestApi.layer", (it) => {
           action: "delete-branch",
         }),
       );
-      expect(error._tag).toBe("GitHubBranchDeletionRefusedError");
+      expect(error).toMatchObject({ _tag: "GitHubBranchDeletionRefusedError", reason });
       expect(variablesOf("updateRefs(")).toEqual([]);
     }),
   );

@@ -35,13 +35,11 @@ describe("orchestration protocol compatibility", () => {
     expect(socketUrl.searchParams.get("connectionMethod")).toBe("relay");
   });
 
-  it("treats missing metadata as protocol 1", () => {
+  it("treats missing metadata as an older host that must update", () => {
     const error = orchestrationProtocolCompatibilityError(descriptor());
-    if (Number(ORCHESTRATION_PROTOCOL_VERSION) === 1) {
-      expect(error).toBeNull();
-    } else {
-      expect(error).toMatchObject({ reason: "unsupported" });
-    }
+    expect(error).toMatchObject({ reason: "unsupported" });
+    expect(error?.message).toContain("requires a newer server");
+    expect(error).not.toHaveProperty("serverUpdateRequired");
   });
 
   it("blocks a different protocol before connecting", () => {

@@ -121,7 +121,7 @@ describe("new thread model fallback", () => {
         }),
         now,
       ),
-    ).toBeDefined();
+    ).toEqual({ ...window, usedPercent: 100, resetsAt });
   });
   it.each([
     ["cursor", ["autoPercentUsed"], "claude-opus-5-5", false],

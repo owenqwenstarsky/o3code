@@ -590,15 +590,7 @@ describe("composerDraftStore terminal contexts", () => {
   const threadId = ThreadId.make("thread-dedupe");
   const threadRef = scopeThreadRef(TEST_ENVIRONMENT_ID, threadId);
 
-  beforeEach(() => {
-    useComposerDraftStore.setState({
-      draftsByThreadKey: {},
-      draftThreadsByThreadKey: {},
-      logicalProjectDraftThreadKeyByLogicalProjectKey: {},
-      stickyModelSelectionByProvider: {},
-      stickyActiveProvider: null,
-    });
-  });
+  beforeEach(resetComposerDraftStore);
 
   it("deduplicates identical terminal contexts by selection signature", () => {
     const first = makeTerminalContext({ id: "ctx-1" });

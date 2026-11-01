@@ -689,7 +689,9 @@ layer("GitLabPullRequestCli.layer", (it) => {
   it.effect("fails a diff page cut off mid-JSON rather than calling the diff whole", () =>
     Effect.gen(function* () {
       mockedExecute.mockReturnValueOnce(
-        Effect.succeed({ ...output('[{"old_path":"src/x.ts","new_p'), stdoutTruncated: true }),
+        Effect.succeed(
+          output(JSON.stringify([{ old_path: "src/x.ts", new_path: "src/x.ts", diff: "" }]), true),
+        ),
       );
       const cli = yield* GitLabPullRequestCli.GitLabPullRequestCli;
 
@@ -698,6 +700,7 @@ layer("GitLabPullRequestCli.layer", (it) => {
       );
 
       assert.strictEqual(error._tag, "GitLabMergeRequestReadError");
+      assert.include(String(error.cause), "too large to read");
     }),
   );
 

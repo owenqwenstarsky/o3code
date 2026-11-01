@@ -202,19 +202,31 @@ describe("GitHubAppSignIn", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("reports a sign-in cancelled on GitHub and saves nothing", () => {
+  it.effect.each([
+    { body: { error: "access_denied" }, reason: "denied" },
+    { body: { error: "expired_token" }, reason: "expired" },
+    {
+      body: { error: "incorrect_device_code", error_description: "Bad code." },
+      reason: "failed",
+      detail: "Bad code.",
+    },
+    {
+      body: { error: "unknown_error" },
+      reason: "failed",
+      detail: "GitHub refused the sign-in (unknown_error).",
+    },
+  ])("reports a refused sign-in as $reason and saves nothing", ({ body, reason, detail }) => {
     const { layer } = harness({
-      handle: (sent) =>
-        sent.path === "/login/device/code"
-          ? { body: deviceCode }
-          : { body: { error: "access_denied" } },
+      handle: (sent) => (sent.path === "/login/device/code" ? { body: deviceCode } : { body }),
     });
     return Effect.gen(function* () {
       const signIn = yield* GitHubAppSignIn.GitHubAppSignIn;
       yield* signIn.start("github.com");
       const waiting = yield* Effect.forkChild(Effect.flip(signIn.wait("github.com")));
       yield* TestClock.adjust("5 seconds");
-      expect((yield* Fiber.join(waiting)).reason).toBe("denied");
+      const error = yield* Fiber.join(waiting);
+      expect(error.reason).toBe(reason);
+      if (detail !== undefined) expect(error.detail).toBe(detail);
       expect(yield* savedSignIns).toEqual({});
     }).pipe(Effect.provide(layer));
   });

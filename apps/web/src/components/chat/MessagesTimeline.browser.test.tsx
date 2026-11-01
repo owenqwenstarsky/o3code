@@ -948,15 +948,12 @@ describe("MessagesTimeline attachments", () => {
     );
     screen.container.style.height = "600px";
     screen.container.scrollIntoView({ block: "start" });
-    await vi.waitFor(
-      async () => {
-        await act(() => {
-          void props.listRef.current?.scrollToIndex({ index: 1, animated: false });
-        });
-        expect(screen.container.querySelectorAll("audio")).toHaveLength(2);
-      },
-      { timeout: 5000 },
-    );
+    await vi.waitFor(async () => {
+      await act(() => {
+        void props.listRef.current?.scrollToIndex({ index: 1, animated: false });
+      });
+      expect(screen.container.querySelectorAll("audio")).toHaveLength(2);
+    });
     const [one, two] = [...screen.container.querySelectorAll("audio")];
     await act(async () => {
       vi.spyOn(one!, "paused", "get").mockReturnValue(false);

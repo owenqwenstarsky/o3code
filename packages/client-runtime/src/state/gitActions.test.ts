@@ -43,39 +43,29 @@ const openPr = {
 };
 
 describe("git action copy", () => {
-  it("says PR for a GitHub ref", () => {
-    expect(resolveQuickAction(status({ aheadCount: 1 }), false).label).toBe("Push & create PR");
-    expect(resolveQuickAction(status({ pr: openPr }), false).label).toBe("View PR");
-    const [, , prItem] = buildMenuItems(status(), false);
-    expect(prItem?.label).toBe("Create PR");
-    expect(
-      getGitActionDisabledReason({
-        item: prItem!,
-        gitStatus: status(),
-        isBusy: false,
-        hasOriginRemote: true,
-      }),
-    ).toBe("No local commits to include in a PR.");
-  });
-
-  it("says MR for a GitLab ref", () => {
-    expect(resolveQuickAction(status({ ...gitLab, aheadCount: 1 }), false).label).toBe(
-      "Push & create MR",
+  it.each([
+    { label: "PR", article: "a PR", overrides: {} },
+    { label: "MR", article: "an MR", overrides: gitLab },
+  ])("says $label for the ref's source control host", ({ label, article, overrides }) => {
+    expect(resolveQuickAction(status({ ...overrides, aheadCount: 1 }), false).label).toBe(
+      `Push & create ${label}`,
     );
     expect(
-      resolveQuickAction(status({ ...gitLab, hasWorkingTreeChanges: true }), false).label,
-    ).toBe("Commit, push & MR");
-    expect(resolveQuickAction(status({ ...gitLab, pr: openPr }), false).label).toBe("View MR");
-    const [, , prItem] = buildMenuItems(status(gitLab), false);
-    expect(prItem?.label).toBe("Create MR");
+      resolveQuickAction(status({ ...overrides, hasWorkingTreeChanges: true }), false).label,
+    ).toBe(`Commit, push & ${label}`);
+    expect(resolveQuickAction(status({ ...overrides, pr: openPr }), false).label).toBe(
+      `View ${label}`,
+    );
+    const [, , prItem] = buildMenuItems(status(overrides), false);
+    expect(prItem?.label).toBe(`Create ${label}`);
     expect(
       getGitActionDisabledReason({
         item: prItem!,
-        gitStatus: status(gitLab),
+        gitStatus: status(overrides),
         isBusy: false,
         hasOriginRemote: true,
       }),
-    ).toBe("No local commits to include in an MR.");
+    ).toBe(`No local commits to include in ${article}.`);
   });
 
   it("names the host's change request in the default-branch dialog", () => {

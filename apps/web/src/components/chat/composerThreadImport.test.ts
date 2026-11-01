@@ -1,5 +1,5 @@
 import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@t3tools/contracts";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import { importComposerThreadAttachment } from "./composerThreadImport";
@@ -18,6 +18,7 @@ describe("importComposerThreadAttachment", () => {
   it("rejects the next drop before loading when the draft takes the final slot", async () => {
     const targetKey = DraftId.make("thread-import-synchronous-admission");
     const store = useComposerDraftStore.getState();
+    onTestFinished(() => store.clearComposerContent(targetKey));
     const pendingImports = new Map<string, number>();
     const files = Array.from({ length: PROVIDER_SEND_TURN_MAX_ATTACHMENTS - 1 }, (_, index) => ({
       type: "file" as const,
@@ -59,7 +60,6 @@ describe("importComposerThreadAttachment", () => {
     expect(onLimitReached).toHaveBeenCalledTimes(1);
     expect(store.getComposerDraft(targetKey)?.files.at(-1)?.name).toBe("thread.jsonl");
     expect(pendingImports.size).toBe(0);
-    store.clearComposerContent(targetKey);
   });
 
   it("keeps the second drop's slot reserved when the first drop finishes", async () => {

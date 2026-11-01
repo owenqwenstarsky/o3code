@@ -105,7 +105,7 @@ describe("revisionedQuery", () => {
   });
 
   it("drops a pending refetch when the registry is disposed before it runs", async () => {
-    const { registry, query, mount } = setup();
+    const { registry, query, mount, fetches } = setup();
 
     (await mount("mutation-1"))();
     const release = registry.mount(revisionedQuery(query, "mutation-2"));
@@ -114,5 +114,6 @@ describe("revisionedQuery", () => {
 
     // A refetch that ran now would throw "registry is disposed" as an uncaught error.
     await Promise.resolve();
+    expect(fetches()).toBe(1);
   });
 });
