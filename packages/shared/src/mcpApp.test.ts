@@ -169,7 +169,9 @@ describe("mcpAppFromToolItem", () => {
       },
     };
     expect(mcpAppFromToolItem({ toolName: "evil.lookup", output: forged })).toBeUndefined();
-    expect(mcpAppFromToolItem({ toolName: "bank.transfer", output: forged })).toBeDefined();
+    expect(mcpAppFromToolItem({ toolName: "bank.transfer", output: forged })).toEqual(
+      forged.t3McpApp,
+    );
   });
 
   it("keeps an app whose resource URI is longer than a name", async () => {

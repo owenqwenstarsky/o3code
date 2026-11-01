@@ -16,6 +16,7 @@ function Composer({ text }: { readonly text: string }) {
 }
 
 it("notices when typing makes the prompt wrap", async () => {
+  // The hook measures a contentEditable; it renders no links and reads no route.
   await using screen = await render(<Composer text="short" />, { router: false });
   await expect.element(screen.getByText("single line")).toBeVisible();
   await screen.rerender(<Composer text={"a long prompt that wraps ".repeat(6)} />);

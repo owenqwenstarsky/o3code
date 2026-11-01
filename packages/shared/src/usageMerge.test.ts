@@ -522,6 +522,30 @@ describe("mergeUsage", () => {
     ]);
   });
 
+  it("keeps the hours of one day apart while totalling them into the day", () => {
+    const source = { provider: "claude" as const, hostId: "mac", homePath: "/home/theo/.claude" };
+    const merged = mergeUsage(
+      [
+        environment(
+          "mac",
+          summary(
+            [
+              bucket({ hourStart: "2026-08-07T09:00:00.000Z", costUsd: 4 }),
+              bucket({ hourStart: "2026-08-07T10:00:00.000Z", costUsd: 6 }),
+            ],
+            [source],
+          ),
+        ),
+      ],
+      USAGE_CONTRACT_VERSION,
+    );
+    expect(merged.daily.map(({ day, costUsd }) => [day, costUsd])).toEqual([["2026-08-07", 10]]);
+    expect(merged.hourly.map(({ hourStart, costUsd }) => [hourStart, costUsd])).toEqual([
+      ["2026-08-07T09:00:00.000Z", 4],
+      ["2026-08-07T10:00:00.000Z", 6],
+    ]);
+  });
+
   it("keeps two machines apart when hostname and home path collide", () => {
     const shape = { provider: "claude" as const, hostId: "mac", homePath: "/Users/theo/.claude" };
     const merged = mergeUsage(

@@ -171,7 +171,7 @@ describe("OrchestrationMessageContext", () => {
       })),
     };
     expect(Option.isSome(decodeRecord(record))).toBe(true);
-    expect(() => decodeContext({ version: 1, records: [record] })).not.toThrow();
+    expect(decodeContext({ version: 1, records: [record] }).records).toHaveLength(1);
     expect(() =>
       decodeContext({
         version: 1,

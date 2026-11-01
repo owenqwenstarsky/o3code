@@ -120,11 +120,16 @@ describe("manual usage refresh", () => {
       refresh,
     } = harness();
     const entry = environment!;
-    const refreshing = refresh();
+    let finished = false;
+    const refreshing = refresh().then(() => {
+      finished = true;
+    });
     entry.rates.resolve(AsyncResult.success(pricing));
     await entry.scanStarted.promise;
+    expect(finished).toBe(false);
     registry.set(entry.presentation, null);
     await refreshing;
+    expect(finished).toBe(true);
   });
 
   it("waits for healthy environments without waiting for a recovering environment", async () => {
