@@ -64,6 +64,26 @@ We need to be on the same page with terminology. When communicating, use this la
 2. **Writing to the live install.** `~/.t3/userdata` is the developer's real O3 Code database, in use while you work. Reading it and copying from it are fine, and a good way to get real test data (see Test data). Never start a server against it, never open it read-write, never clean it up.
 3. **Baking in origins.** Never set `VITE_HTTP_URL` or `VITE_WS_URL` for dev. Dev is single-origin and Vite proxies `/api`, `/ws`, `/oauth`, and `/.well-known`. Setting them bakes localhost into the bundle and silently breaks every remote browser.
 
+## When we stop you
+
+When you do something these instructions rule out, we interrupt the turn and ask "Stop. Which instruction did that break?" Treat it as a full stop, not a nudge to keep going.
+
+- Stop the work. Do not finish the step, undo it, or fix it unless we ask.
+- Say what you did: the command or edit, and what it has changed so far.
+- Name the instruction it broke. Quote it and say where it lives: this file, a skill, a tool description, or your system prompt. If nothing covered it, say so.
+- Say why it happened: you skipped it, misread it, another instruction pulled the other way, or its wording allows what you did. Be specific. This is what we use to fix the instruction, and an apology does not help with that.
+- Then wait. Do not edit `AGENTS.md` or any other instructions in this thread. We usually have you start a new thread to fix them and give it your answer as the brief.
+
+## Changing agent instructions
+
+When you are the thread fixing an instruction:
+
+- Fix the instruction that failed where it already is. Sharpen its wording, or move it to the section an agent reads when it makes that decision. Add a new rule only when nothing covered the case.
+- Write the behavior you want, not the story of the mistake.
+- Keep it short. Every line here costs context on every turn, and a rule that gets buried gets skipped.
+- Keep each rule in one place. Where a copy exists on purpose, such as `docs/internals/testing.md`, change both.
+- Text the server sends to agents, such as MCP tool descriptions, is not this file. It follows [Evals](#evals).
+
 ## Hit every surface
 
 The most common defect in this repo is a change that works on the path you tested and is missing everywhere else. Before calling frontend work done, walk this list and say which entries applied:
