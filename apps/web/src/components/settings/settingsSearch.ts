@@ -35,6 +35,7 @@ export type SettingsPath =
   | "/settings/admin/overview"
   | "/settings/admin/users"
   | "/settings/admin/tools"
+  | "/settings/admin/sync"
   | "/settings/admin/instance"
   | "/settings/admin/audit"
   | "/settings/access"
@@ -100,6 +101,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/admin/overview": "Overview",
   "/settings/admin/users": "Users",
   "/settings/admin/tools": "Tools & defaults",
+  "/settings/admin/sync": "Sign-in sync",
   "/settings/admin/instance": "Instance",
   "/settings/admin/audit": "Audit log",
   "/settings/access": "Sharing & access",
@@ -157,6 +159,7 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
       "/settings/admin/overview",
       "/settings/admin/users",
       "/settings/admin/tools",
+      "/settings/admin/sync",
       "/settings/admin/instance",
       "/settings/admin/audit",
     ],
@@ -1111,6 +1114,7 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/admin/overview": null,
   "/settings/admin/users": null,
   "/settings/admin/tools": null,
+  "/settings/admin/sync": null,
   "/settings/admin/instance": null,
   "/settings/admin/audit": null,
   "/settings/access": "connections",

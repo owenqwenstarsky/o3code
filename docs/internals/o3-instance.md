@@ -69,6 +69,19 @@ subject valid without moving data. The cost is a trap: code that passes a user i
 id belongs works on migrated data and fails only on newer workspaces, so tests use workspaces whose
 id differs from their user's.
 
+## Sign-in sync relays copies
+
+A sign-in sync group shares only the agent CLIs' credential files
+([O3AuthSync](../../apps/server/src/auth/O3AuthSync.ts) lists them). Those files sit beside each
+CLI's settings and history, so linking directories or mounting a shared volume would share far more,
+and CLIs that replace the file on save would silently break a symlink. Instead each workspace's
+server polls the instance and keeps a local copy in step: the instance
+([AuthSync](../../apps/server/src/instance/AuthSync.ts)) stores one encrypted copy per group and
+provider with a version, and accepts a write only from the version it is based on, so concurrent
+refreshes resolve to one winner that every member then adopts. Rotating refresh tokens still mean
+two workspaces refreshing at once can sign one out; relaying copies within seconds makes that rare,
+not impossible. The dev stand-in workspace never syncs, because it runs in the developer's home.
+
 ## Clients
 
 The web app is served by the instance and the desktop app connects to it; both register each of the

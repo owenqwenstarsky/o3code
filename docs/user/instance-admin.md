@@ -92,6 +92,25 @@ Account**.
 **Delete workspace** removes one workspace, optionally with its files. A user
 always keeps at least one; to remove the last, delete the user.
 
+## Share agent sign-ins between workspaces
+
+**Settings → Admin → Sign-in sync** links workspaces so they share their
+Claude Code, Codex, Grok, and OpenCode sign-ins, and nothing else: settings,
+history, projects, API keys, and GitHub stay separate. Create a group, then add
+workspaces from any user, or pick a group from a workspace's **Sign-in sync**
+row on the user's page. A workspace can be in one group at a time.
+
+Signing in or out in one workspace reaches the rest of the group within a few
+seconds. A workspace that joins takes the group's sign-ins and keeps its own as
+a `.o3-before-sync` file next to each one; if the group has none yet, the
+joining workspace's sign-ins become the group's. Removing a workspace, or
+deleting the group, leaves each workspace signed in with what it has.
+
+Personal subscriptions may not allow sharing between people. Some agents
+replace their sign-in when they refresh it, so two workspaces refreshing at the
+same moment can occasionally sign one of them out; signing in again fixes it.
+Workspaces need the workspace image from this release before they sync.
+
 ## Defaults, upgrades, and the audit log
 
 **Settings → Admin → Tools & defaults** sets the tools and resource limits new

@@ -16,6 +16,7 @@ import * as Migrator from "effect/sql/Migrator";
 
 import Migration0001 from "./Migrations/001_InstanceCore.ts";
 import Migration0002 from "./Migrations/002_MultipleWorkspaces.ts";
+import Migration0003 from "./Migrations/003_AuthSyncGroups.ts";
 
 export class InstanceStoreError extends Schema.TaggedError<InstanceStoreError>()(
   "InstanceStoreError",
@@ -381,6 +382,7 @@ const layerMigrations = Layer.effectDiscard(
     loader: Migrator.fromRecord({
       "1_InstanceCore": Migration0001,
       "2_MultipleWorkspaces": Migration0002,
+      "3_AuthSyncGroups": Migration0003,
     }),
   }),
 );

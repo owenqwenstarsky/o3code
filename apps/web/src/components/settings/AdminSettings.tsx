@@ -40,6 +40,7 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { describeDevice, workspaceStatusBadge, workspaceSummaryBadge } from "./AccountSettings";
+import { WorkspaceAuthGroupRow } from "./AdminAuthSyncSettings";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 
 function errorText(cause: unknown) {
@@ -63,7 +64,7 @@ function formatDate(iso: string | null) {
 }
 
 /** Runs an admin mutation with a toast on failure; returns whether it succeeded. */
-async function mutate(title: string, run: () => Promise<unknown>): Promise<boolean> {
+export async function mutate(title: string, run: () => Promise<unknown>): Promise<boolean> {
   try {
     await run();
     return true;
@@ -73,7 +74,7 @@ async function mutate(title: string, run: () => Promise<unknown>): Promise<boole
   }
 }
 
-function QueryError({ error }: { error: string | null }) {
+export function QueryError({ error }: { error: string | null }) {
   return error ? (
     <Alert variant="error">
       <AlertDescription>{error}</AlertDescription>
@@ -696,6 +697,7 @@ function AdminWorkspaceSection({
           </form>
         ) : null}
       </SettingsRow>
+      <WorkspaceAuthGroupRow workspaceId={workspaceId} />
       <SettingsRow
         title="Controls"
         description="Recreate starts a fresh container on the same home volume, for image or tool changes."

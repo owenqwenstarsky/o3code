@@ -23,6 +23,7 @@ import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import packageJson from "../../package.json" with { type: "json" };
 import { deriveAuthClientMetadata } from "../auth/utils.ts";
+import { AuthSync } from "./AuthSync.ts";
 import { InstanceAuth } from "./InstanceAuth.ts";
 import { InstanceConfig } from "./InstanceConfig.ts";
 import { InstanceSettings } from "./InstanceSettings.ts";
@@ -315,6 +316,7 @@ const layerAdmin = HttpApiBuilder.group(
     const settings = yield* InstanceSettings;
     const store = yield* InstanceStore;
     const config = yield* InstanceConfig;
+    const authSync = yield* AuthSync;
 
     const audit = Effect.fn("instance.admin.audit")(function* (
       action: string,
@@ -490,6 +492,52 @@ const layerAdmin = HttpApiBuilder.group(
           return { ok: true };
         }),
       )
+      .handle(
+        "setWorkspaceAuthGroup",
+        Effect.fn("instance.admin.setWorkspaceAuthGroup")(function* (args) {
+          const workspace = yield* orInternal(requireWorkspace(args.params.workspaceId));
+          yield* orInternal(authSync.setWorkspaceGroup(workspace.id, args.payload.groupId));
+          const groups = yield* orInternal(authSync.listGroups);
+          const group = groups.find((candidate) => candidate.id === args.payload.groupId);
+          yield* orInternal(
+            auditWorkspace(
+              group === undefined ? "auth_sync.workspace_left" : "auth_sync.workspace_joined",
+              workspace,
+              group === undefined ? undefined : { group: group.name },
+            ),
+          );
+          return { groups };
+        }),
+      )
+      .handle("listAuthGroups", () =>
+        orInternal(authSync.listGroups.pipe(Effect.map((groups) => ({ groups })))),
+      )
+      .handle(
+        "createAuthGroup",
+        Effect.fn("instance.admin.createAuthGroup")(function* (args) {
+          const group = yield* orInternal(authSync.createGroup(args.payload.name));
+          yield* orInternal(audit("auth_sync.group_created", null, { group: group.name }));
+          return group;
+        }),
+      )
+      .handle(
+        "renameAuthGroup",
+        Effect.fn("instance.admin.renameAuthGroup")(function* (args) {
+          const group = yield* orInternal(
+            authSync.renameGroup(args.params.groupId, args.payload.name),
+          );
+          yield* orInternal(audit("auth_sync.group_renamed", null, { group: group.name }));
+          return group;
+        }),
+      )
+      .handle(
+        "deleteAuthGroup",
+        Effect.fn("instance.admin.deleteAuthGroup")(function* (args) {
+          const group = yield* orInternal(authSync.deleteGroup(args.params.groupId));
+          yield* orInternal(audit("auth_sync.group_deleted", null, { group: group.name }));
+          return { ok: true };
+        }),
+      )
       .handle("workspaceLogs", (args) =>
         orInternal(workspaces.logs(args.params.workspaceId).pipe(Effect.map((text) => ({ text })))),
       )
@@ -532,15 +580,33 @@ const layerInternal = HttpApiBuilder.group(
   "internal",
   Effect.fnUntraced(function* (handlers) {
     const auth = yield* InstanceAuth;
-    return handlers.handle(
-      "introspect",
-      Effect.fn("instance.introspect")(function* (args) {
-        const workspace = yield* InstanceWorkspacePrincipal;
-        return yield* orInternal(
-          auth.introspect({ token: args.payload.token, workspaceId: workspace.workspaceId }),
-        );
-      }),
-    );
+    const authSync = yield* AuthSync;
+    return handlers
+      .handle(
+        "introspect",
+        Effect.fn("instance.introspect")(function* (args) {
+          const workspace = yield* InstanceWorkspacePrincipal;
+          return yield* orInternal(
+            auth.introspect({ token: args.payload.token, workspaceId: workspace.workspaceId }),
+          );
+        }),
+      )
+      .handle(
+        "authSyncPull",
+        Effect.fn("instance.authSyncPull")(function* (args) {
+          const workspace = yield* InstanceWorkspacePrincipal;
+          return yield* orInternal(authSync.pull(workspace.workspaceId, args.payload.known));
+        }),
+      )
+      .handle(
+        "authSyncPush",
+        Effect.fn("instance.authSyncPush")(function* (args) {
+          const workspace = yield* InstanceWorkspacePrincipal;
+          return yield* orInternal(
+            authSync.push({ workspaceId: workspace.workspaceId, ...args.payload }),
+          );
+        }),
+      );
   }),
 );
 

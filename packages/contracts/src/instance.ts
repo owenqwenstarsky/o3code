@@ -320,7 +320,80 @@ export const InstanceAuditPage = Schema.Struct({
 });
 export type InstanceAuditPage = typeof InstanceAuditPage.Type;
 
+// Sign-in sync
+
+/** Agent CLIs whose credential file a sign-in sync group shares; nothing else is synced. */
+export const InstanceAuthSyncProvider = Schema.Literals(["claude", "codex", "grok", "opencode"]);
+export type InstanceAuthSyncProvider = typeof InstanceAuthSyncProvider.Type;
+
+export const InstanceAuthGroupId = TrimmedNonEmptyString.pipe(Schema.brand("InstanceAuthGroupId"));
+export type InstanceAuthGroupId = typeof InstanceAuthGroupId.Type;
+
+export const InstanceAuthGroup = Schema.Struct({
+  id: InstanceAuthGroupId,
+  name: Schema.String,
+  workspaceIds: Schema.Array(InstanceWorkspaceId),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type InstanceAuthGroup = typeof InstanceAuthGroup.Type;
+
+export const InstanceAuthGroupList = Schema.Struct({ groups: Schema.Array(InstanceAuthGroup) });
+export type InstanceAuthGroupList = typeof InstanceAuthGroupList.Type;
+
+export const InstanceAuthGroupParams = Schema.Struct({ groupId: InstanceAuthGroupId });
+export const InstanceAuthGroupRequest = Schema.Struct({
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(60)),
+});
+export const InstanceSetWorkspaceAuthGroupRequest = Schema.Struct({
+  groupId: Schema.NullOr(InstanceAuthGroupId),
+});
+
 // Workspace -> instance
+
+/** Credential files are small; anything larger is not a sign-in. */
+const AuthSyncContent = Schema.String.check(Schema.isMaxLength(65_536));
+
+export const InstanceAuthSyncPullRequest = Schema.Struct({
+  /** The group version this workspace last applied, per provider. */
+  known: Schema.Array(
+    Schema.Struct({ provider: InstanceAuthSyncProvider, version: NonNegativeInt }),
+  ),
+});
+
+export const InstanceAuthSyncFile = Schema.Struct({
+  provider: InstanceAuthSyncProvider,
+  version: NonNegativeInt,
+  /** Sent only when newer than the caller's known version; null means signed out. */
+  content: Schema.optionalKey(Schema.NullOr(AuthSyncContent)),
+});
+
+export const InstanceAuthSyncPullResult = Schema.Struct({
+  groupId: Schema.NullOr(InstanceAuthGroupId),
+  files: Schema.Array(InstanceAuthSyncFile),
+});
+export type InstanceAuthSyncPullResult = typeof InstanceAuthSyncPullResult.Type;
+
+export const InstanceAuthSyncPushRequest = Schema.Struct({
+  provider: InstanceAuthSyncProvider,
+  /** Accepted only while the group's version still equals this one. */
+  baseVersion: NonNegativeInt,
+  content: Schema.NullOr(AuthSyncContent),
+});
+
+export const InstanceAuthSyncPushResult = Schema.Struct({
+  groupId: Schema.NullOr(InstanceAuthGroupId),
+  accepted: Schema.Boolean,
+  /** The group's copy after the push: the new one, or the newer one that won. */
+  current: Schema.NullOr(
+    Schema.Struct({
+      provider: InstanceAuthSyncProvider,
+      version: NonNegativeInt,
+      content: Schema.NullOr(AuthSyncContent),
+    }),
+  ),
+});
+export type InstanceAuthSyncPushResult = typeof InstanceAuthSyncPushResult.Type;
 
 export const InstanceIntrospectRequest = Schema.Struct({ token: Schema.String });
 
@@ -665,6 +738,47 @@ class InstanceAdminApi extends HttpApiGroup.make("admin")
     }),
   )
   .add(
+    HttpApiEndpoint.post("setWorkspaceAuthGroup", p("/admin/workspaces/:workspaceId/auth-group"), {
+      headers: BearerHeaders,
+      params: InstanceWorkspaceParams,
+      payload: InstanceSetWorkspaceAuthGroupRequest,
+      success: InstanceAuthGroupList,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("listAuthGroups", p("/admin/auth-groups"), {
+      headers: BearerHeaders,
+      success: InstanceAuthGroupList,
+      error: CommonErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("createAuthGroup", p("/admin/auth-groups"), {
+      headers: BearerHeaders,
+      payload: InstanceAuthGroupRequest,
+      success: InstanceAuthGroup,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("renameAuthGroup", p("/admin/auth-groups/:groupId"), {
+      headers: BearerHeaders,
+      params: InstanceAuthGroupParams,
+      payload: InstanceAuthGroupRequest,
+      success: InstanceAuthGroup,
+      error: TargetErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("deleteAuthGroup", p("/admin/auth-groups/:groupId/delete"), {
+      headers: BearerHeaders,
+      params: InstanceAuthGroupParams,
+      success: InstanceOk,
+      error: TargetErrors,
+    }),
+  )
+  .add(
     HttpApiEndpoint.get("workspaceLogs", p("/admin/workspaces/:workspaceId/logs"), {
       headers: BearerHeaders,
       params: InstanceWorkspaceParams,
@@ -717,6 +831,22 @@ class InstanceInternalApi extends HttpApiGroup.make("internal")
       headers: BearerHeaders,
       payload: InstanceIntrospectRequest,
       success: InstanceIntrospectResult,
+      error: CommonErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("authSyncPull", p("/internal/auth-sync/pull"), {
+      headers: BearerHeaders,
+      payload: InstanceAuthSyncPullRequest,
+      success: InstanceAuthSyncPullResult,
+      error: CommonErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("authSyncPush", p("/internal/auth-sync/push"), {
+      headers: BearerHeaders,
+      payload: InstanceAuthSyncPushRequest,
+      success: InstanceAuthSyncPushResult,
       error: CommonErrors,
     }),
   )

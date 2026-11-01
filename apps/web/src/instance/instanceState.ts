@@ -63,6 +63,11 @@ export const adminUserSessionsAtom = Atom.family((userId: InstanceUserId) =>
   ),
 );
 
+export const adminAuthGroupsAtom = queryAtom(
+  "admin-auth-groups",
+  callInstance((client, headers) => client.admin.listAuthGroups({ headers })),
+);
+
 export const adminWorkspaceLogsAtom = Atom.family((workspaceId: InstanceWorkspaceId) =>
   queryAtom(
     `admin-workspace-logs:${workspaceId}`,
