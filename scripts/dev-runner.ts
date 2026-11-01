@@ -93,6 +93,7 @@ const BUILT_DEV_ARGS = [
 ] as const;
 
 type DevMode = keyof typeof MODE_ARGS;
+const SERVER_MODES: ReadonlySet<DevMode> = new Set(["dev", "dev:instance", "dev:server"]);
 // Only backend ports honor --host/T3CODE_HOST; web ports stay loopback.
 type PortAvailabilityCheck<R = never> = (
   port: number,
@@ -197,6 +198,17 @@ export class DevRunnerBuiltNeedsShareError extends Schema.TaggedError<DevRunnerB
 ) {
   override get message(): string {
     return `--built only works with \`dev --share\` (got ${this.mode}${this.mode === "dev" ? " without --share" : ""}): the backend serves the built client on the tailnet URL.`;
+  }
+}
+
+export class DevRunnerNoHomeError extends Schema.TaggedError<DevRunnerNoHomeError>()(
+  "DevRunnerNoHomeError",
+  {
+    mode: Schema.Literals(["dev", "dev:instance", "dev:server", "dev:web", "dev:desktop"]),
+  },
+) {
+  override get message(): string {
+    return `${this.mode} would start a server against ~/.t3, the live install. Run it from a git worktree, set T3CODE_HOME, or pass --home-dir.`;
   }
 }
 
@@ -744,6 +756,10 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     (input.t3Home?.trim() || undefined) ??
     worktreeHome ??
     (hostEnvironment.T3CODE_HOME?.trim() || undefined);
+  // Without a home the server falls through to ~/.t3 and migrates the developer's real database.
+  if (resolvedT3Home === undefined && SERVER_MODES.has(input.mode)) {
+    return yield* new DevRunnerNoHomeError({ mode: input.mode });
+  }
   const env = yield* createDevRunnerEnv({
     mode: input.mode,
     baseEnv: hostEnvironment,
