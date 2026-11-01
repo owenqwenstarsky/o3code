@@ -21,6 +21,7 @@ import {
   adminWorkspaceLogsAtom,
   instanceRequest,
 } from "../../instance/instanceState";
+import { useRefreshWhileSettling } from "../../instance/useRefreshWhileSettling";
 import { useEnvironmentQuery } from "../../state/query";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Badge } from "../ui/badge";
@@ -399,6 +400,7 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
 
 export function AdminUsersPanel() {
   const users = useEnvironmentQuery(adminUsersAtom);
+  useRefreshWhileSettling(users, users.data?.users.flatMap((entry) => entry.workspaces) ?? []);
   return (
     <SettingsPageContainer>
       <QueryError error={users.error} />
@@ -839,6 +841,7 @@ export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
 
   const user = detail.data?.user ?? null;
   const workspaces = detail.data?.workspaces ?? [];
+  useRefreshWhileSettling(detail, workspaces);
   const refresh = () => {
     detail.refresh();
     sessions.refresh();

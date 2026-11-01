@@ -11,6 +11,7 @@ import {
   mySessionsAtom,
   runInstance,
 } from "../../instance/instanceState";
+import { useRefreshWhileSettling } from "../../instance/useRefreshWhileSettling";
 import { useEnvironmentQuery } from "../../state/query";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Badge } from "../ui/badge";
@@ -174,6 +175,7 @@ export function AccountSettingsPanel() {
 
   const user = me.data?.user ?? null;
   const workspaces = me.data?.workspaces ?? [];
+  useRefreshWhileSettling(me, workspaces);
   const instance = session.data?._tag === "Some" ? session.data.value : null;
 
   const restartWorkspace = async (workspace: InstanceWorkspace) => {
