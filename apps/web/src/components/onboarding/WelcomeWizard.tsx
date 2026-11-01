@@ -40,7 +40,7 @@ import { readCodexSetupMode } from "../settings/CodexSetupSection.logic";
 import { buildProviderInstanceUpdatePatch } from "../settings/SettingsPanels.logic";
 import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
-import { T3Wordmark } from "../T3Wordmark";
+import { O3Wordmark } from "../O3Wordmark";
 import { Button } from "../ui/button";
 import { ScrollArea } from "../ui/scroll-area";
 import { WizardPanel, WizardPopup, WizardHeader } from "../ui/wizard";
@@ -109,10 +109,10 @@ export function WelcomeWizard({
     >
       <WizardPopup size="wide" bottomStickOnMobile={false}>
         <WizardHeader
-          title="Set up T3 Code"
+          title="Set up O3 Code"
           identity={
-            <div className="flex items-baseline gap-1.5" role="img" aria-label="T3 Code">
-              <T3Wordmark className="h-4 w-auto shrink-0" aria-hidden />
+            <div className="flex items-baseline gap-1.5" role="img" aria-label="O3 Code">
+              <O3Wordmark className="h-4 w-auto shrink-0" aria-hidden />
               <span className="text-2xl font-medium tracking-tight text-muted-foreground">
                 Code
               </span>
@@ -171,7 +171,7 @@ function AgentsStep({
       )}
       <div className="mt-6 flex flex-col-reverse gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
         <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
-          T3 Code collects anonymous usage data to help us improve it. To read more about how your
+          O3 Code collects anonymous usage data to help us improve it. To read more about how your
           data is used and how to opt out, see our{" "}
           <a
             className="underline underline-offset-2 hover:text-foreground"
