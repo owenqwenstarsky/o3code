@@ -32,6 +32,8 @@ describe("buildThreadActionMenuItems", () => {
       const items = buildThreadActionMenuItems({
         ...baseState,
         canOperate: false,
+        // Filtering the sidebar is local, so it stays enabled without permission.
+        projectFilter: { label: "App", isActive: false },
         isPinned: reversed,
         isSettled: reversed,
         isSnoozed: reversed,

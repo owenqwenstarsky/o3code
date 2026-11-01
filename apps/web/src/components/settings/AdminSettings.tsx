@@ -862,7 +862,7 @@ export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
         client.admin.resetPassword({ headers, params: { userId } }),
       );
       setTemporaryPassword(result.temporaryPassword);
-      sessions.refresh();
+      refresh();
     });
 
   const deleteUser = () =>
