@@ -20,6 +20,13 @@ export type WorkspaceRuntimeConfig =
       readonly kind: "docker";
       readonly socketPath: string;
       readonly network: string;
+      /**
+       * `tailnet`: each workspace joins the tailnet as its own device. `loopback`: each publishes
+       * its server on a 127.0.0.1 port of the Docker host, for local development only.
+       */
+      readonly publish: "tailnet" | "loopback";
+      /** With `loopback`: a host that serves each published port over HTTPS, such as a dev share. */
+      readonly publishHost: string | null;
     }
   | {
       /** Every workspace is one already-running T3 server; for development only. */
@@ -78,6 +85,10 @@ const fromEnv = Effect.gen(function* () {
           network: yield* Config.String("O3_WORKSPACE_NETWORK").pipe(
             Config.withDefault("o3-workspaces"),
           ),
+          publish: yield* Config.Literals(["tailnet", "loopback"], "O3_WORKSPACE_PUBLISH").pipe(
+            Config.withDefault("tailnet" as const),
+          ),
+          publishHost: Option.getOrNull(yield* optionalString("O3_WORKSPACE_PUBLISH_HOST")),
         };
   const clientId = yield* optionalString("O3_TS_OAUTH_CLIENT_ID");
   const clientSecret = yield* Config.Redacted("O3_TS_OAUTH_CLIENT_SECRET").pipe(Config.option);

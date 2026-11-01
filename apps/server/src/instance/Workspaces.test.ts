@@ -24,6 +24,8 @@ interface FakeHost {
   readonly deletedDevices: Array<string>;
   running: Set<string>;
   mintedKeys: number;
+  publish?: "tailnet" | "loopback";
+  publishHost?: string;
   /** When set, `create` reports it was reached and then waits for the gate. */
   createGate?: {
     readonly entered: Deferred.Deferred<void>;
@@ -92,7 +94,11 @@ const layerFakes = (host: FakeHost) =>
         probe: (containerId: string) =>
           Effect.sync(() => {
             const spec = host.created.find((entry) => entry.containerId === containerId);
-            return { tailnetHostname: `o3-${spec?.slug}.tail.ts.net`, ready: true };
+            return {
+              tailnetHostname:
+                host.publish === "loopback" ? "127.0.0.1:41234" : `o3-${spec?.slug}.tail.ts.net`,
+              ready: true,
+            };
           }),
         logs: () => Effect.succeed(""),
         diskUsage: Effect.succeed(new Map()),
@@ -118,7 +124,13 @@ const layerFakes = (host: FakeHost) =>
       initialWorkspaceImage: "o3code/workspace:test",
       bootstrapAdmin: Option.none(),
       instanceUrl: Option.some("https://o3.tail.ts.net"),
-      runtime: { kind: "docker", socketPath: "/unused", network: "o3-test" },
+      runtime: {
+        kind: "docker",
+        socketPath: "/unused",
+        network: "o3-test",
+        publish: host.publish ?? "tailnet",
+        publishHost: host.publishHost ?? null,
+      },
       tailscale: { mode: "none" },
       tailscaleTag: "tag:o3-workspace",
     }),
@@ -134,6 +146,40 @@ const layerWorkspaces = (host: FakeHost) =>
   );
 
 const userId = InstanceUserId.make("user-alice");
+
+it.effect.each([
+  { publishHost: undefined, url: "http://127.0.0.1:41234", ws: "ws://127.0.0.1:41234" },
+  {
+    publishHost: "dev.tail.ts.net",
+    url: "https://dev.tail.ts.net:41234",
+    ws: "wss://dev.tail.ts.net:41234",
+  },
+])("publishes loopback workspaces with no tailnet device: $url", ({ publishHost, url, ws }) => {
+  const host: FakeHost = {
+    ...makeHost(),
+    publish: "loopback",
+    ...(publishHost ? { publishHost } : {}),
+  };
+  return Effect.gen(function* () {
+    const workspaces = yield* Workspaces.Workspaces;
+    const created = yield* workspaces.create({
+      label: "Local",
+      tools: [],
+      limits: { cpus: 1, memoryMb: 1024, pids: 512 },
+      memberUserIds: [],
+    });
+    yield* workspaces.drain;
+    expect(host.mintedKeys).toBe(0);
+    expect(host.created[0]?.tailscaleAuthKey).toBeNull();
+    expect(Option.getOrThrow(yield* workspaces.get(created.id))).toMatchObject({
+      status: "running",
+      httpBaseUrl: url,
+      wsBaseUrl: ws,
+    });
+    yield* workspaces.remove(created.id, true);
+    expect(host.deletedDevices).toEqual([]);
+  }).pipe(Effect.provide(layerWorkspaces(host)));
+});
 const bobId = InstanceUserId.make("user-bob");
 
 const insertUser = (id: InstanceUserId = userId, name = "Alice") =>
@@ -193,6 +239,7 @@ it.effect("provisions, reconfigures, stops and removes a workspace", () => {
     expect(first).toMatchObject({
       workspaceId,
       slug: "alice-smith",
+      label: "Alice Smith",
       tools: ["claude", "uv"],
       instanceUrl: "https://o3.tail.ts.net",
       tailscaleTag: "tag:o3-workspace",

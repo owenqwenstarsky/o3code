@@ -1,3 +1,4 @@
+import * as NetService from "@t3tools/shared/Net";
 import { parseTailscaleStatus } from "@t3tools/tailscale";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -13,6 +14,7 @@ const WORKSPACE_T3_PORT = 3773;
 export interface WorkspaceRuntimeSpec {
   readonly workspaceId: string;
   readonly slug: string;
+  readonly label: string;
   readonly image: string;
   readonly tools: ReadonlyArray<string>;
   readonly limits: { readonly cpus: number; readonly memoryMb: number; readonly pids: number };
@@ -30,12 +32,12 @@ export interface WorkspaceRuntimeState {
 }
 
 export interface WorkspaceProbe {
-  /** The workspace's MagicDNS name once it has joined the tailnet. */
+  /** The workspace's MagicDNS name once it has joined the tailnet, or its loopback `host:port`. */
   readonly tailnetHostname: string | null;
   readonly ready: boolean;
 }
 
-export type WorkspaceRuntimeError = DockerEngine.DockerEngineError;
+export type WorkspaceRuntimeError = DockerEngine.DockerEngineError | NetService.NetError;
 
 /** Where workspaces run. Docker in production; `static` points every user at one dev server. */
 export class WorkspaceRuntime extends Context.Service<
@@ -73,7 +75,12 @@ const HOME_VOLUME_PREFIX = "o3-home-";
 const homeVolumeName = (workspaceId: string) => `${HOME_VOLUME_PREFIX}${workspaceId}`;
 const tailscaleVolumeName = (workspaceId: string) => `o3-tailscale-${workspaceId}`;
 
-const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network: string) =>
+const makeDockerRuntime = (
+  engine: DockerEngine.DockerEngine["Service"],
+  net: NetService.NetServiceShape,
+  network: string,
+  publish: "tailnet" | "loopback",
+) =>
   WorkspaceRuntime.of({
     kind: "docker",
     info: engine.info.pipe(
@@ -92,9 +99,39 @@ const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network
       };
       yield* engine.ensureVolume(homeVolumeName(spec.workspaceId), labels);
       yield* engine.ensureVolume(tailscaleVolumeName(spec.workspaceId), labels);
-      const name = containerName(spec.slug);
+      // Dev instances in other worktrees share this Docker, and their slugs repeat.
+      const name =
+        publish === "loopback" ? `o3-dev-ws-${spec.workspaceId}` : containerName(spec.slug);
       // A container left behind by an interrupted create would block the name.
       yield* engine.removeContainer(name);
+      if (publish === "loopback") {
+        // A fixed host port, so restarts keep the address the instance recorded.
+        const hostPort = yield* net.reserveLoopbackPort();
+        return yield* engine.createContainer({
+          name,
+          image: spec.image,
+          hostname: tailnetHostnameFor(spec.slug),
+          network,
+          labels,
+          env: {
+            O3_TOOLS: spec.tools.join(","),
+            O3_WORKSPACE_LABEL: spec.label,
+            O3_WORKSPACE_SLUG: spec.slug,
+            O3_PUBLISH: "loopback",
+            T3CODE_TAILSCALE_SERVE: "false",
+            T3CODE_O3_INSTANCE_URL: spec.instanceUrl,
+            T3CODE_O3_WORKSPACE_ID: spec.workspaceId,
+            T3CODE_O3_WORKSPACE_SECRET: spec.workspaceSecret,
+          },
+          mounts: [{ volume: homeVolumeName(spec.workspaceId), target: "/home/o3" }],
+          cpus: spec.limits.cpus,
+          memoryBytes: spec.limits.memoryMb * 1024 * 1024,
+          pids: spec.limits.pids,
+          capAdd: [],
+          devices: [],
+          publish: [{ containerPort: WORKSPACE_T3_PORT, hostIp: "127.0.0.1", hostPort }],
+        });
+      }
       return yield* engine.createContainer({
         name,
         image: spec.image,
@@ -103,6 +140,8 @@ const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network
         labels,
         env: {
           O3_TOOLS: spec.tools.join(","),
+          O3_WORKSPACE_LABEL: spec.label,
+          O3_WORKSPACE_SLUG: spec.slug,
           O3_TS_HOSTNAME: tailnetHostnameFor(spec.slug),
           O3_TS_TAGS: spec.tailscaleTag,
           ...(spec.tailscaleAuthKey
@@ -151,6 +190,25 @@ const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network
       ),
     ),
     probe: Effect.fn("WorkspaceRuntime.probe")(function* (containerId) {
+      const healthy = engine
+        .exec(containerId, [
+          "curl",
+          "-fsS",
+          "-o",
+          "/dev/null",
+          `http://127.0.0.1:${WORKSPACE_T3_PORT}/.well-known/t3/environment`,
+        ])
+        .pipe(Effect.map((health) => health.exitCode === 0));
+      if (publish === "loopback") {
+        const state = yield* engine.inspectContainer(containerId);
+        const hostPort = Option.flatMapNullishOr(
+          state,
+          (value) =>
+            value.publishedPorts.find((port) => port.containerPort === WORKSPACE_T3_PORT)?.hostPort,
+        );
+        if (Option.isNone(hostPort)) return { tailnetHostname: null, ready: false };
+        return { tailnetHostname: `127.0.0.1:${hostPort.value}`, ready: yield* healthy };
+      }
       const status = yield* engine.exec(containerId, ["tailscale", "status", "--json"]);
       const tailnetHostname =
         status.exitCode === 0
@@ -159,14 +217,7 @@ const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network
               Effect.orElseSucceed(() => null),
             )
           : null;
-      const health = yield* engine.exec(containerId, [
-        "curl",
-        "-fsS",
-        "-o",
-        "/dev/null",
-        `http://127.0.0.1:${WORKSPACE_T3_PORT}/.well-known/t3/environment`,
-      ]);
-      return { tailnetHostname, ready: health.exitCode === 0 && tailnetHostname !== null };
+      return { tailnetHostname, ready: tailnetHostname !== null && (yield* healthy) };
     }),
     logs: Effect.fn("WorkspaceRuntime.logs")((containerId) => engine.logs(containerId, 400)),
     diskUsage: engine.volumeSizes.pipe(
@@ -215,9 +266,13 @@ export const layer = Layer.unwrap(
       ? Layer.succeed(WorkspaceRuntime, makeStaticRuntime(runtime.url))
       : Layer.effect(
           WorkspaceRuntime,
-          DockerEngine.DockerEngine.pipe(
-            Effect.map((engine) => makeDockerRuntime(engine, runtime.network)),
+          Effect.all([DockerEngine.DockerEngine, NetService.NetService]).pipe(
+            Effect.map(([engine, net]) =>
+              makeDockerRuntime(engine, net, runtime.network, runtime.publish),
+            ),
           ),
-        ).pipe(Layer.provide(DockerEngine.layer(runtime.socketPath)));
+        ).pipe(
+          Layer.provide(Layer.merge(DockerEngine.layer(runtime.socketPath), NetService.layer)),
+        );
   }),
 );

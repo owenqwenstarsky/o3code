@@ -195,13 +195,27 @@ const make = Effect.gen(function* () {
 
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
+  // Loopback workspaces publish a host port instead of joining the tailnet.
+  const onTailnet = config.runtime.kind === "docker" && config.runtime.publish === "tailnet";
+  const publishHost = config.runtime.kind === "docker" ? config.runtime.publishHost : null;
+  // The record keeps the `127.0.0.1:<port>` Docker bound; a publish host serves that same port.
+  const loopbackBaseUrl = (address: string) =>
+    publishHost === null
+      ? `http://${address}`
+      : `https://${publishHost}:${address.split(":").at(-1)}`;
+
   const toView = (record: WorkspaceRecord, isDefault = false): InstanceWorkspace => {
     const httpBaseUrl =
       config.runtime.kind === "static"
         ? config.runtime.url.replace(/\/+$/, "")
-        : record.tailnetHostname
-          ? buildTailscaleHttpsBaseUrl({ magicDnsName: record.tailnetHostname }).replace(/\/$/, "")
-          : null;
+        : !record.tailnetHostname
+          ? null
+          : onTailnet
+            ? buildTailscaleHttpsBaseUrl({ magicDnsName: record.tailnetHostname }).replace(
+                /\/$/,
+                "",
+              )
+            : loopbackBaseUrl(record.tailnetHostname);
     return {
       id: record.workspaceId,
       label: record.label,
@@ -266,10 +280,7 @@ const make = Effect.gen(function* () {
         "The instance URL is unknown. Join the instance to Tailscale or set O3_INSTANCE_URL.",
       );
     }
-    const authKey =
-      runtime.kind === "docker"
-        ? yield* tailscale.mintAuthKey(`o3 workspace ${record.slug}`)
-        : null;
+    const authKey = onTailnet ? yield* tailscale.mintAuthKey(`o3 workspace ${record.slug}`) : null;
     if (record.containerId) {
       yield* runtime.removeContainer(record.containerId);
     }
@@ -284,6 +295,7 @@ const make = Effect.gen(function* () {
     const containerId = yield* runtime.create({
       workspaceId: record.workspaceId,
       slug: record.slug,
+      label: record.label,
       image: instanceSettings.workspaceImage,
       tools: record.tools,
       limits: record.limits,
@@ -346,7 +358,9 @@ const make = Effect.gen(function* () {
         statusMessage: probe.ready
           ? null
           : probe.tailnetHostname === null
-            ? "Joining the tailnet"
+            ? onTailnet
+              ? "Joining the tailnet"
+              : "Publishing the workspace port"
             : "Starting O3 Code",
         tailnetHostname: probe.tailnetHostname ?? record.tailnetHostname,
       });
@@ -510,7 +524,7 @@ const make = Effect.gen(function* () {
               Effect.catch((cause) => Effect.logWarning("Failed to remove volumes.", { cause })),
             );
         }
-        if (runtime.kind === "docker" && record.tailnetHostname) {
+        if (onTailnet && record.tailnetHostname) {
           yield* tailscale
             .deleteDeviceByHostname(record.tailnetHostname.split(".")[0]!)
             .pipe(
