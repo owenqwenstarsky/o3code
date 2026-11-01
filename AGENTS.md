@@ -152,12 +152,11 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
 - UI changes need before/after images. Motion or timing needs a short video.
 - Upload PR evidence to GitHub. Never commit PR-only screenshots or assets such as `.github/pr-assets/`.
 - One request is one PR. Split it only when the maintainer asks.
-- When babysitting: call `watch_pull_request` and end your turn. O3 Code wakes you on checks, comments, or conflicts. Do not poll or sleep. Verify each automated review finding (including Claude's) against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when checks are green on the latest commit.
+- When babysitting: call `watch_pull_request` and end your turn. O3 Code wakes you on checks, comments, or conflicts. Do not poll or sleep. Verify each automated review finding against the source, fix real ones, dismiss false positives with a written reason. Stay quiet when nothing is new. Stop when checks are green on the latest commit.
 
 ## GitHub Actions
 
 - `ci.yml` is the PR gate. It runs on GitHub-hosted runners with no repository secrets, and a single `Check` job summarizes it. `agent-context-budget.yml` guards growth of model-facing text, and `windows-tests.yml` is a manual Windows lane.
-- `claude.yml` runs Claude Code when someone with write access mentions `@claude` in an issue, PR, or review. `claude-review.yml` reviews each non-draft PR once. Both need the `ANTHROPIC_API_KEY` repository secret and the Claude GitHub app, and both follow this file.
 - When you add or change a workflow, keep runners GitHub-hosted, give each job the narrowest `permissions` it needs, and add new CI jobs to the `needs` list of `Check`. Release, deploy, and preview workflows were removed with the upstream infrastructure; adding one back means adding its secrets and docs together.
 
 ## Documentation

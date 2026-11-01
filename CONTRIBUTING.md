@@ -41,6 +41,4 @@ Upload evidence to GitHub and link it in the PR. Never commit PR-only screenshot
 - The [PR template](.github/pull_request_template.md) asks for the problem, the change, and the
   verification. If an agent did the work, end with the model and harness that did it.
 - CI (`ci.yml`) must pass. Its single `Check` job is the one to require in branch protection.
-- Claude reviews each non-draft PR once when it opens. Comment `@claude` on an issue or PR to ask
-  for more work or another review. See [GitHub Actions](AGENTS.md#github-actions).
 - Report bugs with the [bug report form](.github/ISSUE_TEMPLATE/bug_report.yml).
