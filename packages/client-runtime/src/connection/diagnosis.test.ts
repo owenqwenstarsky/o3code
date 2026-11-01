@@ -35,8 +35,8 @@ describe("presentConnectionDiagnosis", () => {
     expect(diagnose(AVAILABLE_CONNECTION_STATE)).toBeNull();
   });
 
-  it("blames T3 Code on the host when this device cannot reach it", () => {
-    expect(diagnose(backoff(unreachable))?.headline).toBe("T3 Code on Mac mini did not answer");
+  it("blames O3 Code on the host when this device cannot reach it", () => {
+    expect(diagnose(backoff(unreachable))?.headline).toBe("O3 Code on Mac mini did not answer");
     expect(results(backoff(unreachable))).toEqual(["device:ok", "server:failed"]);
   });
 
@@ -47,7 +47,7 @@ describe("presentConnectionDiagnosis", () => {
       hop: "server",
     });
     expect(diagnose(backoff(failure))?.headline).toBe(
-      "T3 Code on Mac mini did not accept this device",
+      "O3 Code on Mac mini did not accept this device",
     );
   });
 
