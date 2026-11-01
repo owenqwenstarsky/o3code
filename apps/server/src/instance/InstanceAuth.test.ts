@@ -19,7 +19,7 @@ import { InstanceConfig } from "./InstanceConfig.ts";
 import { InstanceStore } from "./InstanceStore.ts";
 import { InstanceUsers } from "./InstanceUsers.ts";
 import { layerServices } from "./server.ts";
-import { Workspaces, slugCandidate } from "./Workspaces.ts";
+import { Workspaces } from "./Workspaces.ts";
 
 const layerConfig = Layer.succeed(InstanceConfig, {
   initialName: "Acme",
@@ -118,7 +118,7 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
       );
       const session = yield* login("bob@acme.test", "bob-password-1");
       const principal = yield* auth.authenticate(bearer(session.sessionToken));
-      const mainId = created.workspace.id;
+      const mainId = created.workspace!.id;
       const workspace = yield* auth.issueWorkspaceToken(principal, mainId);
 
       const asInstance = yield* auth.authenticate(bearer(workspace.token)).pipe(Effect.flip);
@@ -137,12 +137,16 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
 
       // A token opens only the workspace it was minted for, even among Bob's own.
       const workspaces = yield* Workspaces;
+      const frank = yield* users.create(
+        null,
+        { email: "frank@acme.test", name: "Frank", role: "member" },
+        { password: "frank-password-1", mustChangePassword: false },
+      );
       const second = yield* workspaces.create({
-        userId: created.user.id,
-        email: created.user.email,
         label: "Second",
         tools: [],
-        limits: created.workspace.limits,
+        limits: created.workspace!.limits,
+        memberUserIds: [created.user.id, frank.user.id],
       });
       yield* workspaces.drain;
       expect(yield* auth.introspect({ token: workspace.token, workspaceId: second.id })).toEqual({
@@ -152,11 +156,28 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
         yield* auth.introspect({ token: workspace.token, workspaceId: "someone-else" }),
       ).toEqual({ active: false });
 
-      // A deleted workspace stops accepting the tokens minted for it.
+      // Removing a member ends their tokens there; the other member's keep working.
       const secondToken = yield* auth.issueWorkspaceToken(principal, second.id);
+      const frankPrincipal = yield* auth.authenticate(
+        bearer((yield* login("frank@acme.test", "frank-password-1")).sessionToken),
+      );
+      const frankToken = yield* auth.issueWorkspaceToken(frankPrincipal, second.id);
       expect(
         (yield* auth.introspect({ token: secondToken.token, workspaceId: second.id })).active,
       ).toBe(true);
+      yield* workspaces.removeMember(second.id, created.user.id);
+      expect(yield* auth.introspect({ token: secondToken.token, workspaceId: second.id })).toEqual({
+        active: false,
+      });
+      expect(
+        (yield* auth.introspect({ token: frankToken.token, workspaceId: second.id })).active,
+      ).toBe(true);
+      yield* workspaces.addMember(second.id, created.user.id);
+      expect(
+        (yield* auth.introspect({ token: secondToken.token, workspaceId: second.id })).active,
+      ).toBe(true);
+
+      // A deleted workspace stops accepting the tokens minted for it.
       yield* workspaces.remove(second.id, false);
       expect(yield* auth.introspect({ token: secondToken.token, workspaceId: second.id })).toEqual({
         active: false,
@@ -179,9 +200,7 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
       const migratedId = InstanceWorkspaceId.make(created.user.id);
       yield* store.insertWorkspace({
         workspaceId: migratedId,
-        userId: created.user.id,
         label: "Migrated",
-        isDefault: false,
         slug: "erin-migrated",
         status: "running",
         statusMessage: null,
@@ -189,12 +208,13 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
         tailnetHostname: null,
         image: "o3code/workspace:test",
         tools: [],
-        limits: created.workspace.limits,
+        limits: created.workspace!.limits,
         secretHash: "unused",
         diskUsageBytes: null,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       });
+      yield* store.addMember(migratedId, created.user.id, "2026-01-01T00:00:00.000Z");
       const session = yield* login("erin@acme.test", "erin-password-1");
       const principal = yield* auth.authenticate(bearer(session.sessionToken));
       const legacy = yield* sessions.issue({
@@ -207,7 +227,7 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
         active: true,
         workspaceId: migratedId,
       });
-      expect(yield* auth.introspect({ token, workspaceId: created.workspace.id })).toEqual({
+      expect(yield* auth.introspect({ token, workspaceId: created.workspace!.id })).toEqual({
         active: false,
       });
 
@@ -230,13 +250,13 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
           { email: "carol@acme.test", name: "Carol", role: "admin" },
           { password: "carol-password-1", mustChangePassword: false },
         );
-        const mainId = created.workspace.id;
-        const second = yield* (yield* Workspaces).create({
-          userId: created.user.id,
-          email: created.user.email,
+        const mainId = created.workspace!.id;
+        const workspaces = yield* Workspaces;
+        const second = yield* workspaces.create({
           label: "Second",
           tools: [],
-          limits: created.workspace.limits,
+          limits: created.workspace!.limits,
+          memberUserIds: [created.user.id],
         });
         const introspect = (token: string, workspaceId: string = mainId) =>
           auth.introspect({ token, workspaceId });
@@ -283,9 +303,9 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
         expect(yield* introspect(currentToken.token)).toEqual({ active: false });
         const disabledLogin = yield* login("carol@acme.test", "carol-password-2").pipe(Effect.flip);
         expect(disabledLogin).toMatchObject({ reason: "account_disabled" });
-        // A disabled user's workspaces stay stopped, so none is added until they're enabled.
-        const addWhileDisabled = yield* users
-          .addWorkspace(created.user.id, { label: "Third" })
+        // A disabled user joins no workspace until they're enabled.
+        const addWhileDisabled = yield* workspaces
+          .addMember(admin.workspace!.id, created.user.id)
           .pipe(Effect.flip);
         expect(addWhileDisabled._tag).toBe("InstanceBadRequestError");
 
@@ -295,11 +315,6 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
         expect(selfDisable._tag).toBe("InstanceBadRequestError");
       }),
   );
-});
-
-it("derives workspace slugs from the email's local part", () => {
-  expect(slugCandidate("Jane.Doe+work@acme.test")).toBe("jane-doe-work");
-  expect(slugCandidate("___@acme.test")).toBe("user");
 });
 
 it("demultiplexes Docker's framed log stream", () => {

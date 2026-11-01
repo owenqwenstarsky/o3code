@@ -3,7 +3,6 @@ import {
   InstanceConflictError,
   InstanceNotFoundError,
   type InstanceCreateUserRequest,
-  type InstanceCreateWorkspaceRequest,
   type InstanceUpdateUserRequest,
   InstanceUserId,
   type InstanceUserWithWorkspaces,
@@ -43,7 +42,7 @@ export class InstanceUsers extends Context.Service<
     ) => Effect.Effect<
       {
         readonly user: InstanceUser;
-        readonly workspace: InstanceWorkspace;
+        readonly workspace: InstanceWorkspace | null;
         readonly temporaryPassword: string;
       },
       UsersError
@@ -53,20 +52,15 @@ export class InstanceUsers extends Context.Service<
       userId: string,
       input: InstanceUpdateUserRequest,
     ) => Effect.Effect<InstanceUserWithWorkspaces, UsersError>;
-    /** Adds a workspace with the instance defaults for anything the input leaves out. */
-    readonly addWorkspace: (
-      userId: string,
-      input: InstanceCreateWorkspaceRequest,
-    ) => Effect.Effect<InstanceWorkspace, UsersError>;
     readonly resetPassword: (
       actor: InstancePrincipalShape | null,
       userId: string,
       password?: string,
     ) => Effect.Effect<string, UsersError>;
+    /** Deletes the account; its workspaces stay for their other members and admins. */
     readonly remove: (
       actor: InstancePrincipalShape,
       userId: string,
-      deleteData: boolean,
     ) => Effect.Effect<void, UsersError>;
     /** Seeds the first admin from the environment when the instance has no users. */
     readonly bootstrap: Effect.Effect<void, UsersError>;
@@ -114,12 +108,47 @@ const make = Effect.gen(function* () {
     actorEmail: actor?.user.email ?? null,
   });
 
+  const auditMember = (
+    actor: InstancePrincipalShape | null,
+    action: string,
+    workspace: InstanceWorkspace,
+    user: UserRecord,
+  ) =>
+    settings.audit({
+      ...actorFields(actor),
+      action,
+      targetUserId: user.userId,
+      targetEmail: user.email,
+      detail: encodeDetail({ workspace: workspace.slug, label: workspace.label }),
+    });
+
+  /** The first of `base`, `base 2`, `base 3`… no workspace uses yet. */
+  const freeLabel = Effect.fn("InstanceUsers.freeLabel")(function* (base: string) {
+    const taken = new Set(
+      [...(yield* workspaces.list).values()].map((workspace) => workspace.label.toLowerCase()),
+    );
+    const trimmed = base.trim().slice(0, 40).trim();
+    let label = trimmed;
+    for (let suffix = 2; taken.has(label.toLowerCase()); suffix += 1) {
+      label = `${trimmed.slice(0, 40 - String(suffix).length - 1).trim()} ${suffix}`;
+    }
+    return label;
+  });
+
   const create: InstanceUsers["Service"]["create"] = Effect.fn("InstanceUsers.create")(
     function* (actor, input, options) {
       if (Option.isSome(yield* store.findUserByEmail(input.email))) {
         return yield* new InstanceConflictError({
           message: "A user with this email already exists.",
         });
+      }
+      const target = input.workspace ?? { kind: "new" as const };
+      if (target.kind === "existing") {
+        const all = yield* workspaces.list;
+        const missing = target.workspaceIds.find((workspaceId) => !all.has(workspaceId));
+        if (missing !== undefined) {
+          return yield* new InstanceNotFoundError({ message: "Workspace not found." });
+        }
       }
       const instanceSettings = yield* settings.get;
       const temporaryPassword = options?.password ?? generateTemporaryPassword();
@@ -138,20 +167,36 @@ const make = Effect.gen(function* () {
         lastLoginAt: null,
       };
       yield* store.insertUser(record);
-      const workspace = yield* workspaces.create({
-        userId,
-        email: record.email,
-        label: "Default",
-        tools: input.tools ?? instanceSettings.defaultTools,
-        limits: input.limits ?? instanceSettings.defaultLimits,
-      });
+      if (target.kind === "new") {
+        const created = yield* workspaces.create({
+          label: target.label ?? (yield* freeLabel(record.name)),
+          tools: target.tools ?? instanceSettings.defaultTools,
+          limits: target.limits ?? instanceSettings.defaultLimits,
+          memberUserIds: [userId],
+        });
+        yield* auditMember(actor, "workspace.created", created, record);
+      } else {
+        yield* Effect.forEach(
+          target.workspaceIds,
+          (workspaceId) =>
+            workspaces
+              .addMember(workspaceId, userId)
+              .pipe(
+                Effect.flatMap((workspace) =>
+                  auditMember(actor, "workspace.member_added", workspace, record),
+                ),
+              ),
+          { discard: true },
+        );
+      }
       yield* settings.audit({
         ...actorFields(actor),
         action: "user.created",
         targetUserId: userId,
         targetEmail: record.email,
-        detail: encodeDetail({ role: record.role, tools: workspace.tools }),
+        detail: encodeDetail({ role: record.role }),
       });
+      const workspace = (yield* workspaces.listForUser(userId))[0] ?? null;
       return { user: toInstanceUser(record), workspace, temporaryPassword };
     },
   );
@@ -183,8 +228,14 @@ const make = Effect.gen(function* () {
     list: Effect.gen(function* () {
       const users = yield* store.listUsers();
       const byUser = new Map<string, Array<InstanceWorkspace>>();
-      for (const workspace of (yield* workspaces.list).values()) {
-        byUser.set(workspace.userId, [...(byUser.get(workspace.userId) ?? []), workspace]);
+      for (const workspace of yield* workspaces.listWithMembers) {
+        const { members, ...view } = workspace;
+        for (const member of members) {
+          byUser.set(member.userId, [
+            ...(byUser.get(member.userId) ?? []),
+            { ...view, isDefault: member.isDefault },
+          ]);
+        }
       }
       return users.map((record) => ({
         user: toInstanceUser(record),
@@ -243,24 +294,8 @@ const make = Effect.gen(function* () {
       });
       return yield* requireUser(userId).pipe(Effect.flatMap(withWorkspaces));
     }),
-    addWorkspace: Effect.fn("InstanceUsers.addWorkspace")(function* (userId, input) {
-      const record = yield* requireUser(userId);
-      if (record.disabledAt !== null) {
-        return yield* new InstanceBadRequestError({
-          message: "Enable this user before adding a workspace.",
-        });
-      }
-      const instanceSettings = yield* settings.get;
-      return yield* workspaces.create({
-        userId: record.userId,
-        email: record.email,
-        label: input.label,
-        tools: input.tools ?? instanceSettings.defaultTools,
-        limits: input.limits ?? instanceSettings.defaultLimits,
-      });
-    }),
     resetPassword,
-    remove: Effect.fn("InstanceUsers.remove")(function* (actor, userId, deleteData) {
+    remove: Effect.fn("InstanceUsers.remove")(function* (actor, userId) {
       const record = yield* requireUser(userId);
       if (userId === actor.user.id) {
         return yield* new InstanceBadRequestError({
@@ -277,14 +312,13 @@ const make = Effect.gen(function* () {
         });
       }
       yield* auth.revokeAllForUser(userId);
-      yield* workspaces.removeAllForUser(userId, deleteData);
+      yield* workspaces.detachUser(userId);
       yield* store.deleteUser(userId);
       yield* settings.audit({
         ...actorFields(actor),
         action: "user.deleted",
         targetUserId: userId,
         targetEmail: record.email,
-        detail: encodeDetail({ deleteData }),
       });
     }),
     bootstrap: Effect.gen(function* () {

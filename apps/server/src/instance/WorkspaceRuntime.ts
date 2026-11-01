@@ -12,7 +12,6 @@ const WORKSPACE_T3_PORT = 3773;
 
 export interface WorkspaceRuntimeSpec {
   readonly workspaceId: string;
-  readonly userId: string;
   readonly slug: string;
   readonly image: string;
   readonly tools: ReadonlyArray<string>;
@@ -89,7 +88,6 @@ const makeDockerRuntime = (engine: DockerEngine.DockerEngine["Service"], network
       yield* engine.ensureNetwork(network);
       const labels = {
         "dev.o3code.managed": "true",
-        "dev.o3code.user": spec.userId,
         "dev.o3code.workspace": spec.workspaceId,
       };
       yield* engine.ensureVolume(homeVolumeName(spec.workspaceId), labels);

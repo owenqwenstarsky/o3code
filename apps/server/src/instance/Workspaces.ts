@@ -5,6 +5,7 @@ import {
   InstanceNotFoundError,
   InstanceWorkspaceId,
   STATIC_WORKSPACE_ID,
+  type InstanceAdminWorkspace,
   type InstanceWorkspace,
   type InstanceWorkspaceAction,
   type InstanceWorkspaceLimits,
@@ -27,6 +28,8 @@ import { InstanceSettings } from "./InstanceSettings.ts";
 import {
   InstanceStore,
   type InstanceStoreError,
+  type MemberRecord,
+  type UserRecord,
   type WorkspacePatch,
   type WorkspaceRecord,
 } from "./InstanceStore.ts";
@@ -52,20 +55,41 @@ export class Workspaces extends Context.Service<
     readonly get: (
       workspaceId: string,
     ) => Effect.Effect<Option.Option<InstanceWorkspace>, InstanceStoreError>;
-    /** Default first, then oldest first. */
+    /** The user's workspaces, default first, then oldest first. */
     readonly listForUser: (
       userId: string,
     ) => Effect.Effect<ReadonlyArray<InstanceWorkspace>, InstanceStoreError>;
     /** Every workspace, by workspace id. */
     readonly list: Effect.Effect<ReadonlyMap<string, InstanceWorkspace>, InstanceStoreError>;
-    /** Adds a workspace; it becomes the default when the user has none. */
+    /** Every workspace with its members, oldest first. */
+    readonly listWithMembers: Effect.Effect<
+      ReadonlyArray<InstanceAdminWorkspace>,
+      InstanceStoreError
+    >;
+    readonly getWithMembers: (
+      workspaceId: string,
+    ) => Effect.Effect<InstanceAdminWorkspace, WorkspaceError>;
+    readonly isMember: (
+      workspaceId: string,
+      userId: string,
+    ) => Effect.Effect<boolean, InstanceStoreError>;
+    /** Adds a workspace; it becomes the default of each member who has none. */
     readonly create: (input: {
-      readonly userId: string;
-      readonly email: string;
       readonly label: string;
       readonly tools: ReadonlyArray<string>;
       readonly limits: InstanceWorkspaceLimits;
-    }) => Effect.Effect<InstanceWorkspace, WorkspaceError>;
+      readonly memberUserIds: ReadonlyArray<string>;
+    }) => Effect.Effect<InstanceAdminWorkspace, WorkspaceError>;
+    /** Starts the workspace if it was stopped with nobody active on it. */
+    readonly addMember: (
+      workspaceId: string,
+      userId: string,
+    ) => Effect.Effect<InstanceAdminWorkspace, WorkspaceError>;
+    /** Stops the workspace when nobody active is left on it; the workspace itself stays. */
+    readonly removeMember: (
+      workspaceId: string,
+      userId: string,
+    ) => Effect.Effect<InstanceAdminWorkspace, WorkspaceError>;
     readonly action: (
       workspaceId: string,
       action: InstanceWorkspaceAction,
@@ -78,17 +102,19 @@ export class Workspaces extends Context.Service<
         readonly limits?: InstanceWorkspaceLimits;
       },
     ) => Effect.Effect<InstanceWorkspace, WorkspaceError>;
-    readonly setDefault: (workspaceId: string) => Effect.Effect<InstanceWorkspace, WorkspaceError>;
-    /** Removes one workspace; a user's last workspace goes only with the user. */
+    readonly setDefault: (
+      userId: string,
+      workspaceId: string,
+    ) => Effect.Effect<void, WorkspaceError>;
     readonly remove: (
       workspaceId: string,
       deleteData: boolean,
     ) => Effect.Effect<void, WorkspaceError>;
-    readonly removeAllForUser: (
-      userId: string,
-      deleteData: boolean,
-    ) => Effect.Effect<void, InstanceStoreError>;
+    /** Removes the user from every workspace, stopping those left with nobody active. */
+    readonly detachUser: (userId: string) => Effect.Effect<void, InstanceStoreError>;
+    /** For a disabled user: stops their workspaces that nobody active is left on. */
     readonly stopAllForUser: (userId: string) => Effect.Effect<void, InstanceStoreError>;
+    /** For a re-enabled user: starts their stopped workspaces. */
     readonly startAllForUser: (userId: string) => Effect.Effect<void, InstanceStoreError>;
     readonly logs: (workspaceId: string) => Effect.Effect<string, WorkspaceError>;
     readonly upgradeAll: Effect.Effect<number, InstanceStoreError>;
@@ -119,28 +145,15 @@ const toSlugPart = (value: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-export const slugCandidate = (email: string) => {
-  const base = toSlugPart(email.split("@")[0]!).slice(0, 24).replace(/-+$/, "");
-  return base.length > 0 ? base : "user";
-};
-
-const labelSlug = (label: string) => {
-  const base = toSlugPart(label);
-  return base.length > 0 ? base : "workspace";
-};
-
 const fitSlug = (value: string, maxLength: number) => value.slice(0, maxLength).replace(/-+$/, "");
 
-/** The first workspace is named after the email; later ones add their label. */
+/** Named after the label; slugs never change, so renaming a workspace keeps its container. */
 export const workspaceSlug = (input: {
-  readonly email: string;
   readonly label: string;
-  readonly first: boolean;
   readonly taken: ReadonlySet<string>;
 }) => {
-  const base = input.first
-    ? slugCandidate(input.email)
-    : fitSlug(`${slugCandidate(input.email)}-${labelSlug(input.label)}`, MAX_SLUG_LENGTH);
+  const fitted = fitSlug(toSlugPart(input.label), MAX_SLUG_LENGTH);
+  const base = fitted.length > 0 ? fitted : "workspace";
   let slug = base;
   for (let suffix = 2; input.taken.has(slug); suffix += 1) {
     slug = `${fitSlug(base, MAX_SLUG_LENGTH - String(suffix).length - 1)}-${suffix}`;
@@ -162,8 +175,8 @@ const make = Effect.gen(function* () {
   const loops = yield* FiberSet.make<unknown, never>();
   const actions = yield* FiberSet.make<unknown, never>();
   const locks = yield* Ref.make(new Map<string, Semaphore.Semaphore>());
-  // Adding, removing, renaming and re-defaulting workspaces check rows across users (slugs are
-  // global), so they share one lock; container work stays per workspace.
+  // Adding, removing, renaming workspaces and changing members check rows across the instance
+  // (labels and slugs are global), so they share one lock; container work stays per workspace.
   const membership = Semaphore.makeUnsafe(1);
   const discoveredInstanceUrl = yield* Ref.make<string | null>(null);
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -182,7 +195,7 @@ const make = Effect.gen(function* () {
 
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
-  const toView = (record: WorkspaceRecord): InstanceWorkspace => {
+  const toView = (record: WorkspaceRecord, isDefault = false): InstanceWorkspace => {
     const httpBaseUrl =
       config.runtime.kind === "static"
         ? config.runtime.url.replace(/\/+$/, "")
@@ -191,9 +204,8 @@ const make = Effect.gen(function* () {
           : null;
     return {
       id: record.workspaceId,
-      userId: record.userId,
       label: record.label,
-      isDefault: record.isDefault,
+      isDefault,
       slug: record.slug,
       status: record.status,
       statusMessage: record.statusMessage,
@@ -271,7 +283,6 @@ const make = Effect.gen(function* () {
     });
     const containerId = yield* runtime.create({
       workspaceId: record.workspaceId,
-      userId: record.userId,
       slug: record.slug,
       image: instanceSettings.workspaceImage,
       tools: record.tools,
@@ -387,22 +398,101 @@ const make = Effect.gen(function* () {
   };
 
   const assertLabelFree = Effect.fn("Workspaces.assertLabelFree")(function* (
-    userId: string,
     label: string,
     exceptWorkspaceId: string | null,
   ) {
-    const siblings = yield* store.listWorkspacesForUser(userId);
-    const clash = siblings.some(
+    const all = yield* store.listWorkspaces();
+    const clash = all.some(
       (record) => record.workspaceId !== exceptWorkspaceId && sameLabel(record.label, label),
     );
     if (clash) {
       return yield* new InstanceConflictError({
-        message: `This user already has a workspace named "${label.trim()}".`,
+        message: `A workspace named "${label.trim()}" already exists.`,
       });
     }
   });
 
-  const view = (workspaceId: string) => requireRecord(workspaceId).pipe(Effect.map(toView));
+  const view = (workspaceId: string) =>
+    requireRecord(workspaceId).pipe(Effect.map((record) => toView(record)));
+
+  const withMembers = (
+    record: WorkspaceRecord,
+    members: ReadonlyArray<MemberRecord>,
+    users: ReadonlyMap<string, UserRecord>,
+  ): InstanceAdminWorkspace => ({
+    ...toView(record),
+    members: members.flatMap((member) => {
+      const user = users.get(member.userId);
+      return user === undefined
+        ? []
+        : [
+            {
+              userId: user.userId,
+              email: user.email,
+              name: user.name,
+              disabled: user.disabledAt !== null,
+              isDefault: member.isDefault,
+            },
+          ];
+    }),
+  });
+
+  const usersById = store
+    .listUsers()
+    .pipe(Effect.map((users) => new Map(users.map((user) => [user.userId, user]))));
+
+  const getWithMembers = Effect.fn("Workspaces.getWithMembers")(function* (workspaceId: string) {
+    const record = yield* requireRecord(workspaceId);
+    return withMembers(record, yield* store.listMembers(workspaceId), yield* usersById);
+  });
+
+  /** True while at least one enabled user is a member. */
+  const hasActiveMember = Effect.fn("Workspaces.hasActiveMember")(function* (workspaceId: string) {
+    const members = yield* store.listMembers(workspaceId);
+    const users = yield* usersById;
+    return members.some((member) => users.get(member.userId)?.disabledAt === null);
+  });
+
+  /** Stops the container under the workspace's lock, so one still being created stops too. */
+  const stopNow = (workspaceId: string, statusMessage: string) =>
+    serialized(workspaceId)(
+      Effect.gen(function* () {
+        const current = yield* store.getWorkspace(workspaceId);
+        if (Option.isNone(current)) return;
+        if (current.value.containerId) {
+          yield* runtime
+            .stop(current.value.containerId)
+            .pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Failed to stop workspace.", { workspaceId, cause }),
+              ),
+            );
+        }
+        yield* patch(workspaceId, { status: "stopped", statusMessage });
+      }),
+    );
+
+  const stopIfUnattended = (workspaceIds: ReadonlyArray<string>, statusMessage: string) =>
+    Effect.forEach(
+      workspaceIds,
+      (workspaceId) =>
+        hasActiveMember(workspaceId).pipe(
+          Effect.flatMap((active) => (active ? Effect.void : stopNow(workspaceId, statusMessage))),
+        ),
+      { discard: true },
+    );
+
+  const requireEnabledUser = Effect.fn("Workspaces.requireEnabledUser")(function* (userId: string) {
+    const user = yield* store.getUser(userId);
+    if (Option.isNone(user)) {
+      return yield* new InstanceNotFoundError({ message: "User not found." });
+    }
+    if (user.value.disabledAt !== null) {
+      return yield* new InstanceBadRequestError({
+        message: "Enable this user before adding them to a workspace.",
+      });
+    }
+  });
 
   /** Removes the container, optionally the volumes, the tailnet device, then the row. */
   const teardown = (record: WorkspaceRecord, deleteData: boolean) =>
@@ -478,11 +568,13 @@ const make = Effect.gen(function* () {
   );
 
   const listForUser = (userId: string) =>
-    store.listWorkspacesForUser(userId).pipe(Effect.map((records) => records.map(toView)));
+    store
+      .listWorkspacesForUser(userId)
+      .pipe(Effect.map((records) => records.map((record) => toView(record, record.isDefault))));
 
   return Workspaces.of({
     get: Effect.fn("Workspaces.get")((workspaceId) =>
-      store.getWorkspace(workspaceId).pipe(Effect.map(Option.map(toView))),
+      store.getWorkspace(workspaceId).pipe(Effect.map(Option.map((record) => toView(record)))),
     ),
     listForUser: Effect.fn("Workspaces.listForUser")(listForUser),
     list: store
@@ -492,27 +584,39 @@ const make = Effect.gen(function* () {
           (records) => new Map(records.map((record) => [record.workspaceId, toView(record)])),
         ),
       ),
+    listWithMembers: Effect.gen(function* () {
+      const records = yield* store.listWorkspaces();
+      const members = yield* store.listMembers(null);
+      const users = yield* usersById;
+      return records.map((record) =>
+        withMembers(
+          record,
+          members.filter((member) => member.workspaceId === record.workspaceId),
+          users,
+        ),
+      );
+    }),
+    getWithMembers,
+    isMember: Effect.fn("Workspaces.isMember")((workspaceId, userId) =>
+      store
+        .listMembers(workspaceId)
+        .pipe(Effect.map((members) => members.some((member) => member.userId === userId))),
+    ),
     create: Effect.fn("Workspaces.create")(function* (input) {
       const tools = yield* validateTools(input.tools);
+      const memberUserIds = [...new Set(input.memberUserIds)];
       const record = yield* membership.withPermit(
         Effect.gen(function* () {
           const label = input.label.trim();
-          yield* assertLabelFree(input.userId, label, null);
+          yield* assertLabelFree(label, null);
+          yield* Effect.forEach(memberUserIds, requireEnabledUser, { discard: true });
           const all = yield* store.listWorkspaces();
-          const siblings = all.filter((record) => record.userId === input.userId);
           const instanceSettings = yield* settings.get;
           const now = yield* nowIso;
           const created: WorkspaceRecord = {
             workspaceId: InstanceWorkspaceId.make(yield* crypto.randomUUIDv4().pipe(Effect.orDie)),
-            userId: input.userId as WorkspaceRecord["userId"],
             label,
-            isDefault: !siblings.some((record) => record.isDefault),
-            slug: workspaceSlug({
-              email: input.email,
-              label,
-              first: siblings.length === 0,
-              taken: new Set(all.map((record) => record.slug)),
-            }),
+            slug: workspaceSlug({ label, taken: new Set(all.map((record) => record.slug)) }),
             status: "provisioning",
             statusMessage: "Preparing the workspace",
             containerId: null,
@@ -526,11 +630,37 @@ const make = Effect.gen(function* () {
             updatedAt: now,
           };
           yield* store.insertWorkspace(created);
+          yield* Effect.forEach(
+            memberUserIds,
+            (userId) => store.addMember(created.workspaceId, userId, now),
+            { discard: true },
+          );
           return created;
         }),
       );
+      const members = yield* store.listMembers(record.workspaceId);
       yield* inBackground(record.workspaceId, createAndStart(record));
-      return toView(record);
+      return withMembers(record, members, yield* usersById);
+    }),
+    addMember: Effect.fn("Workspaces.addMember")(function* (workspaceId, userId) {
+      const wake = yield* membership.withPermit(
+        Effect.gen(function* () {
+          const record = yield* requireRecord(workspaceId);
+          yield* requireEnabledUser(userId);
+          const wasAttended = yield* hasActiveMember(workspaceId);
+          yield* store.addMember(workspaceId, userId, yield* nowIso);
+          return record.status === "stopped" && !wasAttended;
+        }),
+      );
+      if (wake) yield* action(workspaceId, "start");
+      return yield* getWithMembers(workspaceId);
+    }),
+    removeMember: Effect.fn("Workspaces.removeMember")(function* (workspaceId, userId) {
+      yield* membership.withPermit(
+        requireRecord(workspaceId).pipe(Effect.andThen(store.removeMember(workspaceId, userId))),
+      );
+      yield* stopIfUnattended([workspaceId], "Nobody active is on this workspace");
+      return yield* getWithMembers(workspaceId);
     }),
     action,
     update: Effect.fn("Workspaces.update")(function* (workspaceId, input) {
@@ -538,9 +668,7 @@ const make = Effect.gen(function* () {
       const label = input.label?.trim();
       if (label !== undefined && label !== record.label) {
         yield* membership.withPermit(
-          assertLabelFree(record.userId, label, workspaceId).pipe(
-            Effect.andThen(patch(workspaceId, { label })),
-          ),
+          assertLabelFree(label, workspaceId).pipe(Effect.andThen(patch(workspaceId, { label }))),
         );
       }
       const tools = input.tools === undefined ? record.tools : yield* validateTools(input.tools);
@@ -555,93 +683,53 @@ const make = Effect.gen(function* () {
       // Tools install and limits apply when the container is created.
       return yield* action(workspaceId, "recreate");
     }),
-    setDefault: Effect.fn("Workspaces.setDefault")(function* (workspaceId) {
+    setDefault: Effect.fn("Workspaces.setDefault")(function* (userId, workspaceId) {
       yield* membership.withPermit(
         Effect.gen(function* () {
-          const record = yield* requireRecord(workspaceId);
-          if (record.isDefault) return;
-          yield* store.setDefaultWorkspace(record.userId, workspaceId, yield* nowIso);
+          const workspaces = yield* store.listWorkspacesForUser(userId);
+          if (!workspaces.some((record) => record.workspaceId === workspaceId)) {
+            return yield* new InstanceNotFoundError({
+              message: "This user is not on that workspace.",
+            });
+          }
+          yield* store.setDefaultWorkspace(userId, workspaceId);
         }),
       );
-      return yield* view(workspaceId);
     }),
     remove: Effect.fn("Workspaces.remove")((workspaceId, deleteData) =>
       membership.withPermit(
+        requireRecord(workspaceId).pipe(Effect.flatMap((record) => teardown(record, deleteData))),
+      ),
+    ),
+    detachUser: Effect.fn("Workspaces.detachUser")(function* (userId) {
+      const workspaceIds = yield* membership.withPermit(
         Effect.gen(function* () {
-          const record = yield* requireRecord(workspaceId);
-          const siblings = yield* store.listWorkspacesForUser(record.userId);
-          const remaining = siblings
-            .filter((sibling) => sibling.workspaceId !== workspaceId)
-            .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
-          const promoted = remaining[0];
-          if (promoted === undefined) {
-            return yield* new InstanceBadRequestError({
-              message: "This is the user's only workspace. Delete the user instead.",
-            });
-          }
-          yield* teardown(record, deleteData);
-          if (record.isDefault) {
-            yield* store.setDefaultWorkspace(record.userId, promoted.workspaceId, yield* nowIso);
-          }
-        }),
-      ),
-    ),
-    removeAllForUser: Effect.fn("Workspaces.removeAllForUser")((userId, deleteData) =>
-      membership.withPermit(
-        store
-          .listWorkspacesForUser(userId)
-          .pipe(
-            Effect.flatMap((records) =>
-              Effect.forEach(records, (record) => teardown(record, deleteData), { discard: true }),
-            ),
-          ),
-      ),
-    ),
-    stopAllForUser: Effect.fn("Workspaces.stopAllForUser")((userId) =>
-      store.listWorkspacesForUser(userId).pipe(
-        Effect.flatMap((records) =>
-          Effect.forEach(
+          const records = yield* store.listWorkspacesForUser(userId);
+          yield* Effect.forEach(
             records,
-            // Under the workspace's lock, so a container still being created is stopped too.
-            (record) =>
-              serialized(record.workspaceId)(
-                Effect.gen(function* () {
-                  const current = yield* store.getWorkspace(record.workspaceId);
-                  if (Option.isNone(current)) return;
-                  if (current.value.containerId) {
-                    yield* runtime.stop(current.value.containerId).pipe(
-                      Effect.catch((cause) =>
-                        Effect.logWarning("Failed to stop workspace.", {
-                          workspaceId: record.workspaceId,
-                          cause,
-                        }),
-                      ),
-                    );
-                  }
-                  yield* patch(record.workspaceId, {
-                    status: "stopped",
-                    statusMessage: "Account disabled",
-                  });
-                }),
-              ),
+            (record) => store.removeMember(record.workspaceId, userId),
             { discard: true },
-          ),
-        ),
-      ),
-    ),
-    startAllForUser: Effect.fn("Workspaces.startAllForUser")((userId) =>
-      store
-        .listWorkspacesForUser(userId)
-        .pipe(
-          Effect.flatMap((records) =>
-            Effect.forEach(
-              records,
-              (record) => action(record.workspaceId, "start").pipe(Effect.ignore),
-              { discard: true },
-            ),
-          ),
-        ),
-    ),
+          );
+          return records.map((record) => record.workspaceId);
+        }),
+      );
+      yield* stopIfUnattended(workspaceIds, "Nobody active is on this workspace");
+    }),
+    stopAllForUser: Effect.fn("Workspaces.stopAllForUser")(function* (userId) {
+      const records = yield* store.listWorkspacesForUser(userId);
+      yield* stopIfUnattended(
+        records.map((record) => record.workspaceId),
+        "Account disabled",
+      );
+    }),
+    startAllForUser: Effect.fn("Workspaces.startAllForUser")(function* (userId) {
+      const records = yield* store.listWorkspacesForUser(userId);
+      yield* Effect.forEach(
+        records.filter((record) => record.status === "stopped"),
+        (record) => action(record.workspaceId, "start").pipe(Effect.ignore),
+        { discard: true },
+      );
+    }),
     logs: Effect.fn("Workspaces.logs")((workspaceId) =>
       requireRecord(workspaceId).pipe(
         Effect.flatMap((record) =>

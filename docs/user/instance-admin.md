@@ -1,8 +1,9 @@
 # Run an O3 instance
 
 An O3 instance hosts O3 Code for your organization on one Linux server. People
-sign in with an email and password, and each person gets their own workspace:
-a container with their projects, terminal, and coding agents. Every workspace
+sign in with an email and password and work in workspaces: containers with
+projects, a terminal, and coding agents. A workspace can be one person's or
+shared by a team. Every workspace
 and the instance itself are devices on your Tailscale tailnet, so the apps reach
 them directly and nothing is exposed to the internet.
 
@@ -53,52 +54,64 @@ on your tailnet and sign in as the first admin.
 ## Add people
 
 In the app, open **Settings → Admin → Users** and choose **Add user**. Pick a
-role and the tools to install, such as Claude Code, Codex, or Cursor CLI. O3 Code
+role, then either a new workspace with the tools to install, such as Claude
+Code, Codex, or Cursor CLI, or existing workspaces to add them to. O3 Code
 shows a temporary password once; share it privately. The new user signs in from
 the web app at the instance address or from the desktop app, chooses their own
-password, and their workspace starts. The first start installs their tools and
-can take a few minutes.
+password, and opens their workspace. A new workspace's first start installs its
+tools and can take a few minutes.
 
-People sign in to their coding agents from inside their workspace, in
-**Settings → Providers** or the terminal. Those sign-ins stay in their workspace.
+People sign in to their coding agents from inside a workspace, in
+**Settings → Providers** or the terminal. Those sign-ins stay in that
+workspace, and everyone on it uses them.
 
 From a user's page you can:
 
 - reset their password, which signs them out everywhere,
-- disable them, which signs them out and stops all their workspaces but keeps their files,
-- start, stop, restart, or recreate a workspace,
-- change a workspace's tools or resource limits, which recreates it,
-- read a workspace's recent logs, and sign out individual devices,
-- delete them with all their workspaces, optionally with their files.
+- disable them, which signs them out and stops the workspaces nobody else
+  active is on, keeping their files,
+- add them to a workspace, remove them from one, or change their default,
+- sign out individual devices,
+- delete them. Their workspaces and files stay; any left with nobody active
+  are stopped.
+
+## Workspaces and members
+
+**Settings → Admin → Workspaces** lists every workspace and who is on it. Each
+is a separate container with its own files, tailnet address, tools, resource
+limits, and agent sign-ins. Choose **New workspace** to create one, give it a
+name such as "Frontend", and pick its members. Its tailnet address is built
+from that name, like `o3-frontend`, and doesn't change if you rename it later.
+
+Everyone on a workspace shares it: the same projects, threads, terminal, files,
+and agent sign-ins. Give people separate workspaces when they shouldn't see
+each other's work. Use **Add member** and **Remove** on a workspace to change
+who's on it. Someone you remove loses access within about 30 seconds. A
+workspace left with nobody active on it stops but keeps its files; adding
+someone starts it again.
+
+A user's first workspace is their default, the one their apps open first. Use
+**Make default** on their page to change it. The apps list every workspace
+they're on, and they can restart each one from **Settings → Account**.
+
+From a workspace you can also:
+
+- start, stop, restart, or recreate it,
+- change its tools or resource limits, which recreates it,
+- read its recent logs,
+- delete it, optionally with its files.
 
 **Recreate** replaces the container but keeps the workspace's home folder, so
-projects, settings, and agent sign-ins survive. Software someone installed
-outside their home folder does not.
-
-## Give someone more workspaces
-
-A user can have several workspaces, for example one per project. Each is a
-separate container with its own files, tailnet address, tools, resource limits,
-and agent sign-ins. On the user's page, choose **Add workspace** and give it a
-name, such as "Frontend". Its tailnet address is built from the user's email
-and that name, like `o3-alice-frontend`, and doesn't change if you rename the
-workspace later.
-
-The first workspace is the user's default, the one their apps open first. Use
-**Make default** on another workspace to change it. The apps list every
-running workspace, and the user can restart each one from **Settings →
-Account**.
-
-**Delete workspace** removes one workspace, optionally with its files. A user
-always keeps at least one; to remove the last, delete the user.
+projects, settings, and agent sign-ins survive. Software installed outside the
+home folder does not.
 
 ## Share agent sign-ins between workspaces
 
 **Settings → Admin → Sign-in sync** links workspaces so they share their
 Claude Code, Codex, Grok, and OpenCode sign-ins, and nothing else: settings,
 history, projects, API keys, and GitHub stay separate. Create a group, then add
-workspaces from any user, or pick a group from a workspace's **Sign-in sync**
-row on the user's page. A workspace can be in one group at a time.
+workspaces to it, or pick a group from a workspace's **Sign-in sync** row on
+the Workspaces page. A workspace can be in one group at a time.
 
 Signing in or out in one workspace reaches the rest of the group within a few
 seconds. A workspace that joins takes the group's sign-ins and keeps its own as

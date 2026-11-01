@@ -134,23 +134,32 @@ const layerWorkspaces = (host: FakeHost) =>
   );
 
 const userId = InstanceUserId.make("user-alice");
+const bobId = InstanceUserId.make("user-bob");
 
-const insertUser = InstanceStore.InstanceStore.pipe(
-  Effect.flatMap((store) =>
-    store.insertUser({
-      userId,
-      email: "alice@acme.test",
-      name: "Alice",
-      role: "member",
-      passwordHash: "unused",
-      mustChangePassword: false,
-      disabledAt: null,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-01-01T00:00:00.000Z",
-      lastLoginAt: null,
-    }),
-  ),
-);
+const insertUser = (id: InstanceUserId = userId, name = "Alice") =>
+  InstanceStore.InstanceStore.pipe(
+    Effect.flatMap((store) =>
+      store.insertUser({
+        userId: id,
+        email: `${name.toLowerCase()}@acme.test`,
+        name,
+        role: "member",
+        passwordHash: "unused",
+        mustChangePassword: false,
+        disabledAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        lastLoginAt: null,
+      }),
+    ),
+  );
+
+const disableUser = (id: InstanceUserId) =>
+  InstanceStore.InstanceStore.pipe(
+    Effect.flatMap((store) =>
+      store.updateUser(id, { disabledAt: "2026-01-02T00:00:00.000Z" }, "2026-01-02T00:00:00.000Z"),
+    ),
+  );
 
 const limits = { cpus: 2, memoryMb: 2048, pids: 1024 };
 
@@ -158,27 +167,23 @@ it.effect("provisions, reconfigures, stops and removes a workspace", () => {
   const host = makeHost();
   return Effect.gen(function* () {
     const workspaces = yield* Workspaces.Workspaces;
-    yield* insertUser;
+    yield* insertUser();
 
     const unknownTools = yield* workspaces
-      .create({
-        userId,
-        email: "alice@acme.test",
-        label: "Default",
-        tools: ["claude", "cobol"],
-        limits,
-      })
+      .create({ label: "Default", tools: ["claude", "cobol"], limits, memberUserIds: [] })
       .pipe(Effect.flip);
     expect(unknownTools._tag).toBe("InstanceBadRequestError");
 
     const provisioned = yield* workspaces.create({
-      userId,
-      email: "Alice.Smith@acme.test",
-      label: "Default",
+      label: "Alice Smith",
       tools: ["uv", "claude", "uv"],
       limits,
+      memberUserIds: [userId],
     });
-    expect(provisioned).toMatchObject({ status: "provisioning", isDefault: true });
+    expect(provisioned).toMatchObject({ status: "provisioning", isDefault: false });
+    expect(provisioned.members).toEqual([
+      { userId, email: "alice@acme.test", name: "Alice", disabled: false, isDefault: true },
+    ]);
     const workspaceId = provisioned.id;
     expect(workspaceId).not.toBe(userId);
     yield* workspaces.drain;
@@ -187,7 +192,6 @@ it.effect("provisions, reconfigures, stops and removes a workspace", () => {
     const first = host.created[0]!;
     expect(first).toMatchObject({
       workspaceId,
-      userId,
       slug: "alice-smith",
       tools: ["claude", "uv"],
       instanceUrl: "https://o3.tail.ts.net",
@@ -228,77 +232,101 @@ it.effect("provisions, reconfigures, stops and removes a workspace", () => {
     expect(host.stopped).toEqual([second.containerId]);
     expect(Option.getOrThrow(yield* workspaces.get(workspaceId)).status).toBe("stopped");
 
-    // The last workspace goes only with its user.
-    const lastOne = yield* workspaces.remove(workspaceId, true).pipe(Effect.flip);
-    expect(lastOne._tag).toBe("InstanceBadRequestError");
-    yield* workspaces.removeAllForUser(userId, true);
+    yield* workspaces.remove(workspaceId, true);
     expect(host.removedData).toEqual([workspaceId]);
     expect(host.deletedDevices).toEqual(["o3-alice-smith"]);
     expect(yield* workspaces.listForUser(userId)).toEqual([]);
   }).pipe(Effect.provide(layerWorkspaces(host)));
 });
 
-it.effect("keeps a user's workspaces apart and one of them the default", () => {
+it.effect("shares workspaces between users, each with their own default", () => {
   const host = makeHost();
   return Effect.gen(function* () {
     const workspaces = yield* Workspaces.Workspaces;
-    yield* insertUser;
-    const create = (label: string) =>
-      workspaces.create({ userId, email: "alice@acme.test", label, tools: [], limits });
+    yield* insertUser();
+    yield* insertUser(bobId, "Bob");
+    const create = (label: string, memberUserIds: ReadonlyArray<string>) =>
+      workspaces.create({ label, tools: [], limits, memberUserIds });
+    const defaults = (id: InstanceUserId) =>
+      workspaces
+        .listForUser(id)
+        .pipe(
+          Effect.map((list) => list.map((workspace) => [workspace.label, workspace.isDefault])),
+        );
 
-    const main = yield* create("Default");
-    const frontend = yield* create("Frontend");
+    const main = yield* create("Main", [userId]);
+    const team = yield* create("Team", [userId, bobId]);
     yield* workspaces.drain;
-    expect(frontend).toMatchObject({ slug: "alice-frontend", isDefault: false });
-    expect((yield* create(" frontend ").pipe(Effect.flip))._tag).toBe("InstanceConflictError");
-    expect(
-      (yield* workspaces.update(frontend.id, { label: "DEFAULT" }).pipe(Effect.flip))._tag,
-    ).toBe("InstanceConflictError");
+    expect(team.slug).toBe("team");
+    expect(yield* defaults(userId)).toEqual([
+      ["Main", true],
+      ["Team", false],
+    ]);
+    expect(yield* defaults(bobId)).toEqual([["Team", true]]);
+    // Labels are unique across the instance, not per user.
+    expect((yield* create(" team ", [bobId]).pipe(Effect.flip))._tag).toBe("InstanceConflictError");
+    expect((yield* workspaces.update(team.id, { label: "MAIN" }).pipe(Effect.flip))._tag).toBe(
+      "InstanceConflictError",
+    );
 
     // Separate containers, volumes, tailnet keys and secrets.
-    const [mainSpec, frontendSpec] = host.created;
-    expect(frontendSpec).toMatchObject({ workspaceId: frontend.id, slug: "alice-frontend" });
+    const [mainSpec, teamSpec] = host.created;
+    expect(teamSpec).toMatchObject({ workspaceId: team.id, slug: "team" });
     expect(host.mintedKeys).toBe(2);
-    expect(yield* workspaces.verifySecret(frontend.id, frontendSpec!.workspaceSecret)).toBe(true);
-    expect(yield* workspaces.verifySecret(frontend.id, mainSpec!.workspaceSecret)).toBe(false);
+    expect(yield* workspaces.verifySecret(team.id, teamSpec!.workspaceSecret)).toBe(true);
+    expect(yield* workspaces.verifySecret(team.id, mainSpec!.workspaceSecret)).toBe(false);
 
-    yield* workspaces.action(frontend.id, "stop");
-    yield* workspaces.drain;
-    expect(host.stopped).toEqual([frontendSpec!.containerId]);
+    // Defaults are per user.
+    yield* workspaces.setDefault(userId, team.id);
+    expect(yield* defaults(userId)).toEqual([
+      ["Team", true],
+      ["Main", false],
+    ]);
+    expect((yield* workspaces.setDefault(bobId, main.id).pipe(Effect.flip))._tag).toBe(
+      "InstanceNotFoundError",
+    );
+
+    // Leaving promotes the user's oldest remaining workspace; the workspace keeps running for Bob.
+    const left = yield* workspaces.removeMember(team.id, userId);
+    expect(left.members.map((member) => member.userId)).toEqual([bobId]);
+    expect(left.status).toBe("running");
+    expect(yield* defaults(userId)).toEqual([["Main", true]]);
+
+    // Deleting a workspace promotes another default for each member.
+    yield* workspaces.addMember(main.id, bobId);
+    expect(yield* defaults(bobId)).toEqual([
+      ["Team", true],
+      ["Main", false],
+    ]);
+    yield* workspaces.remove(team.id, false);
+    expect(yield* defaults(bobId)).toEqual([["Main", true]]);
+
+    // A disabled member does not keep a shared workspace running; the last active one does.
+    yield* disableUser(bobId);
+    yield* workspaces.stopAllForUser(bobId);
     expect(Option.getOrThrow(yield* workspaces.get(main.id)).status).toBe("running");
 
-    yield* workspaces.setDefault(frontend.id);
-    expect((yield* workspaces.listForUser(userId)).map((workspace) => workspace.id)).toEqual([
-      frontend.id,
-      main.id,
-    ]);
-    expect(Option.getOrThrow(yield* workspaces.get(main.id)).isDefault).toBe(false);
-
-    // Removing the default promotes the oldest remaining workspace.
-    const backend = yield* create("Backend");
+    // Removing the last active member stops the workspace but keeps it.
+    yield* workspaces.detachUser(userId);
     yield* workspaces.drain;
-    yield* workspaces.remove(frontend.id, true);
-    expect(host.removedData).toEqual([frontend.id]);
-    expect(host.deletedDevices).toEqual(["o3-alice-frontend"]);
-    expect(
-      (yield* workspaces.listForUser(userId)).map((workspace) => [
-        workspace.id,
-        workspace.isDefault,
-      ]),
-    ).toEqual([
-      [main.id, true],
-      [backend.id, false],
+    const orphaned = yield* workspaces.getWithMembers(main.id);
+    expect(orphaned).toMatchObject({
+      status: "stopped",
+      statusMessage: "Nobody active is on this workspace",
+    });
+    expect(orphaned.members.map((member) => [member.userId, member.disabled])).toEqual([
+      [bobId, true],
     ]);
+    expect(host.removedData).toEqual([]);
 
-    yield* workspaces.stopAllForUser(userId);
-    expect(
-      (yield* workspaces.listForUser(userId)).every((workspace) => workspace.status === "stopped"),
-    ).toBe(true);
-    yield* workspaces.startAllForUser(userId);
+    // Disabled users can't join; adding an active one wakes the workspace up.
+    expect((yield* workspaces.addMember(main.id, bobId).pipe(Effect.flip))._tag).toBe(
+      "InstanceBadRequestError",
+    );
+    yield* workspaces.addMember(main.id, userId);
     yield* workspaces.drain;
-    expect(
-      (yield* workspaces.listForUser(userId)).every((workspace) => workspace.status === "running"),
-    ).toBe(true);
+    expect(Option.getOrThrow(yield* workspaces.get(main.id)).status).toBe("running");
+    expect(yield* defaults(userId)).toEqual([["Main", true]]);
   }).pipe(Effect.provide(layerWorkspaces(host)));
 });
 
@@ -307,17 +335,17 @@ it.effect("stopping a user's workspaces waits for a container still being create
   host.createGate = { entered: Deferred.makeUnsafe(), release: Deferred.makeUnsafe() };
   return Effect.gen(function* () {
     const workspaces = yield* Workspaces.Workspaces;
-    yield* insertUser;
+    yield* insertUser();
     const created = yield* workspaces.create({
-      userId,
-      email: "alice@acme.test",
       label: "Default",
       tools: [],
       limits,
+      memberUserIds: [userId],
     });
     yield* Deferred.await(host.createGate!.entered);
 
     // The account is disabled while the runtime is still creating the container.
+    yield* disableUser(userId);
     const stopping = yield* Effect.forkChild(workspaces.stopAllForUser(userId));
     yield* Deferred.succeed(host.createGate!.release, undefined);
     yield* Fiber.join(stopping);
@@ -332,23 +360,14 @@ it.effect("stopping a user's workspaces waits for a container still being create
   }).pipe(Effect.provide(layerWorkspaces(host)));
 });
 
-it("derives DNS-safe slugs from the email and label", () => {
+it("derives DNS-safe slugs from the label", () => {
   const taken = new Set<string>();
-  expect(
-    Workspaces.workspaceSlug({ email: "a.b@x.test", label: "Default", first: true, taken }),
-  ).toBe("a-b");
-  expect(
-    Workspaces.workspaceSlug({ email: "a.b@x.test", label: "Front End!", first: false, taken }),
-  ).toBe("a-b-front-end");
+  expect(Workspaces.workspaceSlug({ label: "Front End!", taken })).toBe("front-end");
   const long = Workspaces.workspaceSlug({
-    email: `${"x".repeat(30)}@x.test`,
-    label: "y".repeat(40),
-    first: false,
-    taken: new Set([`${"x".repeat(24)}-${"y".repeat(15)}`]),
+    label: "y".repeat(50),
+    taken: new Set(["y".repeat(40)]),
   });
-  expect(long).toBe(`${"x".repeat(24)}-${"y".repeat(13)}-2`);
+  expect(long).toBe(`${"y".repeat(38)}-2`);
   expect(long.length).toBeLessThanOrEqual(40);
-  expect(Workspaces.workspaceSlug({ email: "ab@x.test", label: "🚀", first: false, taken })).toBe(
-    "ab-workspace",
-  );
+  expect(Workspaces.workspaceSlug({ label: "🚀", taken })).toBe("workspace");
 });

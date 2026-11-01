@@ -164,14 +164,15 @@ const layerAccount = HttpApiBuilder.group(
         ),
       );
 
-    /** Someone else's workspace answers like a missing one. */
-    const ownWorkspace = (userId: string, workspaceId: string) =>
-      orInternal(workspaces.get(workspaceId)).pipe(
-        Effect.flatMap((found) =>
-          Option.isSome(found) && found.value.userId === userId
-            ? Effect.succeed(found.value)
-            : Effect.fail(new InstanceNotFoundError({ message: "Workspace not found." })),
-        ),
+    /** A workspace the user is not on answers like a missing one. */
+    const memberWorkspace = (userId: string, workspaceId: string) =>
+      orInternal(workspaces.listForUser(userId)).pipe(
+        Effect.flatMap((list) => {
+          const found = list.find((workspace) => workspace.id === workspaceId);
+          return found === undefined
+            ? Effect.fail(new InstanceNotFoundError({ message: "Workspace not found." }))
+            : Effect.succeed(found);
+        }),
       );
 
     const issueToken = Effect.fn("instance.issueWorkspaceToken")(function* (
@@ -293,14 +294,16 @@ const layerAccount = HttpApiBuilder.group(
         "myWorkspaceToken",
         Effect.fn("instance.myWorkspaceToken")(function* (args) {
           const principal = yield* InstancePrincipal;
-          return yield* issueToken(yield* ownWorkspace(principal.user.id, args.params.workspaceId));
+          return yield* issueToken(
+            yield* memberWorkspace(principal.user.id, args.params.workspaceId),
+          );
         }),
       )
       .handle(
         "restartMyWorkspace",
         Effect.fn("instance.restartMyWorkspace")(function* (args) {
           const principal = yield* InstancePrincipal;
-          return yield* restart(yield* ownWorkspace(principal.user.id, args.params.workspaceId));
+          return yield* restart(yield* memberWorkspace(principal.user.id, args.params.workspaceId));
         }),
       );
   }),
@@ -350,8 +353,13 @@ const layerAdmin = HttpApiBuilder.group(
         ),
       );
 
-    const auditWorkspace = (action: string, workspace: InstanceWorkspace, detail?: object) =>
-      audit(action, workspace.userId, {
+    const auditWorkspace = (
+      action: string,
+      workspace: InstanceWorkspace,
+      detail?: object,
+      targetUserId: string | null = null,
+    ) =>
+      audit(action, targetUserId, {
         workspace: workspace.slug,
         label: workspace.label,
         ...detail,
@@ -418,7 +426,7 @@ const layerAdmin = HttpApiBuilder.group(
         "deleteUser",
         Effect.fn("instance.admin.deleteUser")(function* (args) {
           const principal = yield* InstancePrincipal;
-          yield* orInternal(users.remove(principal, args.params.userId, args.payload.deleteData));
+          yield* orInternal(users.remove(principal, args.params.userId));
           return { ok: true };
         }),
       )
@@ -439,14 +447,61 @@ const layerAdmin = HttpApiBuilder.group(
         }),
       )
       .handle(
+        "setDefaultWorkspace",
+        Effect.fn("instance.admin.setDefaultWorkspace")(function* (args) {
+          const workspace = yield* orInternal(requireWorkspace(args.params.workspaceId));
+          yield* orInternal(workspaces.setDefault(args.params.userId, workspace.id));
+          yield* orInternal(
+            auditWorkspace("workspace.default_changed", workspace, undefined, args.params.userId),
+          );
+          return yield* orInternal(users.get(args.params.userId));
+        }),
+      )
+      .handle("listWorkspaces", () =>
+        orInternal(workspaces.listWithMembers.pipe(Effect.map((list) => ({ workspaces: list })))),
+      )
+      .handle(
         "createWorkspace",
         Effect.fn("instance.admin.createWorkspace")(function* (args) {
-          const workspace = yield* orInternal(users.addWorkspace(args.params.userId, args.payload));
+          const current = yield* orInternal(settings.get);
+          const workspace = yield* orInternal(
+            workspaces.create({
+              label: args.payload.label,
+              tools: args.payload.tools ?? current.defaultTools,
+              limits: args.payload.limits ?? current.defaultLimits,
+              memberUserIds: args.payload.memberUserIds ?? [],
+            }),
+          );
           yield* orInternal(
             auditWorkspace("workspace.created", workspace, {
               tools: workspace.tools,
               limits: workspace.limits,
+              members: workspace.members.map((member) => member.email),
             }),
+          );
+          return workspace;
+        }),
+      )
+      .handle(
+        "addWorkspaceMember",
+        Effect.fn("instance.admin.addWorkspaceMember")(function* (args) {
+          const workspace = yield* orInternal(
+            workspaces.addMember(args.params.workspaceId, args.params.userId),
+          );
+          yield* orInternal(
+            auditWorkspace("workspace.member_added", workspace, undefined, args.params.userId),
+          );
+          return workspace;
+        }),
+      )
+      .handle(
+        "removeWorkspaceMember",
+        Effect.fn("instance.admin.removeWorkspaceMember")(function* (args) {
+          const workspace = yield* orInternal(
+            workspaces.removeMember(args.params.workspaceId, args.params.userId),
+          );
+          yield* orInternal(
+            auditWorkspace("workspace.member_removed", workspace, undefined, args.params.userId),
           );
           return workspace;
         }),
@@ -468,14 +523,6 @@ const layerAdmin = HttpApiBuilder.group(
             workspaces.update(args.params.workspaceId, args.payload),
           );
           yield* orInternal(auditWorkspace("workspace.updated", workspace, args.payload));
-          return workspace;
-        }),
-      )
-      .handle(
-        "setDefaultWorkspace",
-        Effect.fn("instance.admin.setDefaultWorkspace")(function* (args) {
-          const workspace = yield* orInternal(workspaces.setDefault(args.params.workspaceId));
-          yield* orInternal(auditWorkspace("workspace.default_changed", workspace));
           return workspace;
         }),
       )

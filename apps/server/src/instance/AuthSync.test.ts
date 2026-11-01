@@ -21,14 +21,12 @@ const layerAuthSync = AuthSync.layer.pipe(
 
 const at = "2026-01-01T00:00:00.000Z";
 
-const insertWorkspace = (userId: string, workspaceId: string) =>
+const insertWorkspace = (workspaceId: string) =>
   InstanceStore.InstanceStore.pipe(
     Effect.flatMap((store) =>
       store.insertWorkspace({
         workspaceId: InstanceWorkspaceId.make(workspaceId),
-        userId: InstanceUserId.make(userId),
         label: workspaceId,
-        isDefault: false,
         slug: workspaceId,
         status: "running",
         statusMessage: null,
@@ -73,9 +71,9 @@ it.layer(layerAuthSync)("AuthSync", (it) => {
         const sync = yield* AuthSync.AuthSync;
         yield* insertUser("alice");
         yield* insertUser("bob");
-        yield* insertWorkspace("alice", "ws-alice");
-        yield* insertWorkspace("bob", "ws-bob");
-        yield* insertWorkspace("bob", "ws-outside");
+        yield* insertWorkspace("ws-alice");
+        yield* insertWorkspace("ws-bob");
+        yield* insertWorkspace("ws-outside");
 
         const group = yield* sync.createGroup("Team Claude");
         expect((yield* sync.createGroup(" team claude ").pipe(Effect.flip))._tag).toBe(
@@ -155,7 +153,7 @@ it.layer(layerAuthSync)("AuthSync", (it) => {
       const sync = yield* AuthSync.AuthSync;
       const sql = yield* SqlClient.SqlClient;
       yield* insertUser("carol");
-      yield* insertWorkspace("carol", "ws-carol");
+      yield* insertWorkspace("ws-carol");
       const group = yield* sync.createGroup("Carol");
       yield* sync.setWorkspaceGroup("ws-carol", group.id);
       yield* sync.push({
