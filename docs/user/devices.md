@@ -76,7 +76,7 @@ If the thread has several devices open, choose one in the viewer. Closing the
 viewer stops streaming and leaves the device available to the agent. Device
 activity also appears in the thread timeline.
 
-Agents drive the device through the `agent-device` command line. T3
+Agents drive the device through the `agent-device` command line. O3
 Code installs and starts it only after **Agents can use devices** is on. iOS
 taps build a small test runner on first use, which takes a couple of minutes
 once per workspace. Restart an existing agent session after granting access so it
@@ -97,16 +97,16 @@ SSH configuration and keys in its `~/.ssh`. Password prompts are not supported.
 anything, with a result for each selected environment.
 The first device listing installs pinned device tools on the host.
 Node 22 or newer and npm must be available to non-interactive SSH commands.
-T3 checks common Homebrew and Android SDK locations; custom installations need
+O3 Code checks common Homebrew and Android SDK locations; custom installations need
 the appropriate PATH and ANDROID_HOME on the host. Android emulator video needs
 `ffmpeg` with libx264 on that host; physical Android devices use scrcpy and do
 not need ffmpeg.
 
 The picker identifies devices by host when several hosts are configured.
 Connections recover after interruptions. Removing a host closes its device
-sessions and stops its T3 helpers when reachable; simulators keep running.
+sessions and stops its O3 Code helpers when reachable; simulators keep running.
 
-T3 provides discovery, streaming, and control. Arrange app builds,
+O3 Code provides discovery, streaming, and control. Arrange app builds,
 installation, and connectivity to development servers such as Metro separately.
 A simulator on the device host cannot reach Metro through your workspace's
 localhost without forwarding or another reachable address.
@@ -114,9 +114,9 @@ localhost without forwarding or another reachable address.
 ## Simlock hosts (alpha)
 
 [Simlock](https://incubator.callstack.com/simlock/) pools iOS simulators and
-Android emulators across machines. If you run a Simlock gateway, T3 can lease
+Android emulators across machines. If you run a Simlock gateway, O3 Code can lease
 devices from it. Simlock is new and unreleased, so this integration is an
-alpha: it may change or stop working with a newer Simlock. T3 does not install
+alpha: it may change or stop working with a newer Simlock. O3 Code does not install
 or manage Simlock; set up the gateway and its workers yourself. It needs a
 gateway and workers built from Simlock's `main` at
 [6316e10](https://github.com/callstackincubator/simlock/commit/6316e10) or
@@ -129,7 +129,7 @@ token: Simlock counts every lease made with one token against the same
 requester, and allows one at a time unless the gateway's
 `lease.maxPerRequester` is raised to the host's **Devices at once**. The token
 leases devices and reaches only its own leases, but commands on a leased device
-run on its worker, so treat it like shell access to your workers. T3 sends it
+run on its worker, so treat it like shell access to your workers. O3 Code sends it
 with every request, so use an HTTPS gateway URL, or plain HTTP only over an
 encrypted network such as Tailscale. The gateway
 and workers need `capabilities.stream.enabled` and `capabilities.input.enabled`
@@ -143,7 +143,7 @@ Rotation, appearance, text size, device tools, and screenshots are not offered
 for Simlock devices; agents can still do them through `device_open`. On iOS 27
 simulators, typing on your keyboard does nothing; tap the on-screen keyboard
 instead. Workers must run the same agent-device
-version as T3 (see Device tool updates), and agent-device accepts app installs
+version as O3 Code (see Device tool updates), and agent-device accepts app installs
 for a lease only from the folder it was opened from, which `device_open`
 names. A device cannot reach development servers in your workspace through
 localhost; use an address its worker can reach.
@@ -152,4 +152,4 @@ localhost; use an address its worker can reach.
 
 Your workspace manages the device hub and agent tools on its configured SSH hosts. Required versions install automatically the next time those tools are used. In Settings → Devices, select a version and choose **Check versions** to read installed versions without installing tools or starting devices.
 
-Newer tool versions arrive when your administrator upgrades the workspace image. Updating the desktop app does not update them. An offline host keeps its installed files, but an update needs network access before device support can start; T3 does not fall back to an older version. Reconnect the host and use Retry if installation fails. Existing device and agent-access settings are preserved.
+Newer tool versions arrive when your administrator upgrades the workspace image. Updating the desktop app does not update them. An offline host keeps its installed files, but an update needs network access before device support can start; O3 Code does not fall back to an older version. Reconnect the host and use Retry if installation fails. Existing device and agent-access settings are preserved.

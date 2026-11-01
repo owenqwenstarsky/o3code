@@ -174,7 +174,8 @@ function parseGitConfigValue(raw: string): string {
   for (let index = 0; index < raw.length; index += 1) {
     const char = raw[index]!;
     if (char === "\\" && index + 1 < raw.length) {
-      out += raw[index + 1];
+      const escaped = raw[index + 1]!;
+      out += GIT_CONFIG_ESCAPES[escaped] ?? escaped;
       index += 1;
       continue;
     }
@@ -188,10 +189,17 @@ function parseGitConfigValue(raw: string): string {
   return out.trim();
 }
 
+const GIT_CONFIG_ESCAPES: Readonly<Record<string, string>> = { n: "\n", t: "\t", b: "\b" };
+
+/** A trailing backslash continues the value on the next line. */
+function joinGitConfigContinuations(configText: string): string {
+  return configText.replace(/\\\r?\n[ \t]*/g, "");
+}
+
 export function isBareGitConfig(configText: string): boolean {
   let inCore = false;
   let bare = false;
-  for (const rawLine of configText.split(/\r?\n/)) {
+  for (const rawLine of joinGitConfigContinuations(configText).split(/\r?\n/)) {
     let line = rawLine.trim();
     // Git accepts the first setting on the section header's own line.
     const header = /^\[\s*([^\]]*?)\s*\](.*)$/.exec(line);
@@ -212,8 +220,7 @@ export function parseOriginUrlFromGitConfig(configText: string): string | null {
   let section: string | null = null;
   let originUrl: string | null = null;
   let firstRemoteUrl: string | null = null;
-  const joined = configText.replace(/\\\r?\n[ \t]*/g, "");
-  for (const rawLine of joined.split(/\r?\n/)) {
+  for (const rawLine of joinGitConfigContinuations(configText).split(/\r?\n/)) {
     let line = rawLine.trim();
     if (line.length === 0 || line.startsWith("#") || line.startsWith(";")) continue;
     // Git preserves case in quoted remote subsections but lowercases legacy dotted ones,

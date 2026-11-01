@@ -63,8 +63,9 @@ your default follow-up behavior; add **Shift** to use the opposite action. This
 applies only to multiline messages when you choose the multiline send option.
 
 Use `Cmd+Shift+Enter` on macOS or `Ctrl+Shift+Enter` on Windows and Linux to send
-the oldest queued message as a steer. This leaves the current draft intact and
-requires an active turn that supports steering. If that shortcut sends the opposite
+the oldest queued message as a steer. This leaves the current draft intact. While a
+turn is running it steers that turn; when the thread is stopped it starts a new turn
+with the queued message. If that shortcut sends the opposite
 action for your draft, move focus outside the composer to steer the queued message. Change
 `thread.steerQueuedMessage` in **Settings → Keybindings** to use another shortcut.
 
@@ -104,7 +105,7 @@ Leaving reasoning level or service tier unset uses the provider's own configurat
 ## Quote an assistant response
 
 On web and desktop, select text within one assistant response and choose
-**Cite in composer**. You can add a comment about the quote and write instructions
+**Cite**. You can add a comment about the quote and write instructions
 around it.
 
 Select the quote in a draft or sent message to return to its source. If the source

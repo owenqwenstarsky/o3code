@@ -1,7 +1,8 @@
 # Resource telemetry
 
 Process counters come from a [standalone Rust monitor](../../native/resource-monitor/src/main.rs)
-using `sysinfo`. Electron main supplies host power and Electron process metrics.
+using `sysinfo`. The desktop app no longer runs a server, so no Electron host-power or
+Electron process metrics reach it.
 Keeping native collection outside Node isolates collector crashes and avoids a
 Node/Electron addon ABI matrix. Every server uses the same child-process
 protocol. A missing or failed collector leaves the server running.
@@ -26,12 +27,11 @@ Large process trees therefore shorten the available history window. Linux task
 enumeration is disabled because walking every `/proc/<pid>/task/<tid>` directory
 makes sampling itself expensive.
 
-Electron power updates travel over private inherited pipes, independent of the
-renderer connection. Power events and slow heartbeats continue with diagnostics
-closed; `app.getAppMetrics()` runs only on live demand. The receiver's stale deadline
-must exceed the slowest configured heartbeat plus scheduling grace, or intentional
-idle polling makes background policy oscillate between constrained and
-unconstrained states. Headless servers leave unavailable power data unknown.
+The server still builds the desktop telemetry receiver, but no client publishes to
+it. Its stale deadline must exceed the slowest configured heartbeat plus scheduling
+grace, or intentional idle polling makes background policy oscillate between
+constrained and unconstrained states. Every server now runs headless and reports
+host power data as unknown.
 
 ## Measurement traps
 

@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { UsageSource } from "@t3tools/contracts";
 
-import { formatHourShort, makeWindow, usageSourceMessages } from "./usageFormat.ts";
+import { formatHourShort, formatTokens, makeWindow, usageSourceMessages } from "./usageFormat.ts";
 
 function malformedSource(count: number, overrides: Partial<UsageSource> = {}): UsageSource {
   return {
@@ -125,6 +125,20 @@ describe("usage source messages", () => {
       ]),
     ).toEqual([]);
     expect(usageSourceMessages([])).toEqual([]);
+  });
+});
+
+describe("formatTokens", () => {
+  it("picks the unit after rounding so the mantissa stays under four digits", () => {
+    expect(formatTokens(999)).toBe("999");
+    expect(formatTokens(1_000)).toBe("1K");
+    expect(formatTokens(12_345)).toBe("12.3K");
+    expect(formatTokens(123_456)).toBe("123K");
+    expect(formatTokens(999_950)).toBe("1M");
+    expect(formatTokens(999_999)).toBe("1M");
+    expect(formatTokens(1_500_000)).toBe("1.5M");
+    expect(formatTokens(999_999_999)).toBe("1B");
+    expect(formatTokens(-999_999)).toBe("-1M");
   });
 });
 

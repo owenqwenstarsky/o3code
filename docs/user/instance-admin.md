@@ -124,7 +124,8 @@ admin action.
 
 ## Backups
 
-Everything lives in Docker volumes: `instance-data` for accounts and settings,
+Everything lives in Docker volumes: `deploy_instance-data` (Compose prefixes it with the
+project name, `deploy` by default) for accounts and settings,
 and one `o3-home-<workspace id>` volume per workspace. A workspace created
 before users could have several uses its user's id here. Back them up with your usual
 volume backup tool. The `o3-tailscale-*` volumes only hold tailnet identities and

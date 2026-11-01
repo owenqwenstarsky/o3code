@@ -854,6 +854,29 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           }).pipe(Effect.scoped),
       );
 
+      it.effect("refuses to start a server outside a worktree with no home", () =>
+        Effect.gen(function* () {
+          let spawned = false;
+          const spawnerLayer = Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make(() => {
+              spawned = true;
+              return Effect.succeed(mockProcess(0));
+            }),
+          );
+          const error = yield* runDevRunnerWithInput({ ...devServerInput, t3Home: undefined }).pipe(
+            Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer, spawnerLayer)),
+            Effect.provideService(HostProcess.Platform, "linux"),
+            Effect.provideService(HostProcess.WorkingDirectory, NodeOS.tmpdir()),
+            Effect.provideService(HostProcess.HomeDirectory, NodeOS.tmpdir()),
+            Effect.provideService(HostProcess.Environment, {}),
+            Effect.flip,
+          );
+          assert.equal(error._tag, "DevRunnerNoHomeError");
+          assert.equal(spawned, false);
+        }),
+      );
+
       it.effect("falls back to an ambient T3CODE_HOME outside a worktree", () =>
         Effect.gen(function* () {
           const path = yield* Path.Path;

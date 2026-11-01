@@ -10,7 +10,7 @@ agent can use this endpoint to:
 - cancel an active delegated task; and
 - create one or more ordinary top-level T3 threads;
 - list a project's threads and incrementally read any thread;
-- rename threads, regenerate titles, and link or unlink pull requests;
+- rename threads and regenerate titles;
 - send or steer follow-up messages; and
 - wait for or interrupt ordinary thread runs.
 
@@ -34,8 +34,9 @@ The orchestration tools share the existing authenticated HTTP MCP endpoint:
 http://127.0.0.1:<server-port>/mcp
 ```
 
-The provider-visible server key is `t3-code`. The endpoint registers both the
-preview toolkit and the orchestration toolkit.
+The provider-visible server key is `t3-code`. The endpoint registers the
+orchestration, thread, project, environment, attachment, worktree, pull-request,
+preview, device, and HTML toolkits.
 
 Before `ProviderSessionManager` opens a new V2 provider session, it asks
 `McpSessionRegistry` for a credential scoped to:
@@ -45,7 +46,8 @@ Before `ProviderSessionManager` opens a new V2 provider session, it asks
 - the concrete provider instance; and
 - the provider session.
 
-The credential grants `preview` and `orchestration` capabilities. Credentials
+The credential always grants the `orchestration`, `worktree`, and `pull-requests`
+capabilities, plus `preview` when browser tools are available. Credentials
 expire after a maximum lifetime, expire when idle, and are revoked when the
 provider session is released. The raw token is not persisted in orchestration
 state.
@@ -58,17 +60,19 @@ check the `orchestration` capability before reading or mutating state.
 
 ### Codex V2
 
-Codex app-server receives the remote MCP server through command-line config
-overrides:
+Codex app-server receives the MCP server as per-thread `config` on
+`thread/start`, `thread/resume`, and `thread/fork`:
 
 ```text
--c mcp_servers.t3-code.url=http://127.0.0.1:<port>/mcp
--c mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"
+"mcp_servers.t3-code": {
+  url: "http://127.0.0.1:<port>/mcp",
+  tool_timeout_sec: 3900,
+  http_headers: { Authorization: "Bearer <provider-session-token>" }
+}
 ```
 
-The provider-session token is placed in `T3_MCP_BEARER_TOKEN`. Both the
-production Codex launcher and the injectable test launcher use the same
-projection helper.
+Overriding only that key leaves the user's other MCP servers alone.
+`codexThreadRuntimeParams` in `CodexAdapterV2.ts` builds it.
 
 ### Claude Agent SDK V2
 
@@ -192,7 +196,9 @@ provider selection model-visible without allowing a request that cannot run.
 
 ## Tool Surface
 
-The server exposes eleven orchestration tools.
+The orchestration toolkit ([tools.ts](../../apps/server/src/mcp/toolkits/orchestrator/tools.ts))
+registers twenty tools. The core delegation and thread tools are described below;
+`t3_thread_launch` belongs to the project toolkit.
 
 ### `orchestrator_capabilities`
 
@@ -414,10 +420,10 @@ runs, background wakes, and delegated completions keep it snoozed.
 ### `t3_thread_update`
 
 Updates metadata for the calling thread or any other thread in the environment.
-The typed actions are `rename`, `regenerate_title`, `link_pull_request`, and
-`unlink_pull_request`. A link input supplies the repository, number, and URL;
-the server records the target thread's project ID. Branch and workspace changes
-are outside this tool.
+The typed actions are `rename` (with `title`) and `regenerate_title`. Linking and
+unlinking a pull request use the separate `link_pull_request` and
+`unlink_pull_request` tools in the pull-requests toolkit. Branch and workspace
+changes are outside this tool.
 
 The result includes the command ID and durable event sequence together with the
 resultant title, title-regeneration marker, and linked pull request. Reusing a

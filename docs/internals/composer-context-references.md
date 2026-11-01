@@ -4,9 +4,8 @@
 
 Inline context references let a user message point at a typed payload from an exact position in
 its prose: an image, a file, a terminal excerpt, a picked page element, a preview annotation, a
-review comment, a file mention, or a skill. This document covers the wire contract and the pure
-codecs. Editor, rendering, and clipboard behaviour land in later PRs and get their own sections
-here as they arrive.
+review comment, a file mention, or a skill. This document covers the wire contract, the pure codecs, and
+the editor, transcript, attachment, and clipboard behaviour built on them.
 
 ## Two linked concepts
 
@@ -172,7 +171,8 @@ remain only for files no chip references.
 Every copy path writes the canonical Markdown as `text/plain` and, when the selection holds
 chips, a structured fragment under `web application/x-t3-context-fragment+json`
 (`ComposerContextClipboardFragment`: version, source environment/thread/message, records; no
-bytes, no URLs). Composer copy and cut add it through a Lexical command listener; transcript
+bytes, no URLs). Composer copy and cut add it from `onCopyCapture`/`onCutCapture` handlers on the
+Tiptap editor (`handleCopyCut` in `ComposerPromptEditorTiptap.tsx`); transcript
 selection copy adds it from an `onCopyCapture` on the user message body while chips re-emit their
 links through `data-markdown-copy`; the whole-message button writes both through `ClipboardItem`
 and falls back to plain text.

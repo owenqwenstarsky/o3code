@@ -63,7 +63,7 @@ off on either machine, agents start nothing over a link between them. A task
 already running on the other machine still finishes, and if that machine has it
 off, its result arrives once it is back on.
 
-On the environment you will work from, open **Settings → Labs → Linked environments**,
+On the environment you will work from, open **Settings → Sharing & access → Linked environments**,
 choose **Link**, and enter the other environment's address. The list
 holds the machines this app knows. If this
 app is connected to that machine with a session that manages access there, it
