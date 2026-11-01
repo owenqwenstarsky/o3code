@@ -9,6 +9,7 @@ import {
   flattenTemporaryWorktreeBranchName,
   isTemporaryWorktreeBranch,
   normalizeGitRemoteUrl,
+  isBareGitConfig,
   parseOriginUrlFromGitConfig,
   resolveAutoFeatureBranchName,
   sanitizeFeatureBranchName,
@@ -64,6 +65,16 @@ describe("normalizeGitRemoteUrl", () => {
   });
 });
 
+describe("isBareGitConfig", () => {
+  it("reads core.bare as git does, including continued and escaped values", () => {
+    expect(isBareGitConfig("[core]\n\tbare = true\n")).toBe(true);
+    expect(isBareGitConfig("[core]\n\tbare = \\\n true\n")).toBe(true);
+    expect(isBareGitConfig("[core]\n\tbare = \\\n false\n")).toBe(false);
+    expect(isBareGitConfig("[core]\n\tbare\n")).toBe(true);
+    expect(isBareGitConfig("[core]\n\tbare = false\n[other]\n\tbare = true\n")).toBe(false);
+  });
+});
+
 describe("parseOriginUrlFromGitConfig", () => {
   it("reads the origin url and ignores other remotes", () => {
     const config = [
@@ -89,6 +100,7 @@ describe("parseOriginUrlFromGitConfig", () => {
     expect(
       parseOriginUrlFromGitConfig('[remote "origin"]\n\turl = "git@github.com:acme/repo.git"\n'),
     ).toBe("git@github.com:acme/repo.git");
+    expect(parseOriginUrlFromGitConfig('[remote "origin"]\n\turl = a\\tb\\\\c\n')).toBe("a\tb\\c");
   });
 
   it("accepts legacy dotted headers, header comments, and line continuations", () => {
