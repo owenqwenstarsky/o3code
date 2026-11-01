@@ -158,7 +158,8 @@ it.effect("keeps the agent sign-ins in a workspace's home in step with its group
     const tick = yield* syncer;
 
     // Joining adopts the group's Claude sign-in, keeps the old one, and offers Codex's.
-    yield* tick;
+    // Only rewritten files need their provider to re-check its sign-in.
+    expect(yield* tick).toEqual(["claude"]);
     expect(yield* fs.readFileString(claude)).toBe(credential("group"));
     expect(yield* fs.readFileString(`${claude}.o3-before-sync`)).toBe(credential("mine"));
     expect(((yield* fs.stat(claude)).mode & 0o777).toString(8)).toBe("600");
@@ -166,7 +167,7 @@ it.effect("keeps the agent sign-ins in a workspace's home in step with its group
 
     // A refresh here reaches the group; a half-written file does not.
     yield* fs.writeFileString(claude, credential("refreshed"));
-    yield* tick;
+    expect(yield* tick).toEqual([]);
     expect(group.files.get("claude")).toEqual({ version: 2, content: credential("refreshed") });
     yield* fs.writeFileString(claude, '{"tok');
     const pushes = group.pushes;
@@ -176,7 +177,7 @@ it.effect("keeps the agent sign-ins in a workspace's home in step with its group
 
     // A refresh elsewhere lands here, and survives a restart without being re-applied.
     group.files.set("claude", { version: 3, content: credential("theirs") });
-    yield* tick;
+    expect(yield* tick).toEqual(["claude"]);
     expect(yield* fs.readFileString(claude)).toBe(credential("theirs"));
     const restarted = yield* syncer;
     yield* restarted;

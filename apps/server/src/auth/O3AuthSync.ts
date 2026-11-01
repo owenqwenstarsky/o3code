@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Effect's Crypto has no synchronous sha256 for file hashes.
 import * as NodeCrypto from "node:crypto";
 
+import { ProviderDriverKind } from "@t3tools/contracts";
 import {
   InstanceAuthSyncProvider,
   InstanceHttpApi,
@@ -21,6 +22,7 @@ import { FetchHttpClient } from "effect/http";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
 
 import * as ServerConfig from "../config.ts";
+import { ProviderRegistry } from "../provider/ProviderRegistry.ts";
 
 const SYNC_INTERVAL = "5 seconds";
 const STATE_FILE = "o3-auth-sync.json";
@@ -35,6 +37,14 @@ const AUTH_SYNC_FILES: Record<InstanceAuthSyncProvider, string> = {
 };
 
 const PROVIDERS = InstanceAuthSyncProvider.literals;
+
+/** The provider driver whose sign-in status reads each credential file. */
+const DRIVER_KINDS: Record<InstanceAuthSyncProvider, ProviderDriverKind> = {
+  claude: ProviderDriverKind.make("claudeAgent"),
+  codex: ProviderDriverKind.make("codex"),
+  grok: ProviderDriverKind.make("grok"),
+  opencode: ProviderDriverKind.make("opencode"),
+};
 
 /** The group version this workspace last applied or pushed, and the file contents at that time. */
 export interface SyncedFile {
@@ -118,8 +128,8 @@ const O3AuthSyncConfig = Config.all({
 });
 
 /**
- * One sync pass for this workspace, or none outside a workspace an O3 instance manages. The dev
- * stand-in never syncs: it runs in the developer's real home.
+ * One sync pass, returning the providers whose credential file it rewrote, or none outside a
+ * workspace an O3 instance manages. The dev stand-in never syncs: it uses the developer's home.
  */
 export const make = Effect.gen(function* () {
   const config = yield* O3AuthSyncConfig;
@@ -197,7 +207,8 @@ export const make = Effect.gen(function* () {
   ) {
     const file = fileFor(provider);
     const local = yield* readLocal(file);
-    if (local !== null && !isCompleteCredential(local)) return current.files[provider];
+    const unchanged = { synced: current.files[provider], rewrote: false };
+    if (local !== null && !isCompleteCredential(local)) return unchanged;
     const plan = planProviderSync({
       local,
       synced: current.files[provider],
@@ -205,21 +216,27 @@ export const make = Effect.gen(function* () {
     });
     switch (plan.kind) {
       case "none":
-        return current.files[provider];
-      case "apply":
+        return unchanged;
+      case "apply": {
         if (plan.backup && local !== null) {
           yield* fs.writeFileString(`${file}${BACKUP_SUFFIX}`, local, { mode: 0o600 });
         }
-        if (plan.content !== local) yield* writeLocal(file, plan.content);
-        return { version: plan.version, hash: contentHash(plan.content) };
+        const rewrote = plan.content !== local;
+        if (rewrote) yield* writeLocal(file, plan.content);
+        return { synced: { version: plan.version, hash: contentHash(plan.content) }, rewrote };
+      }
       case "push": {
         const result = yield* client.internal.authSyncPush({
           headers,
           payload: { provider, baseVersion: plan.baseVersion, content: plan.content },
         });
-        if (result.current === null) return current.files[provider];
-        if (!result.accepted) yield* writeLocal(file, result.current.content);
-        return { version: result.current.version, hash: contentHash(result.current.content) };
+        if (result.current === null) return unchanged;
+        const rewrote = !result.accepted && result.current.content !== local;
+        if (rewrote) yield* writeLocal(file, result.current.content);
+        return {
+          synced: { version: result.current.version, hash: contentHash(result.current.content) },
+          rewrote,
+        };
       }
     }
   });
@@ -232,40 +249,55 @@ export const make = Effect.gen(function* () {
       current = { groupId: pulled.groupId, files: {} };
       if (pulled.groupId !== null) pulled = yield* pull(current);
     }
+    const rewritten: Array<InstanceAuthSyncProvider> = [];
     if (pulled.groupId === null) {
       if (current !== (yield* Ref.get(state))) yield* save(current);
-      return;
+      return rewritten;
     }
     const files: Record<string, SyncedFile> = {};
     for (const provider of PROVIDERS) {
-      const synced = yield* syncProvider(provider, pulled, current).pipe(
+      const result = yield* syncProvider(provider, pulled, current).pipe(
         Effect.catch((cause) =>
           Effect.logWarning("Couldn't sync an agent sign-in.", { provider, cause }).pipe(
-            Effect.as(current.files[provider]),
+            Effect.as({ synced: current.files[provider], rewrote: false }),
           ),
         ),
       );
-      if (synced !== undefined) files[provider] = synced;
+      if (result.synced !== undefined) files[provider] = result.synced;
+      if (result.rewrote) rewritten.push(provider);
     }
     const next = { groupId: pulled.groupId, files };
     if (!sameState(next, yield* Ref.get(state))) yield* save(next);
+    return rewritten;
   }).pipe(
-    Effect.catch((cause) => Effect.logDebug("Sign-in sync with the instance failed.", { cause })),
+    Effect.catch((cause) =>
+      Effect.logDebug("Sign-in sync with the instance failed.", { cause }).pipe(
+        Effect.as<ReadonlyArray<InstanceAuthSyncProvider>>([]),
+      ),
+    ),
     Effect.withSpan("O3AuthSync.tick"),
   );
 
   return Option.some(tick);
 });
 
-/** Keeps this workspace's agent CLI sign-ins in step with its instance sign-in sync group. */
-const run = make.pipe(
-  Effect.flatMap(
-    Option.match({
-      onNone: () => Effect.void,
-      onSome: (tick) =>
-        tick.pipe(Effect.repeat(Schedule.spaced(SYNC_INTERVAL)), Effect.forkScoped, Effect.asVoid),
-    }),
-  ),
-);
+/**
+ * Keeps this workspace's agent CLI sign-ins in step with its instance sign-in sync group, and has
+ * each provider whose file changed re-check its sign-in so the app stops showing a stale status.
+ */
+const run = Effect.gen(function* () {
+  const tick = yield* make;
+  if (Option.isNone(tick)) return;
+  const registry = yield* ProviderRegistry;
+  yield* tick.value.pipe(
+    Effect.flatMap((rewritten) =>
+      Effect.forEach(rewritten, (provider) => registry.refresh(DRIVER_KINDS[provider]), {
+        discard: true,
+      }),
+    ),
+    Effect.repeat(Schedule.spaced(SYNC_INTERVAL)),
+    Effect.forkScoped,
+  );
+});
 
 export const layer = Layer.effectDiscard(run).pipe(Layer.provide(FetchHttpClient.layer));
