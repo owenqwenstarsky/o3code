@@ -4,7 +4,7 @@
 
 No. A harness is what turns an LLM into an agent: it gives the model tools, a way to call them, runs them, and hands the results back. Claude Code is kind of a harness. It is an interface (the TUI, the Code tab in the desktop app) plus a harness underneath (the Anthropic Agent SDK). Codex is the same split: the app plus the Codex App Server. O3 Code uses those harnesses. It is not a harness, and it does not work without one.
 
-Chef = LLM. Kitchen = harness. O3 Code = the restaurant that lets you bring whatever kitchen you want. Our MCP is a cookbook we hand the kitchen, but the chef won't open it unless you tell them to :) I wrote the long version here: [What is a harness?](https://t3.gg/blog/post/what-is-a-harness)
+Chef = LLM. Kitchen = harness. O3 Code = the restaurant that lets you bring whatever kitchen you want. Our MCP is a cookbook we hand the kitchen, but the chef won't open it unless you tell them to :) T3 Code's author wrote the long version: [What is a harness?](https://t3.gg/blog/post/what-is-a-harness)
 
 Bring your own: Claude Code, Codex, Cursor, Grok Build, OpenCode, Google Antigravity, Pi, or Muse Code. [Provider setup](./install.md#providers)
 
@@ -28,7 +28,7 @@ Nothing. There's no way to pay us to use O3 Code. You bring your own sub. It is 
 
 ## Why is my Claude 5-hour limit draining so fast?
 
-O3 Code drives Claude through Anthropic's Agent SDK. I confirmed it's a real bug on Anthropic's side: all Agent SDK usage will drain your 5h limits faster than using Claude Code directly. To be clear: this does not affect weekly limits. We have reported it to Anthropic and are hoping for a fix soon. [My post on it](https://x.com/theo/status/2114166439813017873)
+O3 Code drives Claude through Anthropic's Agent SDK. T3 Code's maintainers confirmed with Anthropic that all Agent SDK usage drains 5-hour limits faster than using Claude Code directly. To be clear: this does not affect weekly limits. Anthropic knows about it. [Their post on it](https://x.com/theo/status/2114166439813017873)
 
 ## Where do my agents run?
 
@@ -40,7 +40,7 @@ Check that Tailscale is connected on your device and signed in to your organizat
 
 ## Will I get banned for using my subscription?
 
-No. We work with all of the labs and O3 Code is within the TOS of Claude Code, Codex, and Google Antigravity. We worked directly with [SpaceXAI](https://x.com/SpaceXSI/status/2070195830192320600) to collaborate on the Grok Build and Cursor integrations. Everything else uses official ACP bindings.
+No. O3 Code inherits T3 Code's provider integrations, which stay within the TOS of Claude Code, Codex, and Google Antigravity. T3 Code worked directly with [SpaceXAI](https://x.com/SpaceXSI/status/2070195830192320600) to collaborate on the Grok Build and Cursor integrations. Everything else uses official ACP bindings.
 
 If it works in O3 Code, you can trust it is safe.
 
@@ -48,7 +48,7 @@ If it works in O3 Code, you can trust it is safe.
 
 I don't think O3 Code is the right place to manage a pile of accounts. If we add an auto-switcher, we are risking TOS bans for our users.
 
-A separate work account is fine. Setup for two: [Codex](./providers-codex.md#use-multiple-accounts) · [Claude](./providers-claude.md#separate-accounts-or-configurations). For a bigger pool, manage them outside O3 Code with a self-hosted proxy like [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). I walked through how I use 6 Claude subs and 3 Codex subs in [this video](https://www.youtube.com/watch?v=D8PikZ1KhUo), and wrote up the setup in [this guide](https://gist.github.com/t3dotgg/59a521d2ee8d70aaf90e280c175072af). Hand it to your agent and it will walk you through it. Early apologies if it gets you banned 💀 After you set up a hub, O3 Code can show its pooled limits under Usage. [Connect a hub](./usage.md#connect-a-cliproxyapi-hub)
+A separate work account is fine. Setup for two: [Codex](./providers-codex.md#use-multiple-accounts) · [Claude](./providers-claude.md#separate-accounts-or-configurations). For a bigger pool, manage them outside O3 Code with a self-hosted proxy like [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI). T3 Code's author walks through a setup with 6 Claude subs and 3 Codex subs in [this video](https://www.youtube.com/watch?v=D8PikZ1KhUo) and [this guide](https://gist.github.com/t3dotgg/59a521d2ee8d70aaf90e280c175072af). Hand it to your agent and it will walk you through it. Early apologies if it gets you banned 💀 After you set up a hub, O3 Code can show its pooled limits under Usage. [Connect a hub](./usage.md#connect-a-cliproxyapi-hub)
 
 ## Can I use an API key or OpenRouter instead of a subscription?
 
@@ -58,9 +58,9 @@ Yes. Add another provider instance in Settings and give it its own keys and endp
 
 No. O3 Code is a serious developer tool. Locally runnable models are not capable of meaningful engineering work.
 
-## Does my code go to T3 servers?
+## Does my code go to O3 Code's servers?
 
-No. Your code and prompts go from your workspace to your provider (Anthropic, OpenAI, etc.), not to us. Your devices connect to your workspace directly over your tailnet. O3 Code does send basic product usage events (provider, model, token totals, that kind of thing). No prompts, no file contents. Your administrator can turn them off. [Product usage data](./telemetry.md)
+No. Your code and prompts go from your workspace to your provider (Anthropic, OpenAI, etc.). Your devices connect to your workspace directly over your tailnet. By default each workspace sends basic product usage events (provider, model, token totals, that kind of thing) to upstream T3 Code's endpoint at `ingest.t3.codes`. No prompts, no file contents. Your administrator can turn them off. [Product usage data](./telemetry.md)
 
 ## Worktrees are eating my disk. How do I clean them up?
 

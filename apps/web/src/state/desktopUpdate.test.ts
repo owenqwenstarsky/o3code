@@ -1,7 +1,7 @@
 import type { DesktopUpdateState } from "@t3tools/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import { AtomRegistry } from "effect/reactivity";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
 import { createDesktopUpdateStateAtom } from "./desktopUpdate";
 
@@ -24,35 +24,48 @@ const baseState: DesktopUpdateState = {
   canRetry: false,
 };
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 describe("desktopUpdateStateAtom", () => {
   it("does not let a slower initial read overwrite a newer update event", async () => {
-    let resolveInitial: ((state: DesktopUpdateState) => void) | undefined;
-    let listener: ((state: DesktopUpdateState) => void) | undefined;
+    const initial = deferred<DesktopUpdateState>();
+    const subscribed = deferred<(state: DesktopUpdateState) => void>();
     const atom = createDesktopUpdateStateAtom(() => ({
-      getUpdateState: () =>
-        new Promise<DesktopUpdateState>((resolve) => {
-          resolveInitial = resolve;
-        }),
-      onUpdateState: (nextListener) => {
-        listener = nextListener;
+      getUpdateState: () => initial.promise,
+      onUpdateState: (listener) => {
+        subscribed.resolve(listener);
         return () => undefined;
       },
     }));
     const registry = AtomRegistry.make();
     registry.mount(atom);
-
-    await vi.waitFor(() => expect(listener).toBeDefined());
-    const newerState: DesktopUpdateState = { ...baseState, status: "checking" };
-    listener?.(newerState);
-    resolveInitial?.(baseState);
-
-    await vi.waitFor(() => {
-      expect(AsyncResult.getOrElse(registry.get(atom), () => null)).toEqual(newerState);
+    const seen: Array<DesktopUpdateState | null> = [];
+    registry.subscribe(atom, (result) => {
+      seen.push(AsyncResult.getOrElse(result, () => null));
     });
+
+    const listener = await subscribed.promise;
+    const newerState: DesktopUpdateState = { ...baseState, status: "checking" };
+    listener(newerState);
+    initial.resolve(baseState);
+    // The initial read settles before this later event; a stale write would show up between them.
+    const settled = deferred<void>();
+    const laterState: DesktopUpdateState = { ...baseState, status: "downloading" };
+    const unsubscribe = registry.subscribe(atom, (result) => {
+      if (AsyncResult.getOrElse(result, () => null) === laterState) settled.resolve();
+    });
+    await initial.promise;
+    listener(laterState);
+    await settled.promise;
+    unsubscribe();
+
+    expect(seen).toEqual([newerState, laterState]);
     registry.dispose();
   });
 });

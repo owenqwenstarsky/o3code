@@ -10,6 +10,7 @@ import {
   authScopeResponse,
   AuthSessionState,
   sessionGrantsScope,
+  sessionHasLegacyPermissions,
 } from "./auth.ts";
 
 describe("authorization grants", () => {
@@ -131,5 +132,31 @@ describe("authorization grants", () => {
     },
   ] as const)("sessionGrantsScope accepts $label", ({ session, scope, expected }) => {
     expect(sessionGrantsScope(session, scope)).toBe(expected);
+  });
+
+  it.each([
+    {
+      label: "only a legacy parent",
+      session: { authenticated: true, permissions: ["orchestration:operate"] },
+      expected: true,
+    },
+    {
+      label: "a legacy parent next to a split permission",
+      session: { authenticated: true, permissions: ["orchestration:operate", "settings:write"] },
+      expected: false,
+    },
+    {
+      label: "legacy scopes that are not parents",
+      session: { authenticated: true, permissions: ["access:read"] },
+      expected: false,
+    },
+    { label: "no permissions field", session: { authenticated: true }, expected: false },
+    {
+      label: "an unauthenticated session",
+      session: { authenticated: false, permissions: ["orchestration:operate"] },
+      expected: false,
+    },
+  ] as const)("sessionHasLegacyPermissions reports $label", ({ session, expected }) => {
+    expect(sessionHasLegacyPermissions(session)).toBe(expected);
   });
 });

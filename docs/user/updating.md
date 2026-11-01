@@ -26,8 +26,8 @@ app, or ask your administrator to upgrade your workspace, then reconnect.
 
 ## The desktop app
 
-When a newer desktop app is available, the update button at the bottom of the sidebar installs it
-and restarts the app. If you built the app from source, build it again; see
+This fork does not publish desktop builds or an update feed, so the desktop app does not update
+itself. To update, pull the latest source and build the app again; see
 [Get started](./install.md#desktop-app). The web app always matches your instance.
 
 ## Update providers
@@ -38,8 +38,9 @@ offer a manual update command are not included.
 
 After a successful provider CLI update, O3 Code refreshes model discovery for
 every enabled instance of that provider using its own configuration. Connected
-clients receive the refreshed catalogs automatically. Provider update checks
-must be enabled to download the latest O3 Code model catalog.
+clients receive the refreshed catalogs automatically. With provider update checks
+on, the server downloads the latest model catalog from the upstream T3 Code repository; with them
+off, it uses the catalog bundled with your O3 Code version.
 
 Provider updates do not restart running chats. An existing session can keep
 using the previous CLI until it ends. If discovery fails, check the provider

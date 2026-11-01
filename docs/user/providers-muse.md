@@ -13,7 +13,7 @@ fail until you run `muse login` in your workspace.
 
 ## Sign-in and API keys
 
-O3 Code ignores a `META_API_KEY` that the T3 server inherits from its own
+O3 Code ignores a `META_API_KEY` that the O3 Code server inherits from its own
 environment, so Muse uses the credential saved in your workspace by `muse login`. To
 use an API key instead, add `META_API_KEY` to the Muse instance's environment
 variables in **Settings → Providers**. Muse gives that key priority over the

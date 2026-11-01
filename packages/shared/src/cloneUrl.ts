@@ -12,7 +12,8 @@ function parseCloneUrl(
   if (ssh) return { protocol: "ssh", host: ssh[1]!, path: ssh[3]!, customPort: !!ssh[2] };
   const https = HTTPS_URL.exec(trimmed);
   if (https) return { protocol: "https", host: https[1]!, path: https[3]!, customPort: !!https[2] };
-  const scp = SCP_LIKE_URL.exec(trimmed);
+  // A userless one-letter prefix is a Windows drive, not an SCP host.
+  const scp = /^[a-zA-Z]:/.test(trimmed) ? null : SCP_LIKE_URL.exec(trimmed);
   if (scp) return { protocol: "ssh", host: scp[1]!, path: scp[2]!, customPort: false };
   return null;
 }

@@ -51,7 +51,7 @@ different preference when needed.
 [dev-replay-agent.ts](../../apps/server/scripts/dev-replay-agent.ts). It plays recorded
 ACP transcripts with simulated streaming, so the real adapter, orchestration, and UI run
 without a paid model. Each scenario is a model, and each prompt plays the next recorded turn.
-Servers without a Vite dev URL skip it, and that includes `dev:instance`'s stand-in workspace.
+Servers without a Vite dev URL skip it; `dev:instance`'s stand-in workspace keeps the dev URL, so it registers the provider too.
 Dev servers add it back on start, so turn it off in Settings instead of removing it.
 To add a scenario, point a `SCENARIOS` entry at a generic ACP replay fixture
 (`registry_transcript.ndjson`) or a file in [dev-replay](../../apps/server/scripts/dev-replay).

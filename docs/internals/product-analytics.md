@@ -106,6 +106,6 @@ send prompts, authentication material, raw provider payloads, user-assigned devi
 names, or conversation identifiers. Client metadata is best effort; invalid values
 must not reject a connection. PostHog person profiles remain disabled.
 
-Dev-runner servers and the CI archive smoke test turn telemetry off, because each
-would count as a new install. Set `T3CODE_TELEMETRY_ENABLED=true` to test analytics
+Dev-runner servers and the archive and desktop smoke scripts (`scripts/smoke-cli-archive.ts`,
+`scripts/smoke-desktop-app.ts`) turn telemetry off, because each would count as a new install. Set `T3CODE_TELEMETRY_ENABLED=true` to test analytics
 from a dev server.

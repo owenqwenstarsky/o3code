@@ -69,6 +69,7 @@ it.each([true, false])("runs scheduled work only with task permission (%s)", asy
   const { renderPanel, byLabel } = fixture;
   state.allowed = allowed;
   await renderPanel();
+  expect(byLabel("Run Daily review now").hasAttribute("disabled")).toBe(!allowed);
   await act(async () => byLabel("Run Daily review now").click());
   expect(state.run).toHaveBeenCalledTimes(allowed ? 1 : 0);
 });

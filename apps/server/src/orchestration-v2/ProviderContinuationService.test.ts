@@ -106,6 +106,22 @@ function layerTest(input: {
   return Layer.merge(ProviderContinuationRequests.layer, layerWorker);
 }
 
+// The worker handles requests one at a time, so a probe that dispatches proves every
+// earlier request finished, and finding it first proves none of them dispatched.
+const expectNothingDispatched = Effect.fnUntraced(function* (
+  requests: {
+    readonly offer: (
+      request: ProviderContinuationRequests.ProviderContinuationRequest,
+    ) => Effect.Effect<void>;
+  },
+  dispatched: Queue.Queue<unknown>,
+) {
+  yield* requests.offer(request(undefined, "probe"));
+  const command = yield* Queue.take(dispatched);
+  assert.equal((command as { readonly text?: unknown }).text, "probe");
+  assert.isTrue(Option.isNone(yield* Queue.poll(dispatched)));
+});
+
 describe("ProviderContinuationService", () => {
   it.effect("recovers an unaccepted persisted steer using the same delivery identity", () =>
     Effect.gen(function* () {
@@ -252,7 +268,8 @@ describe("ProviderContinuationService", () => {
     () => {
       return Effect.gen(function* () {
         const attempts = yield* Ref.make(0);
-        const cleared = yield* Ref.make(false);
+        const cleared = yield* Deferred.make<void>();
+        const probeHandled = yield* Deferred.make<void>();
         const acknowledged = yield* Queue.unbounded<unknown>();
         const layerThreads = Layer.mock(ThreadManagementService.ThreadManagementService)({
           getThreadRecords: () => Effect.succeed(delegatedProjection()),
@@ -288,16 +305,15 @@ describe("ProviderContinuationService", () => {
             driver,
             detail: null,
             delivery: "message_text",
-            clearIfCurrent: () => Ref.set(cleared, true),
+            clearIfCurrent: () => Deferred.succeed(cleared, undefined).pipe(Effect.asVoid),
             delegatedCompletion: {
               parentRunId,
               generation: 1,
               messageId: delegatedMessageId,
             },
           });
-          yield* Effect.yieldNow;
+          yield* Deferred.await(cleared);
           assert.equal(yield* Ref.get(attempts), 1);
-          assert.isTrue(yield* Ref.get(cleared));
 
           const acknowledgements = (yield* Queue.takeAll(acknowledged)) as ReadonlyArray<{
             type: string;
@@ -314,7 +330,11 @@ describe("ProviderContinuationService", () => {
           }
 
           yield* TestClock.adjust("1 hour");
-          yield* Effect.yieldNow;
+          // A probe that skips its own dispatch marks the worker past any re-offered retry.
+          yield* requests.offer(
+            request(() => Deferred.succeed(probeHandled, undefined).pipe(Effect.as(Option.none()))),
+          );
+          yield* Deferred.await(probeHandled);
           assert.equal(yield* Ref.get(attempts), 1);
           assert.equal(yield* Queue.size(acknowledged), 0);
         }).pipe(
@@ -329,7 +349,7 @@ describe("ProviderContinuationService", () => {
     "clears the adapter's sticky continuation flag when a non-delegated wake is refused",
     () => {
       return Effect.gen(function* () {
-        const requested = yield* Ref.make(true);
+        const cleared = yield* Deferred.make<void>();
         const layerThreads = Layer.mock(ThreadManagementService.ThreadManagementService)({
           getThreadRecords: () => Effect.succeed(projection),
           dispatch: () =>
@@ -351,7 +371,7 @@ describe("ProviderContinuationService", () => {
           Effect.gen(function* () {
             const exit = yield* Effect.exit(effect);
             if (Exit.isFailure(exit)) {
-              yield* Ref.set(requested, false);
+              yield* Deferred.succeed(cleared, undefined);
               return yield* Effect.failCause(exit.cause);
             }
             return Option.some(exit.value);
@@ -360,12 +380,8 @@ describe("ProviderContinuationService", () => {
         yield* Effect.gen(function* () {
           const requests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
           yield* requests.offer(request(dispatchIfCurrent));
-          yield* Effect.yieldNow;
-          yield* Effect.yieldNow;
-          assert.isFalse(
-            yield* Ref.get(requested),
-            "a disabled instance must still clear the adapter's sticky offer flag",
-          );
+          // A disabled instance must still clear the adapter's sticky offer flag.
+          yield* Deferred.await(cleared);
         }).pipe(
           Effect.provide(Layer.merge(ProviderContinuationRequests.layer, layerWorker)),
           Effect.scoped,
@@ -378,7 +394,7 @@ describe("ProviderContinuationService", () => {
     "clears a sticky continuation offer for an adapter whose dispatchIfCurrent does not self-clear on failure",
     () => {
       return Effect.gen(function* () {
-        const wakeHeld = yield* Ref.make(true);
+        const wakeReleased = yield* Deferred.make<void>();
         const layerThreads = Layer.mock(ThreadManagementService.ThreadManagementService)({
           getThreadRecords: () => Effect.succeed(projection),
           dispatch: () =>
@@ -403,15 +419,11 @@ describe("ProviderContinuationService", () => {
           const requests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
           yield* requests.offer({
             ...request(dispatchIfCurrent),
-            clearIfCurrent: () => Ref.set(wakeHeld, false),
+            clearIfCurrent: () => Deferred.succeed(wakeReleased, undefined).pipe(Effect.asVoid),
           });
-          yield* Effect.yieldNow;
-          yield* Effect.yieldNow;
-          assert.isFalse(
-            yield* Ref.get(wakeHeld),
-            "a disabled instance must clear the offer via the explicit callback " +
-              "when the adapter itself does not clear on dispatch failure",
-          );
+          // A disabled instance clears the offer through the explicit callback when the
+          // adapter itself does not clear on dispatch failure.
+          yield* Deferred.await(wakeReleased);
         }).pipe(
           Effect.provide(Layer.merge(ProviderContinuationRequests.layer, layerWorker)),
           Effect.scoped,
@@ -440,9 +452,7 @@ describe("ProviderContinuationService", () => {
                 messageId: delegatedMessageId,
               },
             });
-            yield* Effect.yieldNow;
-            yield* Effect.yieldNow;
-            assert.isTrue(Option.isNone(yield* Queue.poll(dispatched)));
+            yield* expectNothingDispatched(requests, dispatched);
           }).pipe(
             Effect.provide(
               layerTest({
@@ -474,9 +484,7 @@ describe("ProviderContinuationService", () => {
             messageId: delegatedMessageId,
           },
         });
-        yield* Effect.yieldNow;
-        yield* Effect.yieldNow;
-        assert.isTrue(Option.isNone(yield* Queue.poll(dispatched)));
+        yield* expectNothingDispatched(requests, dispatched);
       }).pipe(
         Effect.provide(
           layerTest({
@@ -500,8 +508,7 @@ describe("ProviderContinuationService", () => {
         const requests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
         yield* requests.offer(request());
         yield* Queue.take(dispatched);
-        yield* Effect.yieldNow;
-        assert.isTrue(Option.isNone(yield* Queue.poll(dispatched)));
+        yield* expectNothingDispatched(requests, dispatched);
       }).pipe(
         Effect.provide(
           layerTest({ dispatched, getThreadRecords: () => Effect.succeed(projection) }),
@@ -559,8 +566,8 @@ describe("ProviderContinuationService", () => {
         yield* requests.offer(request(second, "B"));
         yield* Deferred.succeed(releaseFirstProjection, undefined);
         const command = yield* Queue.take(dispatched);
+        // The worker is sequential, so "B" arriving first proves the stale "A" dispatched nothing.
         assert.equal((command as { readonly text?: unknown }).text, "B");
-        yield* Effect.yieldNow;
         assert.isTrue(Option.isNone(yield* Queue.poll(dispatched)));
       }).pipe(
         Effect.provide(

@@ -1,6 +1,6 @@
 # Orchestration V2
 
-This document set describes the target architecture for the next orchestration model. It is not a patch plan for the current implementation and it intentionally ignores migration/backward compatibility. Those concerns should be handled after the target model is coherent.
+This document set describes the V2 orchestration model that the server implements.
 
 V2 is an orchestrator rewrite, not a rewrite of the whole app domain platform. Existing non-orchestration domains, persistence/migration infrastructure, websocket/RPC infrastructure, and projection streaming semantics should be retained unless V2 exposes a concrete orchestration-specific gap.
 
@@ -107,21 +107,9 @@ V2 may add V2-native orchestration events, projection tables, command policies, 
 
 V2 command dispatch returns the last committed stored-event sequence for accepted commands. Duplicate command ids must return the same receipt-backed result without re-running provider side effects. This is the API-level boundary the frontend uses for reconnect/recovery cursors.
 
-## Tracked Follow-Up: Durable Effect Outbox
+## Durable Effect Outbox
 
-The current app pipeline uses domain events plus reactors to trigger provider side effects:
-
-```text
-command
-  -> domain event(s)
-  -> projection
-  -> reactor observes event
-  -> provider side effect
-  -> provider output ingestion
-  -> domain event(s)
-```
-
-This is valid, but it can become hard to trace because the provider side effect is implicit in a live subscription. If V2 needs stronger restart/recovery/debuggability, introduce a durable effect outbox for orchestration side effects:
+Provider side effects go through a durable outbox rather than live reactors. The event sink commits domain events together with effect requests in `orchestration_v2_effect_outbox` ([EffectOutbox.ts](../../apps/server/src/orchestration-v2/EffectOutbox.ts)), and [EffectWorker.ts](../../apps/server/src/orchestration-v2/EffectWorker.ts) claims, runs, and completes them, feeding results back as commands:
 
 ```text
 command
@@ -162,5 +150,3 @@ type ProviderEffectRequest = {
   lastError: string | null;
 };
 ```
-
-This should be treated as an infrastructure improvement, not a prerequisite for the first V2 slice. The first V2 implementation can use the existing reactor pattern, but it should keep the provider side-effect boundary clear enough that moving to an outbox later does not require redesigning the graph or provider adapters.

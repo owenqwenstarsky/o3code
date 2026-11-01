@@ -487,7 +487,7 @@ describe("EnvironmentRegistry", () => {
           Ref.update(commits, (count) => count + 1).pipe(
             Effect.andThen(Effect.fail("commit refused")),
           ),
-        ).pipe(Effect.flip, Effect.timeout("1 second"));
+        ).pipe(Effect.flip);
 
         expect(result).toBe("commit refused");
         expect(yield* Ref.get(commits)).toBe(1);
@@ -536,7 +536,7 @@ describe("EnvironmentRegistry", () => {
         const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
         const start = yield* Effect.forkChild(registry.start);
 
-        yield* Deferred.await(bothLoadsStarted).pipe(Effect.timeout("1 second"));
+        yield* Deferred.await(bothLoadsStarted);
         yield* Deferred.succeed(releaseLoads, undefined);
         yield* Fiber.join(start);
 
@@ -931,9 +931,9 @@ describe("EnvironmentRegistry", () => {
             ),
         );
 
-        yield* Deferred.await(firstObserved).pipe(Effect.timeout("1 second"));
+        yield* Deferred.await(firstObserved);
         yield* registry.register(remoteRegistration(replacement));
-        yield* Deferred.await(secondObserved).pipe(Effect.timeout("1 second"));
+        yield* Deferred.await(secondObserved);
         yield* Fiber.interrupt(subscription);
 
         expect(yield* Ref.get(labels)).toEqual([REMOTE_TARGET.label, replacement.label]);
@@ -1188,7 +1188,7 @@ describe("EnvironmentRegistry", () => {
             credential: new BearerConnectionCredential({ token }),
           });
         yield* registry.reconcilePlatform([registration("old-bearer")]);
-        yield* Deferred.await(attemptStarted).pipe(Effect.timeout("1 second"));
+        yield* Deferred.await(attemptStarted);
 
         yield* registry
           .stateChanges(BEARER_TARGET.environmentId)
@@ -1543,9 +1543,11 @@ describe("EnvironmentRegistry", () => {
           ],
           { concurrency: "unbounded", discard: true },
         );
-        for (let attempt = 0; attempt < 100; attempt += 1) {
-          yield* Effect.yieldNow;
-        }
+        yield* awaitConnectionState(
+          registry,
+          TARGET.environmentId,
+          (state) => state.phase === "connected",
+        );
 
         expect(yield* Ref.get(harness.sessions)).toHaveLength(1);
         expect(yield* Ref.get(harness.releasedSessions)).toBe(0);

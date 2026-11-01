@@ -245,18 +245,11 @@ function normalizeKeyToken(token: string): string {
 }
 
 export function parseKeybindingShortcut(value: string): KeybindingShortcut | null {
-  const rawTokens = value
-    .toLowerCase()
-    .split("+")
-    .map((token) => token.trim());
-  const tokens = [...rawTokens];
-  let trailingEmptyCount = 0;
-  while (tokens[tokens.length - 1] === "") {
-    trailingEmptyCount += 1;
-    tokens.pop();
-  }
-  if (trailingEmptyCount > 0) {
-    tokens.push("+");
+  const trimmedValue = value.trim().toLowerCase();
+  const tokens = trimmedValue.split("+").map((token) => token.trim());
+  // "mod++" and a bare "+" name the plus key; "mod+" is an unfinished chord.
+  if (trimmedValue === "+" || trimmedValue.endsWith("++")) {
+    tokens.splice(-2, 2, "+");
   }
   if (tokens.some((token) => token.length === 0)) {
     return null;

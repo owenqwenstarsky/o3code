@@ -66,86 +66,88 @@ const insertUser = (userId: string) =>
 const credential = (token: string) => JSON.stringify({ token });
 
 it.layer(layerAuthSync)("AuthSync", (it) => {
-  it.effect("shares one credential per provider and resolves concurrent writes to one", () =>
-    Effect.gen(function* () {
-      const sync = yield* AuthSync.AuthSync;
-      yield* insertUser("alice");
-      yield* insertUser("bob");
-      yield* insertWorkspace("alice", "ws-alice");
-      yield* insertWorkspace("bob", "ws-bob");
-      yield* insertWorkspace("bob", "ws-outside");
+  it.effect(
+    "shares one credential per provider and rejects stale writes with the current copy",
+    () =>
+      Effect.gen(function* () {
+        const sync = yield* AuthSync.AuthSync;
+        yield* insertUser("alice");
+        yield* insertUser("bob");
+        yield* insertWorkspace("alice", "ws-alice");
+        yield* insertWorkspace("bob", "ws-bob");
+        yield* insertWorkspace("bob", "ws-outside");
 
-      const group = yield* sync.createGroup("Team Claude");
-      expect((yield* sync.createGroup(" team claude ").pipe(Effect.flip))._tag).toBe(
-        "InstanceConflictError",
-      );
-      // Across users, as the admin decides.
-      yield* sync.setWorkspaceGroup("ws-alice", group.id);
-      yield* sync.setWorkspaceGroup("ws-bob", group.id);
-      expect((yield* sync.listGroups)[0]?.workspaceIds).toEqual(["ws-alice", "ws-bob"]);
+        const group = yield* sync.createGroup("Team Claude");
+        expect((yield* sync.createGroup(" team claude ").pipe(Effect.flip))._tag).toBe(
+          "InstanceConflictError",
+        );
+        // Across users, as the admin decides.
+        yield* sync.setWorkspaceGroup("ws-alice", group.id);
+        yield* sync.setWorkspaceGroup("ws-bob", group.id);
+        expect((yield* sync.listGroups)[0]?.workspaceIds).toEqual(["ws-alice", "ws-bob"]);
 
-      const first = yield* sync.push({
-        workspaceId: "ws-alice",
-        provider: "claude",
-        baseVersion: 0,
-        content: credential("a1"),
-      });
-      expect(first).toMatchObject({ accepted: true, current: { version: 1 } });
-
-      // Bob wrote from a stale version, so Alice's copy wins and comes back to him.
-      const stale = yield* sync.push({
-        workspaceId: "ws-bob",
-        provider: "claude",
-        baseVersion: 0,
-        content: credential("b1"),
-      });
-      expect(stale).toMatchObject({
-        accepted: false,
-        current: { version: 1, content: credential("a1") },
-      });
-
-      yield* sync.push({
-        workspaceId: "ws-bob",
-        provider: "claude",
-        baseVersion: 1,
-        content: credential("b2"),
-      });
-      expect(yield* sync.pull("ws-alice", [{ provider: "claude", version: 1 }])).toEqual({
-        groupId: group.id,
-        files: [{ provider: "claude", version: 2, content: credential("b2") }],
-      });
-      // Content travels only when the caller's copy is older.
-      expect(yield* sync.pull("ws-alice", [{ provider: "claude", version: 2 }])).toEqual({
-        groupId: group.id,
-        files: [{ provider: "claude", version: 2 }],
-      });
-
-      // A sign-out is a version too.
-      yield* sync.push({
-        workspaceId: "ws-alice",
-        provider: "claude",
-        baseVersion: 2,
-        content: null,
-      });
-      expect((yield* sync.pull("ws-bob", [])).files).toEqual([
-        { provider: "claude", version: 3, content: null },
-      ]);
-
-      // A workspace outside every group neither reads nor writes.
-      expect(yield* sync.pull("ws-outside", [])).toEqual({ groupId: null, files: [] });
-      expect(
-        yield* sync.push({
-          workspaceId: "ws-outside",
+        const first = yield* sync.push({
+          workspaceId: "ws-alice",
           provider: "claude",
-          baseVersion: 3,
-          content: credential("x"),
-        }),
-      ).toEqual({ groupId: null, accepted: false, current: null });
+          baseVersion: 0,
+          content: credential("a1"),
+        });
+        expect(first).toMatchObject({ accepted: true, current: { version: 1 } });
 
-      // Leaving keeps nothing on the instance side tied to the workspace.
-      yield* sync.setWorkspaceGroup("ws-bob", null);
-      expect(yield* sync.pull("ws-bob", [])).toEqual({ groupId: null, files: [] });
-    }),
+        // Bob wrote from a stale version, so Alice's copy wins and comes back to him.
+        const stale = yield* sync.push({
+          workspaceId: "ws-bob",
+          provider: "claude",
+          baseVersion: 0,
+          content: credential("b1"),
+        });
+        expect(stale).toMatchObject({
+          accepted: false,
+          current: { version: 1, content: credential("a1") },
+        });
+
+        yield* sync.push({
+          workspaceId: "ws-bob",
+          provider: "claude",
+          baseVersion: 1,
+          content: credential("b2"),
+        });
+        expect(yield* sync.pull("ws-alice", [{ provider: "claude", version: 1 }])).toEqual({
+          groupId: group.id,
+          files: [{ provider: "claude", version: 2, content: credential("b2") }],
+        });
+        // Content travels only when the caller's copy is older.
+        expect(yield* sync.pull("ws-alice", [{ provider: "claude", version: 2 }])).toEqual({
+          groupId: group.id,
+          files: [{ provider: "claude", version: 2 }],
+        });
+
+        // A sign-out is a version too.
+        yield* sync.push({
+          workspaceId: "ws-alice",
+          provider: "claude",
+          baseVersion: 2,
+          content: null,
+        });
+        expect((yield* sync.pull("ws-bob", [])).files).toEqual([
+          { provider: "claude", version: 3, content: null },
+        ]);
+
+        // A workspace outside every group neither reads nor writes.
+        expect(yield* sync.pull("ws-outside", [])).toEqual({ groupId: null, files: [] });
+        expect(
+          yield* sync.push({
+            workspaceId: "ws-outside",
+            provider: "claude",
+            baseVersion: 3,
+            content: credential("x"),
+          }),
+        ).toEqual({ groupId: null, accepted: false, current: null });
+
+        // Leaving keeps nothing on the instance side tied to the workspace.
+        yield* sync.setWorkspaceGroup("ws-bob", null);
+        expect(yield* sync.pull("ws-bob", [])).toEqual({ groupId: null, files: [] });
+      }),
   );
 
   it.effect("stores credentials encrypted and drops them with the group", () =>

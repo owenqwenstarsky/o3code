@@ -44,6 +44,21 @@ describe("resolveCodexArtifactTemplate", () => {
       skillDirectory,
     });
   });
+
+  it.each(["relative/skills/artifact-template-reference-image", "./skills/x", "C:skills", ""])(
+    "rejects a skill directory that is not absolute: %j",
+    (skillDirectory) => {
+      expect(
+        resolveCodexArtifactTemplate({
+          artifact_kind: "image",
+          display_name: "Reference image",
+          gallery_kind: "product-design",
+          skill_directory: skillDirectory,
+          skill_name: "artifact-template-reference-image",
+        }),
+      ).toBeNull();
+    },
+  );
 });
 
 describe("appendCodexArtifactTemplateUsePrompt", () => {

@@ -31,6 +31,8 @@ describe("cloneUrlForProtocol", () => {
       "https://host.example:8443/a/b.git",
     );
     expect(cloneUrlForProtocol("/srv/git/repo.git", "https")).toBeNull();
+    expect(cloneUrlForProtocol("C:\\repos\\project", "https")).toBeNull();
+    expect(cloneUrlProtocol("C:/repos/project")).toBeNull();
     expect(cloneUrlProtocol("file:///srv/git/repo.git")).toBeNull();
   });
 });

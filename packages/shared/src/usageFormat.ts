@@ -64,19 +64,32 @@ export function formatCount(value: number): string {
   return INTEGER.format(Math.round(value));
 }
 
+const TOKEN_UNITS = [
+  { divisor: 1e12, suffix: "T" },
+  { divisor: 1e9, suffix: "B" },
+  { divisor: 1e6, suffix: "M" },
+  { divisor: 1e3, suffix: "K" },
+] as const;
+
 export function formatTokens(value: number): string {
   const abs = Math.abs(value);
-  if (abs >= 1e12) return `${trim(value / 1e12)}T`;
-  if (abs >= 1e9) return `${trim(value / 1e9)}B`;
-  if (abs >= 1e6) return `${trim(value / 1e6)}M`;
-  if (abs >= 1e3) return `${trim(value / 1e3)}K`;
-  return INTEGER.format(Math.round(value));
+  const index = TOKEN_UNITS.findIndex((unit) => abs >= unit.divisor);
+  if (index === -1) return INTEGER.format(Math.round(value));
+  const unit = TOKEN_UNITS[index]!;
+  const scaled = trim(value / unit.divisor);
+  // Rounding can carry into the next unit: 999,999 is "1M", not "1000K".
+  const larger = TOKEN_UNITS[index - 1];
+  if (larger !== undefined && Math.abs(Number(scaled)) >= 1000) {
+    return `${trim(value / larger.divisor)}${larger.suffix}`;
+  }
+  return `${scaled}${unit.suffix}`;
 }
 
 function trim(value: number): string {
   const abs = Math.abs(value);
-  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
-  return value.toFixed(digits).replace(/\.0+$/, "");
+  const digits = abs >= 99.95 ? 0 : abs >= 9.995 ? 1 : 2;
+  const fixed = value.toFixed(digits);
+  return fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
 }
 
 export function formatPercent(share: number, digits = 1): string {

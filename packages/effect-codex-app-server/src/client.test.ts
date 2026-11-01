@@ -152,11 +152,7 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
             optOutNotificationMethods: null,
           },
         });
-      }).pipe(
-        Effect.timeout("5 seconds"),
-        Effect.provide(context),
-        Effect.ensuring(Scope.close(scope, Exit.void)),
-      );
+      }).pipe(Effect.provide(context), Effect.ensuring(Scope.close(scope, Exit.void)));
 
       assert.equal(initialized.userAgent, "mock-codex-app-server");
     }),

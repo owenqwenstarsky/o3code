@@ -99,10 +99,16 @@ describe("link round trips", () => {
     });
     const path = promptLinkAppPath(link);
     expect(path).toBe(new URL(link).pathname + new URL(link).search);
-    const parsed = parseNewThreadLink(new URL(link).search);
-    expect(parsed.ok && parsed.value.kind === "new" && parsed.value.prompt.text).toBe(
-      "Swear count & rating?",
-    );
+    expect(parseNewThreadLink(new URL(link).search)).toEqual({
+      ok: true,
+      value: {
+        kind: "new",
+        prompt: { text: "Swear count & rating?", hiddenCharacters: 0 },
+        repository: { owner: "pingdotgg", name: "t3code" },
+        provider: "claudeagent",
+        model: "opus",
+      },
+    });
   });
 
   it("maps app scheme and hosted links to in-app paths, and nothing else", () => {

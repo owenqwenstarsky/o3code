@@ -18,6 +18,7 @@ interface FakeInstance {
   answer: "active" | "inactive" | "other-workspace" | "down";
   calls: number;
   authorization: string | undefined;
+  expiresAt?: string;
 }
 
 const layerFakeInstance = (instance: FakeInstance) =>
@@ -42,7 +43,7 @@ const layerFakeInstance = (instance: FakeInstance) =>
                 name: "User",
                 role: "member",
                 sessionId: "instance-session",
-                expiresAt: "2099-01-01T00:00:00.000Z",
+                expiresAt: instance.expiresAt ?? "2099-01-01T00:00:00.000Z",
                 label: "Laptop",
               };
         return HttpClientResponse.fromWeb(request, Response.json(body));
@@ -121,5 +122,30 @@ it.effect("refuses another workspace's token and tolerates a brief instance outa
     yield* TestClock.adjust("5 minutes");
     const outage = yield* authority.authenticate("o3w_mine").pipe(Effect.flip);
     expect(outage.reason).toBe("unreachable");
+  }).pipe(Effect.provide(layerAuthority(instance)));
+});
+
+it.effect("refuses a workspace token once it expires, before the next recheck", () => {
+  // The test clock starts at the epoch; the token has twenty seconds left.
+  const instance: FakeInstance = {
+    answer: "active",
+    calls: 0,
+    authorization: undefined,
+    expiresAt: "1970-01-01T00:00:20.000Z",
+  };
+  return Effect.gen(function* () {
+    const authority = yield* O3Authority.O3Authority;
+    const first = yield* authority.authenticate("o3w_first");
+    const second = yield* authority.authenticate("o3w_second");
+    yield* TestClock.adjust("25 seconds");
+    const expired = yield* authority.authenticate("o3w_first").pipe(Effect.flip);
+    expect(expired.reason).toBe("inactive");
+    expect(yield* activeSessionIds).not.toContain(first.sessionId);
+
+    // Nor does an instance outage keep an expired token alive: the recheck drops its session.
+    instance.answer = "down";
+    yield* TestClock.adjust("10 seconds");
+    yield* authority.authenticate("o3w_second").pipe(Effect.flip);
+    expect(yield* activeSessionIds).not.toContain(second.sessionId);
   }).pipe(Effect.provide(layerAuthority(instance)));
 });
