@@ -28,6 +28,7 @@ export interface PersistedUiState {
   defaultAdvertisedEndpointKey?: string | null;
   sidebarProjectScopeKey?: string | null;
   sidebarProjectScopeKeys?: string[];
+  sidebarWorkspaceScopeIds?: string[];
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
@@ -37,6 +38,7 @@ export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
   sidebarProjectScopeKeys: string[];
+  sidebarWorkspaceScopeIds: string[];
 }
 
 export interface UiThreadState {
@@ -59,6 +61,7 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKeys: [],
+  sidebarWorkspaceScopeIds: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -154,6 +157,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     sidebarProjectScopeKeys: sanitizeStringArray(
       parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
     ),
+    sidebarWorkspaceScopeIds: sanitizeStringArray(parsed.sidebarWorkspaceScopeIds),
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
@@ -228,6 +232,7 @@ export function persistState(state: UiState): void {
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKeys: state.sidebarProjectScopeKeys,
+        sidebarWorkspaceScopeIds: state.sidebarWorkspaceScopeIds,
         // Older clients read only this field.
         sidebarProjectScopeKey:
           state.sidebarProjectScopeKeys.length === 1
@@ -331,18 +336,17 @@ function setDefaultAdvertisedEndpointKey(state: UiState, key: string | null): Ui
   };
 }
 
-function setSidebarProjectScopeKeys(state: UiState, projectKeys: readonly string[]): UiState {
-  const nextKeys = sanitizeStringArray(projectKeys);
-  if (
-    nextKeys.length === state.sidebarProjectScopeKeys.length &&
-    nextKeys.every((key, index) => key === state.sidebarProjectScopeKeys[index])
-  ) {
+function setSidebarScope(
+  state: UiState,
+  field: "sidebarProjectScopeKeys" | "sidebarWorkspaceScopeIds",
+  keys: readonly string[],
+): UiState {
+  const nextKeys = sanitizeStringArray(keys);
+  const current = state[field];
+  if (nextKeys.length === current.length && nextKeys.every((key, i) => key === current[i])) {
     return state;
   }
-  return {
-    ...state,
-    sidebarProjectScopeKeys: nextKeys,
-  };
+  return { ...state, [field]: nextKeys };
 }
 
 function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMethod): UiState {
@@ -434,6 +438,7 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
+  setSidebarWorkspaceScopeIds: (environmentIds: readonly string[]) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -454,7 +459,9 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setDefaultAdvertisedEndpointKey: (key) =>
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setSidebarProjectScopeKeys: (projectKeys) =>
-    set((state) => setSidebarProjectScopeKeys(state, projectKeys)),
+    set((state) => setSidebarScope(state, "sidebarProjectScopeKeys", projectKeys)),
+  setSidebarWorkspaceScopeIds: (environmentIds) =>
+    set((state) => setSidebarScope(state, "sidebarWorkspaceScopeIds", environmentIds)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),

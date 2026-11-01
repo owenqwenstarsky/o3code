@@ -37,6 +37,7 @@ import {
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
+  resolveSidebarScopedProjectKeys,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import {
@@ -1708,5 +1709,44 @@ describe("shouldCreateNewThreadInCurrentProject", () => {
     expect(shouldCreateNewThreadInCurrentProject(false, 1, 3)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(false, 0, 0)).toBe(true);
     expect(shouldCreateNewThreadInCurrentProject(true, 2, 2)).toBe(true);
+  });
+});
+
+describe("resolveSidebarScopedProjectKeys", () => {
+  const team = EnvironmentId.make("env-team");
+  const solo = EnvironmentId.make("env-solo");
+  const projects = [
+    { environmentId: team, id: ProjectId.make("app") },
+    { environmentId: team, id: ProjectId.make("docs") },
+    { environmentId: solo, id: ProjectId.make("app") },
+  ];
+  const appRefs = [
+    { environmentId: team, projectId: ProjectId.make("app") },
+    { environmentId: solo, projectId: ProjectId.make("app") },
+  ];
+
+  it.each([
+    { name: "no scope", projectRefs: null, workspaceIds: [], expected: null },
+    {
+      name: "workspace only",
+      projectRefs: null,
+      workspaceIds: [team],
+      expected: ["env-team:app", "env-team:docs"],
+    },
+    {
+      name: "project only",
+      projectRefs: appRefs,
+      workspaceIds: [],
+      expected: ["env-team:app", "env-solo:app"],
+    },
+    {
+      name: "project within a workspace",
+      projectRefs: appRefs,
+      workspaceIds: [solo],
+      expected: ["env-solo:app"],
+    },
+  ])("$name", ({ projectRefs, workspaceIds, expected }) => {
+    const keys = resolveSidebarScopedProjectKeys({ projects, projectRefs, workspaceIds });
+    expect(keys === null ? null : [...keys]).toEqual(expected);
   });
 });
