@@ -134,6 +134,14 @@ export const make = Effect.gen(function* () {
     const key = tokenKey(token);
     const now = yield* Clock.currentTimeMillis;
     const cached = (yield* Ref.get(cache)).get(key);
+    // The token's own expiry holds whatever the cache or an unreachable instance would allow.
+    if (cached && cached.expiresAt.epochMilliseconds <= now) {
+      yield* forget(key, cached);
+      return yield* new O3AuthorityError({
+        reason: "inactive",
+        detail: "This workspace token has expired.",
+      });
+    }
     if (cached && now - cached.checkedAtMs < RECHECK_AFTER_MS) return cached;
 
     const result = yield* introspect(token).pipe(Effect.result);

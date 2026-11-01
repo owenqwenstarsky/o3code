@@ -1,7 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { InstanceUserId } from "@t3tools/contracts/instance";
 import { expect, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
@@ -22,6 +24,11 @@ interface FakeHost {
   readonly deletedDevices: Array<string>;
   running: Set<string>;
   mintedKeys: number;
+  /** When set, `create` reports it was reached and then waits for the gate. */
+  createGate?: {
+    readonly entered: Deferred.Deferred<void>;
+    readonly release: Deferred.Deferred<void>;
+  };
 }
 
 const makeHost = (): FakeHost => ({
@@ -42,7 +49,11 @@ const layerFakes = (host: FakeHost) =>
         kind: "docker",
         info: Effect.succeed({ version: "test", cpus: 8, memoryBytes: 1 }),
         create: (spec: WorkspaceRuntimeSpec) =>
-          Effect.sync(() => {
+          Effect.gen(function* () {
+            if (host.createGate) {
+              yield* Deferred.succeed(host.createGate.entered, undefined);
+              yield* Deferred.await(host.createGate.release);
+            }
             const containerId = `container-${host.created.length + 1}`;
             host.created.push({ ...spec, containerId });
             return containerId;
@@ -288,6 +299,36 @@ it.effect("keeps a user's workspaces apart and one of them the default", () => {
     expect(
       (yield* workspaces.listForUser(userId)).every((workspace) => workspace.status === "running"),
     ).toBe(true);
+  }).pipe(Effect.provide(layerWorkspaces(host)));
+});
+
+it.effect("stopping a user's workspaces waits for a container still being created", () => {
+  const host = makeHost();
+  host.createGate = { entered: Deferred.makeUnsafe(), release: Deferred.makeUnsafe() };
+  return Effect.gen(function* () {
+    const workspaces = yield* Workspaces.Workspaces;
+    yield* insertUser;
+    const created = yield* workspaces.create({
+      userId,
+      email: "alice@acme.test",
+      label: "Default",
+      tools: [],
+      limits,
+    });
+    yield* Deferred.await(host.createGate!.entered);
+
+    // The account is disabled while the runtime is still creating the container.
+    const stopping = yield* Effect.forkChild(workspaces.stopAllForUser(userId));
+    yield* Deferred.succeed(host.createGate!.release, undefined);
+    yield* Fiber.join(stopping);
+    yield* workspaces.drain;
+
+    expect(host.running.size).toBe(0);
+    expect(host.stopped).toEqual([host.created[0]!.containerId]);
+    expect(Option.getOrThrow(yield* workspaces.get(created.id))).toMatchObject({
+      status: "stopped",
+      statusMessage: "Account disabled",
+    });
   }).pipe(Effect.provide(layerWorkspaces(host)));
 });
 
