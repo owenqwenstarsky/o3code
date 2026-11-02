@@ -1350,7 +1350,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
     });
   });
 
-  const assertExecutableInRoot = Effect.fn("AcpRegistryCatalog.assertExecutableInRoot")(function* (
+  const resolveInRoot = Effect.fn("AcpRegistryCatalog.resolveInRoot")(function* (
     root: string,
     executablePath: string,
   ) {
@@ -1363,6 +1363,14 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
         detail: "ACP Registry archive command resolves outside its installation directory.",
       });
     }
+    return executableRealPath;
+  });
+
+  const assertExecutableInRoot = Effect.fn("AcpRegistryCatalog.assertExecutableInRoot")(function* (
+    root: string,
+    executablePath: string,
+  ) {
+    const executableRealPath = yield* resolveInRoot(root, executablePath);
     const info = yield* fileSystem.stat(executableRealPath);
     const hasExecutableMode = platform === "win32" || (info.mode & 0o111) !== 0;
     if (info.type !== "File" || !hasExecutableMode) {
@@ -1571,7 +1579,9 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
           detail: `ACP Registry archive for ${agent.id} did not contain '${target.cmd}'.`,
         });
       }
-      if (platform !== "win32") yield* fileSystem.chmod(stagedExecutable, 0o755);
+      // Contain before chmod: a symlinked command must not change the mode of a file outside.
+      const stagedRealPath = yield* resolveInRoot(extractionRoot, stagedExecutable);
+      if (platform !== "win32") yield* fileSystem.chmod(stagedRealPath, 0o755);
       yield* assertExecutableInRoot(extractionRoot, stagedExecutable);
       yield* fileSystem.remove(installRoot, { recursive: true, force: true });
       yield* fileSystem.rename(extractionRoot, installRoot);

@@ -20,9 +20,11 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import type * as HttpServerRequest from "effect/http/HttpServerRequest";
 
 import * as SessionStore from "../auth/SessionStore.ts";
+import * as ServerConfig from "../config.ts";
 import { deriveAuthClientMetadata } from "../auth/utils.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
 import { InstanceSettings } from "./InstanceSettings.ts";
@@ -37,6 +39,10 @@ const WORKSPACE_TOKEN_TTL = Duration.days(7);
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILURES_PER_EMAIL = 10;
 const MAX_FAILURES_PER_IP = 50;
+// Hard cap on tracked keys; the least recently charged are evicted first.
+const MAX_TRACKED_KEYS = 10_000;
+// Concurrent password checks; scrypt allocates 32 MiB each on the shared libuv pool.
+const PASSWORD_CHECK_CONCURRENCY = 2;
 
 const userSubject = (userId: string) => `${USER_SUBJECT_PREFIX}${userId}`;
 const workspaceSubject = (userId: string, workspaceId: string, parentSessionId: string) =>
@@ -98,6 +104,8 @@ export class InstanceAuth extends Context.Service<
       authorization: string | undefined,
     ) => Effect.Effect<InstancePrincipalValue, InstanceUnauthorizedError | InstanceStoreError>;
     readonly logout: (sessionId: string, userId: string) => Effect.Effect<void>;
+    /** The caller's address for rate limits and audit, through Tailscale Serve when it fronts the instance. */
+    readonly clientIp: (request: HttpServerRequest.HttpServerRequest) => string | null;
     readonly changePassword: (input: {
       readonly principal: InstancePrincipalValue;
       readonly currentPassword: string;
@@ -134,48 +142,86 @@ const make = Effect.gen(function* () {
   const sessions = yield* SessionStore.SessionStore;
   const authSessions = yield* AuthSessions.AuthSessionRepository;
   const settings = yield* InstanceSettings;
+  const config = yield* ServerConfig.ServerConfig;
   const failures = yield* Ref.make(new Map<string, ReadonlyArray<number>>());
+  const passwordChecks = yield* Semaphore.make(PASSWORD_CHECK_CONCURRENCY);
 
-  const recentFailures = (key: string, now: number) =>
-    Ref.get(failures).pipe(
-      Effect.map((map) => (map.get(key) ?? []).filter((at) => now - at < LOGIN_WINDOW_MS)),
-    );
-
-  const recordFailure = (keys: ReadonlyArray<string>, now: number) =>
-    Ref.update(failures, (current) => {
-      const next = new Map(current);
-      for (const key of keys) {
-        next.set(key, [...(next.get(key) ?? []).filter((at) => now - at < LOGIN_WINDOW_MS), now]);
-      }
-      // Bound memory under a spray of distinct emails.
-      if (next.size > 10_000) {
-        for (const [key, times] of next) {
-          if (times.every((at) => now - at >= LOGIN_WINDOW_MS)) next.delete(key);
-        }
-      }
-      return next;
+  const clientMetadata = (
+    request: HttpServerRequest.HttpServerRequest,
+    presented?: Parameters<typeof deriveAuthClientMetadata>[0]["presented"],
+  ) =>
+    deriveAuthClientMetadata({
+      request,
+      ...(presented ? { presented } : {}),
+      trustLoopbackProxy: config.tailscaleServeEnabled,
     });
 
-  const assertNotRateLimited = Effect.fn("InstanceAuth.assertNotRateLimited")(function* (
+  /**
+   * Charges the attempt as a failure before the password is checked, so concurrent guesses
+   * count against each other. A correct password refunds it with `refundAttempt`.
+   */
+  const chargeAttempt = Effect.fn("InstanceAuth.chargeAttempt")(function* (
     emailKey: string,
     ipKey: string,
   ) {
     const now = yield* Clock.currentTimeMillis;
-    const byEmail = yield* recentFailures(emailKey, now);
-    const byIp = yield* recentFailures(ipKey, now);
-    const limited =
-      byEmail.length >= MAX_FAILURES_PER_EMAIL
-        ? byEmail
-        : byIp.length >= MAX_FAILURES_PER_IP
-          ? byIp
-          : null;
-    if (limited === null) return;
+    const limited = yield* Ref.modify(failures, (current) => {
+      const recent = (key: string) =>
+        (current.get(key) ?? []).filter((at) => now - at < LOGIN_WINDOW_MS);
+      const byEmail = recent(emailKey);
+      const byIp = recent(ipKey);
+      const limited =
+        byEmail.length >= MAX_FAILURES_PER_EMAIL
+          ? byEmail
+          : byIp.length >= MAX_FAILURES_PER_IP
+            ? byIp
+            : null;
+      if (limited !== null) return [limited, current] as const;
+      const next = new Map(current);
+      // Re-inserting moves the key to the end, so eviction drops the least recently charged.
+      for (const [key, times] of [
+        [emailKey, byEmail],
+        [ipKey, byIp],
+      ] as const) {
+        next.delete(key);
+        next.set(key, [...times, now]);
+      }
+      if (next.size > MAX_TRACKED_KEYS) {
+        for (const [key, times] of next) {
+          if (times.every((at) => now - at >= LOGIN_WINDOW_MS)) next.delete(key);
+        }
+        for (const key of next.keys()) {
+          if (next.size <= MAX_TRACKED_KEYS) break;
+          next.delete(key);
+        }
+      }
+      return [null, next] as const;
+    });
+    if (limited === null) return now;
     const oldest = Math.min(...limited);
     return yield* new InstanceRateLimitedError({
       message: "Too many failed sign-in attempts. Try again later.",
       retryAfterSeconds: Math.max(1, Math.ceil((oldest + LOGIN_WINDOW_MS - now) / 1000)),
     });
   });
+
+  const refundAttempt = (keys: ReadonlyArray<string>, chargedAt: number) =>
+    Ref.update(failures, (current) => {
+      const next = new Map(current);
+      for (const key of keys) {
+        const times = next.get(key);
+        if (times === undefined) continue;
+        const index = times.indexOf(chargedAt);
+        if (index === -1) continue;
+        const remaining = times.toSpliced(index, 1);
+        if (remaining.length === 0) next.delete(key);
+        else next.set(key, remaining);
+      }
+      return next;
+    });
+
+  const checkPassword = (password: string, encoded: string) =>
+    passwordChecks.withPermits(1)(verifyPassword(password, encoded));
 
   const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 
@@ -193,19 +239,16 @@ const make = Effect.gen(function* () {
 
   const login: InstanceAuth["Service"]["login"] = Effect.fn("InstanceAuth.login")(
     function* (input) {
-      const client = deriveAuthClientMetadata({
-        request: input.request,
-        presented: {
-          ...(input.deviceLabel ? { label: input.deviceLabel } : {}),
-          deviceType: input.clientKind === "cli" ? "bot" : "desktop",
-        },
+      const client = clientMetadata(input.request, {
+        ...(input.deviceLabel ? { label: input.deviceLabel } : {}),
+        deviceType: input.clientKind === "cli" ? "bot" : "desktop",
       });
       const emailKey = `email:${input.email.trim().toLowerCase()}`;
       const ipKey = `ip:${client.ipAddress ?? "unknown"}`;
-      yield* assertNotRateLimited(emailKey, ipKey);
+      const chargedAt = yield* chargeAttempt(emailKey, ipKey);
 
       const record = yield* store.findUserByEmail(input.email);
-      const valid = yield* verifyPassword(
+      const valid = yield* checkPassword(
         input.password,
         Option.match(record, {
           onNone: () => DUMMY_PASSWORD_HASH,
@@ -213,7 +256,6 @@ const make = Effect.gen(function* () {
         }),
       );
       if (Option.isNone(record) || !valid) {
-        yield* recordFailure([emailKey, ipKey], yield* Clock.currentTimeMillis);
         yield* settings.audit({
           actorUserId: Option.isSome(record) ? record.value.userId : null,
           actorEmail: input.email,
@@ -222,6 +264,7 @@ const make = Effect.gen(function* () {
         });
         return yield* unauthorized("invalid_credentials", "Incorrect email or password.");
       }
+      yield* refundAttempt([emailKey, ipKey], chargedAt);
       const user = record.value;
       if (user.disabledAt !== null) {
         return yield* unauthorized("account_disabled", "This account is disabled.");
@@ -308,18 +351,19 @@ const make = Effect.gen(function* () {
     logout: Effect.fn("InstanceAuth.logout")((sessionId, userId) =>
       revokeSession(userId, sessionId).pipe(Effect.asVoid),
     ),
+    clientIp: (request) => clientMetadata(request).ipAddress ?? null,
     changePassword: Effect.fn("InstanceAuth.changePassword")(function* (input) {
       const emailKey = `email:${input.principal.user.email.toLowerCase()}`;
       const ipKey = `ip:${input.ipAddress ?? "unknown"}`;
-      yield* assertNotRateLimited(emailKey, ipKey);
+      const chargedAt = yield* chargeAttempt(emailKey, ipKey);
       const record = yield* store.getUser(input.principal.user.id);
       if (Option.isNone(record)) {
         return yield* unauthorized("session_expired", "Your session has ended. Sign in again.");
       }
-      if (!(yield* verifyPassword(input.currentPassword, record.value.passwordHash))) {
-        yield* recordFailure([emailKey, ipKey], yield* Clock.currentTimeMillis);
+      if (!(yield* checkPassword(input.currentPassword, record.value.passwordHash))) {
         return yield* unauthorized("invalid_credentials", "Your current password is incorrect.");
       }
+      yield* refundAttempt([emailKey, ipKey], chargedAt);
       const now = yield* nowIso;
       const passwordHash = yield* hashPassword(input.newPassword).pipe(Effect.orDie);
       yield* store.updateUser(
