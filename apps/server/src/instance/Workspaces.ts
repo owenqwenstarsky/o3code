@@ -618,9 +618,11 @@ const make = Effect.gen(function* () {
                       ),
                     );
                   }
+                  // Rotate the secret so a copy taken from the workspace stops authenticating.
                   yield* patch(record.workspaceId, {
                     status: "stopped",
                     statusMessage: "Account disabled",
+                    secretHash: sha256(generateSecret()),
                   });
                 }),
               ),
@@ -630,17 +632,16 @@ const make = Effect.gen(function* () {
       ),
     ),
     startAllForUser: Effect.fn("Workspaces.startAllForUser")((userId) =>
-      store
-        .listWorkspacesForUser(userId)
-        .pipe(
-          Effect.flatMap((records) =>
-            Effect.forEach(
-              records,
-              (record) => action(record.workspaceId, "start").pipe(Effect.ignore),
-              { discard: true },
-            ),
+      store.listWorkspacesForUser(userId).pipe(
+        Effect.flatMap((records) =>
+          Effect.forEach(
+            records,
+            // Disabling rotated the secret, so each container needs a fresh one.
+            (record) => action(record.workspaceId, "recreate").pipe(Effect.ignore),
+            { discard: true },
           ),
         ),
+      ),
     ),
     logs: Effect.fn("Workspaces.logs")((workspaceId) =>
       requireRecord(workspaceId).pipe(

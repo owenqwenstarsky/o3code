@@ -290,15 +290,25 @@ it.effect("keeps a user's workspaces apart and one of them the default", () => {
       [backend.id, false],
     ]);
 
+    const secretBeforeDisable = host.created.findLast(
+      (spec) => spec.workspaceId === main.id,
+    )!.workspaceSecret;
+    expect(yield* workspaces.verifySecret(main.id, secretBeforeDisable)).toBe(true);
     yield* workspaces.stopAllForUser(userId);
     expect(
       (yield* workspaces.listForUser(userId)).every((workspace) => workspace.status === "stopped"),
     ).toBe(true);
+    expect(yield* workspaces.verifySecret(main.id, secretBeforeDisable)).toBe(false);
     yield* workspaces.startAllForUser(userId);
     yield* workspaces.drain;
     expect(
       (yield* workspaces.listForUser(userId)).every((workspace) => workspace.status === "running"),
     ).toBe(true);
+    expect(yield* workspaces.verifySecret(main.id, secretBeforeDisable)).toBe(false);
+    const secretAfterEnable = host.created.findLast(
+      (spec) => spec.workspaceId === main.id,
+    )!.workspaceSecret;
+    expect(yield* workspaces.verifySecret(main.id, secretAfterEnable)).toBe(true);
   }).pipe(Effect.provide(layerWorkspaces(host)));
 });
 

@@ -764,6 +764,62 @@ describe("AcpRegistrySupport", () => {
     );
   });
 
+  it.effect("rejects a symlinked archive command without changing its target's mode", () => {
+    const downloadUrl = "https://registry.test/agent.tar.gz";
+    const agent = makeAgent({
+      binary: { "linux-x86_64": { archive: downloadUrl, cmd: "./agent" } },
+    });
+    return Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const cacheDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-acp-symlink-" });
+      const outside = `${cacheDir}/outside`;
+      yield* fileSystem.writeFileString(outside, "not an agent\n");
+      yield* fileSystem.chmod(outside, 0o644);
+      const source = `${cacheDir}/source`;
+      yield* fileSystem.makeDirectory(source);
+      yield* fileSystem.symlink(outside, `${source}/agent`);
+      const archivePath = `${cacheDir}/agent.tar.gz`;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const tar = yield* spawner.spawn(
+        ChildProcess.make("tar", ["-czf", archivePath, "-C", source, "."]),
+      );
+      expect(yield* tar.exitCode).toBe(0);
+      const archive = yield* fileSystem.readFile(archivePath);
+      const resolver = yield* AcpRegistrySupport.makeAcpRegistryCatalog({
+        cacheDir,
+        toolsDir: `${cacheDir}/tools`,
+        registryUrl,
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                request.url === registryUrl
+                  ? new Response(makeRegistry(agent))
+                  : new Response(archive),
+              ),
+            ),
+          ),
+        ),
+      );
+      const error = yield* resolver.prepare({ agentId: agent.id }).pipe(Effect.flip);
+      expect(error.reason).toBe("archive_invalid");
+      expect((yield* fileSystem.stat(outside)).mode & 0o777).toBe(0o644);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
+        ),
+      ),
+      Effect.provideService(HostProcess.Platform, "linux"),
+      Effect.provideService(HostProcess.Architecture, "x64"),
+    );
+  });
+
   it.effect("searches compatible agents with deterministic ranking and bounded metadata", () => {
     const exact = {
       ...makeAgent({ npx: { package: "@example/acp@1.2.3" } }),
