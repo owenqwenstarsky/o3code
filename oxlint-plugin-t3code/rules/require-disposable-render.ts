@@ -166,8 +166,13 @@ export default defineRule({
 
     const isDisposedRender = (node: ESTree.CallExpression) => {
       const awaited = node.parent;
+      // A helper that returns the screen hands disposal to its caller.
+      if (awaited?.type === "ReturnStatement" || awaited?.type === "ArrowFunctionExpression")
+        return true;
       if (awaited?.type !== "AwaitExpression") return false;
       const owner = awaited.parent;
+      if (owner?.type === "ReturnStatement" || owner?.type === "ArrowFunctionExpression")
+        return true;
       if (
         owner?.type === "CallExpression" &&
         owner.callee.type === "MemberExpression" &&
@@ -182,6 +187,22 @@ export default defineRule({
       const declaration = owner.parent;
       const block = declaration.parent;
       if (block?.type !== "BlockStatement") return false;
+      const isName = (value: ESTree.Node | null | undefined) =>
+        value?.type === "Identifier" && value.name === name;
+      const returned = block.body.some((statement) => {
+        if (statement.type !== "ReturnStatement") return false;
+        const value = statement.argument;
+        // `Object.assign(screen, …)` and `{ ...screen }` still hand over the screen's disposer.
+        return (
+          isName(value) ||
+          (value?.type === "CallExpression" && isName(value.arguments[0])) ||
+          (value?.type === "ObjectExpression" &&
+            value.properties.some(
+              (property) => property.type === "SpreadElement" && isName(property.argument),
+            ))
+        );
+      });
+      if (returned) return true;
       const next = block.body[block.body.indexOf(declaration) + 1];
       return (
         next?.type === "TryStatement" &&

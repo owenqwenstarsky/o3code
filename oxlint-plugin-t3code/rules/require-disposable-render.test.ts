@@ -51,6 +51,17 @@ describe("t3code/require-disposable-render", () => {
     'import { render } from "../test/render"; async function test() { const screen = await render(null); try { await act(() => screen.rerender(null)); } finally { await screen[Symbol.asyncDispose](); } }',
   );
   browserTest.valid(
+    "allows a helper that returns the render result to its caller",
+    [
+      'import { render } from "../test/render";',
+      "const direct = () => render(null);",
+      "function plain() { return render(null); }",
+      "async function named() { const screen = await render(null); return screen; }",
+      "async function extended() { const screen = await render(null); return Object.assign(screen, { text: () => '' }); }",
+      "async function spread() { const screen = await render(null); return { ...screen, extra: 1 }; }",
+    ].join("\n"),
+  );
+  browserTest.valid(
     "ignores an unrelated render function",
     'import { render } from "other-library"; async function test() { const screen = await render(null); }',
   );

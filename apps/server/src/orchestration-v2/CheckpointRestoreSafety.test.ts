@@ -176,7 +176,7 @@ it.effect.each([
       assert.equal(yield* fs.readFileString(otherFile), "other thread's uncommitted work");
     } else {
       yield* service.execute({ threadId, providerThreadId, checkpointId, scopeId, restoreFiles });
-      assert.deepEqual(calls, restoreFiles ? ["provider", "files"] : ["provider"]);
+      assert.deepEqual(calls, restoreFiles ? ["files", "provider"] : ["provider"]);
       assert.equal(yield* fs.exists(otherFile), !restoreFiles);
     }
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
