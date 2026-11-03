@@ -56,6 +56,7 @@ export class AuthSync extends Context.Service<
       readonly workspaceId: string;
       readonly provider: InstanceAuthSyncProvider;
       readonly baseVersion: number;
+      readonly groupId: string;
       readonly content: string | null;
     }) => Effect.Effect<InstanceAuthSyncPushResult, InstanceStoreError>;
   }
@@ -253,6 +254,9 @@ const make = Effect.gen(function* () {
           return { groupId: null, accepted: false, current: null } as const;
         }
         const group = InstanceAuthGroupId.make(groupId.value);
+        if (group !== input.groupId) {
+          return { groupId: group, accepted: false, current: null } as const;
+        }
         const existing = (yield* fileRows(groupId.value)).find(
           (row) => row.provider === input.provider,
         );

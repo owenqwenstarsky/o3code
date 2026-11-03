@@ -87,6 +87,7 @@ it.layer(layerAuthSync)("AuthSync", (it) => {
         expect((yield* sync.listGroups)[0]?.workspaceIds).toEqual(["ws-alice", "ws-bob"]);
 
         const first = yield* sync.push({
+          groupId: group.id,
           workspaceId: "ws-alice",
           provider: "claude",
           baseVersion: 0,
@@ -96,6 +97,7 @@ it.layer(layerAuthSync)("AuthSync", (it) => {
 
         // Bob wrote from a stale version, so Alice's copy wins and comes back to him.
         const stale = yield* sync.push({
+          groupId: group.id,
           workspaceId: "ws-bob",
           provider: "claude",
           baseVersion: 0,
@@ -107,6 +109,7 @@ it.layer(layerAuthSync)("AuthSync", (it) => {
         });
 
         yield* sync.push({
+          groupId: group.id,
           workspaceId: "ws-bob",
           provider: "claude",
           baseVersion: 1,
@@ -124,6 +127,7 @@ it.layer(layerAuthSync)("AuthSync", (it) => {
 
         // A sign-out is a version too.
         yield* sync.push({
+          groupId: group.id,
           workspaceId: "ws-alice",
           provider: "claude",
           baseVersion: 2,
@@ -137,12 +141,25 @@ it.layer(layerAuthSync)("AuthSync", (it) => {
         expect(yield* sync.pull("ws-outside", [])).toEqual({ groupId: null, files: [] });
         expect(
           yield* sync.push({
+            groupId: group.id,
             workspaceId: "ws-outside",
             provider: "claude",
             baseVersion: 3,
             content: credential("x"),
           }),
         ).toEqual({ groupId: null, accepted: false, current: null });
+
+        const destination = yield* sync.createGroup("Other team");
+        yield* sync.setWorkspaceGroup("ws-bob", destination.id);
+        const moved = yield* sync.push({
+          workspaceId: "ws-bob",
+          groupId: group.id,
+          provider: "codex",
+          baseVersion: 0,
+          content: credential("from-old-group"),
+        });
+        expect(moved).toEqual({ groupId: destination.id, accepted: false, current: null });
+        expect((yield* sync.pull("ws-bob", [])).files).toEqual([]);
 
         // Leaving keeps nothing on the instance side tied to the workspace.
         yield* sync.setWorkspaceGroup("ws-bob", null);
@@ -159,6 +176,7 @@ it.layer(layerAuthSync)("AuthSync", (it) => {
       const group = yield* sync.createGroup("Carol");
       yield* sync.setWorkspaceGroup("ws-carol", group.id);
       yield* sync.push({
+        groupId: group.id,
         workspaceId: "ws-carol",
         provider: "codex",
         baseVersion: 0,
