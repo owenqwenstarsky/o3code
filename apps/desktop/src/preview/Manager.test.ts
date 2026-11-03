@@ -19,6 +19,8 @@ import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as PlatformError from "effect/PlatformError";
+import * as Sink from "effect/Sink";
 import type * as Scope from "effect/Scope";
 import { TestClock } from "effect/testing";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -2665,5 +2667,52 @@ describe("PreviewManager", () => {
         expect("cause" in error).toBe(false);
       }),
     ),
+  );
+});
+
+effectIt.effect("preserves a download destination created after a stale existence check", () => {
+  const files = new Map([["/downloads/report.txt", "another download"]]);
+  const contents = new TextEncoder().encode("new download");
+  return Effect.gen(function* () {
+    yield* PreviewManager.copyToDownloads("/source", "report.txt", "/downloads");
+    expect(files.get("/downloads/report.txt")).toBe("another download");
+    expect(files.get("/downloads/report (1).txt")).toBe("new download");
+  }).pipe(
+    Effect.provide([
+      FileSystem.layerNoop({
+        exists: () => Effect.succeed(false),
+        copyFile: (_source, target) =>
+          Effect.sync(() => {
+            files.set(target, "new download");
+          }),
+        stream: () => Stream.make(contents),
+        sink: (target, options) =>
+          Sink.unwrap(
+            Effect.suspend(() => {
+              if (options?.flag === "wx" && files.has(target)) {
+                return Effect.fail(
+                  new PlatformError.PlatformError(
+                    new PlatformError.SystemError({
+                      _tag: "AlreadyExists",
+                      module: "FileSystem",
+                      method: "open",
+                      pathOrDescriptor: target,
+                    }),
+                  ),
+                );
+              }
+              files.set(target, "");
+              return Effect.succeed(
+                Sink.forEach((chunk: Uint8Array) =>
+                  Effect.sync(() => {
+                    files.set(target, files.get(target) + new TextDecoder().decode(chunk));
+                  }),
+                ),
+              );
+            }),
+          ),
+      }),
+      Path.layer,
+    ]),
   );
 });

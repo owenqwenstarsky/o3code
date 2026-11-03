@@ -87,7 +87,7 @@ const userDigits = MARKETING_STATS.users.replaceAll(",", "").padStart(7, "0").sp
 
         <div class="address-bar">
           <span>Address</span>
-          <div class="address-field sunken"><RetroIcon name="globe" size={16} /><span>https://t3.codes/95</span></div>
+          <div class="address-field sunken"><RetroIcon name="globe" size={16} /><span>/95</span></div>
           <a class="retro-button address-go" href="/">Go <span aria-hidden="true">↗</span></a>
         </div>
 
@@ -170,7 +170,7 @@ const userDigits = MARKETING_STATS.users.replaceAll(",", "").padStart(7, "0").sp
 
           <section class="order-section" id="order" aria-labelledby="order-title">
             <div class="order-pitch"><h2 id="order-title">For just <span>0 easy payments</span><br />of absolutely nothing.</h2><p>Get the app. Keep your subscriptions.</p><a class="retro-button primary-cta" href="/download"><RetroIcon name="disk" size={25} /><span>GET T3 CODE. IT'S FREE.</span><span aria-hidden="true">→</span></a><p class="offer-note">T3 Code is free. Your AI provider may charge for use.</p></div>
-            <div class="run-window raised"><div class="window-title"><span>Run</span><RetroIcon name="computer" size={18} /></div><div class="run-body"><p>Too cool for an installer?</p><label for="run-command">Type this in your terminal.</label><div class="command-row"><input id="run-command" class="sunken" value="npx t3" readonly spellcheck="false" aria-label="Terminal command" /><button type="button" class="retro-button" id="copy-command">Copy</button></div><p class="command-feedback" id="command-feedback" role="status">Node.js required. Modem optional.</p><div class="run-divider"></div><b>System requirements</b><ul><li>A modern computer</li><li>A supported coding agent</li><li>A dream, ideally a small one</li></ul><p class="requirements-note">Does not actually run on Windows 95.</p></div></div>
+            <div class="run-window raised"><div class="window-title"><span>Run</span><RetroIcon name="computer" size={18} /></div><div class="run-body"><p>Prefer to build from source?</p><label for="run-command">Type this in your terminal.</label><div class="command-row"><input id="run-command" class="sunken" value="git clone https://github.com/owenqwenstarsky/o3code.git" readonly spellcheck="false" aria-label="Terminal command" /><button type="button" class="retro-button" id="copy-command">Copy</button></div><p class="command-feedback" id="command-feedback" role="status">Git required. Modem optional.</p><div class="run-divider"></div><b>System requirements</b><ul><li>A modern computer</li><li>A supported coding agent</li><li>A dream, ideally a small one</li></ul><p class="requirements-note">Does not actually run on Windows 95.</p></div></div>
           </section>
 
           <section class="faq-section" aria-labelledby="faq-title">
@@ -183,7 +183,7 @@ const userDigits = MARKETING_STATS.users.replaceAll(",", "").padStart(7, "0").sp
 
           <footer class="site-footer">
             <div class="visitor-counter"><div class="counter-digits" aria-label={`${MARKETING_STATS.users} users`}>{userDigits.map((digit) => <span aria-hidden="true">{digit}</span>)}</div><span>developers use T3 Code.</span></div>
-            <p>© {new Date().getFullYear()} T3 Tools Inc.</p>
+            <p>© {new Date().getFullYear()} O3 Code contributors.</p>
             <nav aria-label="Footer"><a href="/">Back to the present</a><a href={GITHUB_REPOSITORY_URL}>GitHub</a><a href="/privacy-policy">Privacy</a><a href="/terms-of-service">Terms</a></nav>
           </footer>
         </main>
