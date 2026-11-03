@@ -256,6 +256,7 @@ overrides:
   '@legendapp/list': 3.3.5
   '@pierre/diffs': 1.6.1
   dbus-next: 0.10.2
+  dbus-next>xml2js: 0.6.2
   node-pty: 1.2.0-beta.15
   app-builder-lib: 26.16.1
   '@exodus/bytes>@noble/hashes': 1.8.0
@@ -9033,8 +9034,8 @@ packages:
     resolution: {integrity: sha512-k8KO9hrMyNk6tUWqUfkTEZbezRRpONVOzUTnc97VnCvyj6Tf9lyUR9EDAIeiVLv56jsMcoXEwjW8Kv5yPY52lw==}
     engines: {node: '>=16.0.0'}
 
-  xml2js@0.4.23:
-    resolution: {integrity: sha512-ySPiMjM0+pLDftHgXY4By0uswI3SPKLDw/i3UXbnO8M/p28zqexCUoPmQFrYD+/1BzhGJSs2i1ERWKJAtiLrug==}
+  xml2js@0.6.2:
+    resolution: {integrity: sha512-T4rieHaC1EXcES0Kxxj4JWgaUQHDk+qwHcYOCFHfiwKz7tOVPLq7Hjq9dM1WCMhylqMEfP7hMcOIChvotiZegA==}
     engines: {node: '>=4.0.0'}
 
   xmlbuilder@11.0.1:
@@ -12997,7 +12998,7 @@ snapshots:
       jsbi: 2.0.5
       long: 4.0.0
       safe-buffer: 5.2.1
-      xml2js: 0.4.23
+      xml2js: 0.6.2
 
   debug@2.6.9(supports-color@7.2.0):
     dependencies:
@@ -16497,7 +16498,7 @@ snapshots:
 
   xml-naming@0.1.0: {}
 
-  xml2js@0.4.23:
+  xml2js@0.6.2:
     dependencies:
       sax: 1.6.1
       xmlbuilder: 11.0.1

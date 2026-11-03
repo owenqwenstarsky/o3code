@@ -1,6 +1,13 @@
 {
   "customNotices": [
     {
+      "bundles": ["resource-monitor"],
+      "includeInBundles": ["desktop", "server", "web"],
+      "license": "MIT AND Unicode-3.0",
+      "name": "Resource monitor Rust dependencies",
+      "noticeFile": "scripts/licenses/resource-monitor.LICENSE"
+    },
+    {
       "name": "opencode Office viewers",
       "bundles": ["web"],
       "license": "MIT",
