@@ -32,6 +32,7 @@ import {
 import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
 import * as Schema from "effect/Schema";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
@@ -1647,6 +1648,16 @@ export default function ThreadTerminalDrawer({
     });
   };
 
+  const handleResizeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const nextHeight = clampDrawerHeight(
+      drawerHeight + (event.key === "ArrowUp" ? 10 : -10),
+      maxDrawerHeight,
+    );
+    if (nextHeight !== drawerHeight) onHeightChange(nextHeight);
+  };
+
   const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -1754,7 +1765,15 @@ export default function ThreadTerminalDrawer({
       >
         {!isPanel ? (
           <div
-            className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
+            className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize focus-visible:outline-2 focus-visible:outline-ring"
+            role="separator"
+            aria-label="Terminal height"
+            aria-orientation="horizontal"
+            aria-valuemin={Math.min(MIN_DRAWER_HEIGHT, maxDrawerHeight)}
+            aria-valuemax={maxDrawerHeight}
+            aria-valuenow={drawerHeight}
+            tabIndex={0}
+            onKeyDown={handleResizeKeyDown}
             onPointerDown={handleResizePointerDown}
             onPointerMove={handleResizePointerMove}
             onPointerUp={handleResizePointerEnd}
@@ -1791,7 +1810,15 @@ export default function ThreadTerminalDrawer({
     >
       {!isPanel ? (
         <div
-          className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize"
+          className="absolute inset-x-0 top-0 z-20 h-1.5 cursor-row-resize focus-visible:outline-2 focus-visible:outline-ring"
+          role="separator"
+          aria-label="Terminal height"
+          aria-orientation="horizontal"
+          aria-valuemin={Math.min(MIN_DRAWER_HEIGHT, maxDrawerHeight)}
+          aria-valuemax={maxDrawerHeight}
+          aria-valuenow={drawerHeight}
+          tabIndex={0}
+          onKeyDown={handleResizeKeyDown}
           onPointerDown={handleResizePointerDown}
           onPointerMove={handleResizePointerMove}
           onPointerUp={handleResizePointerEnd}
