@@ -269,6 +269,7 @@ const RollbackTargetAttempts = Schema.Array(
 const decodeRollbackTargetAttempts = Schema.decodeUnknownEffect(RollbackTargetAttempts);
 
 export interface ProjectionCheckpointRollbackContext {
+  readonly hasActiveRun: boolean;
   readonly thread: OrchestrationV2AppThread;
   readonly providerThread: OrchestrationV2ProviderThread | undefined;
   readonly providerSession: OrchestrationV2ThreadProjection["providerSessions"][number] | undefined;
@@ -5130,7 +5131,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         .withTransaction(
           Effect.gen(function* () {
             const thread = yield* getThread(threadId);
-            const [providerRows, checkpointRows, scopeRows] = yield* Effect.all([
+            const [providerRows, checkpointRows, scopeRows, activeRunRows] = yield* Effect.all([
               sql<PayloadRow>`SELECT payload_json FROM orchestration_v2_projection_provider_threads
             WHERE provider_thread_id = ${target.providerThreadId}
               AND (thread_id = ${threadId}
@@ -5140,6 +5141,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             WHERE thread_id = ${threadId} AND checkpoint_id = ${target.checkpointId}`,
               sql<PayloadRow>`SELECT payload_json FROM orchestration_v2_projection_checkpoint_scopes
             WHERE thread_id = ${threadId} AND scope_id = ${target.scopeId}`,
+              sql`SELECT 1 FROM orchestration_v2_projection_runs
+            WHERE thread_id = ${threadId}
+              AND status IN ('queued', 'preparing', 'starting', 'running', 'waiting')
+            LIMIT 1`,
             ]);
             const providerThread =
               providerRows[0] === undefined
@@ -5154,6 +5159,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ? undefined
                 : yield* decodeCheckpointScopePayload(scopeRows[0].payload_json);
             const context: ProjectionCheckpointRollbackContext = {
+              hasActiveRun: activeRunRows.length > 0,
               thread,
               providerThread,
               checkpoint,

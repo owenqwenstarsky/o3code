@@ -45,6 +45,7 @@ export class CheckpointRollbackExecutionError extends Schema.TaggedError<Checkpo
     reason: Schema.Literals([
       "rollback-target-invalid",
       "active-provider-changed",
+      "active-run",
       "provider-turn-unavailable",
       "unexpected-failure",
       "shared-workspace",
@@ -61,6 +62,8 @@ export class CheckpointRollbackExecutionError extends Schema.TaggedError<Checkpo
         return `Rollback target ${this.checkpointId} for provider thread ${this.providerThreadId} on thread ${this.threadId} is incomplete or invalid.`;
       case "active-provider-changed":
         return `Active provider changed before rollback target ${this.checkpointId} could execute on thread ${this.threadId}.`;
+      case "active-run":
+        return `Cannot roll back thread ${this.threadId} while a run is active.`;
       case "provider-turn-unavailable":
         return `Provider turn for rollback target ${this.checkpointId} is unavailable on provider thread ${this.providerThreadId}.`;
       case "shared-workspace":
@@ -171,6 +174,15 @@ export const layer: Layer.Layer<
         });
       }
 
+      if (context.hasActiveRun) {
+        return yield* new CheckpointRollbackExecutionError({
+          reason: "active-run",
+          threadId: input.threadId,
+          providerThreadId: input.providerThreadId,
+          checkpointId: input.checkpointId,
+        });
+      }
+
       const targetOrdinal = checkpoint.appRunOrdinal ?? 0;
       const rollbackTarget: ProviderAdapter.ProviderAdapterV2RollbackTarget =
         targetOrdinal === 0
@@ -265,6 +277,12 @@ export const layer: Layer.Layer<
           (turn.runAttemptId === null || !rolledBackAttemptIds.has(turn.runAttemptId)),
       );
 
+      // Complete Git operations before mutating provider history so their retries cannot remove extra turns.
+      if (input.restoreFiles !== false) yield* checkpoints.restore({ scope, checkpoint });
+      if (staleCheckpoints.length > 0) {
+        yield* checkpoints.deleteStaleRefs({ scope, checkpoints: staleCheckpoints });
+      }
+
       const snapshot =
         runsToRollback.length === 0
           ? { providerThread }
@@ -273,10 +291,6 @@ export const layer: Layer.Layer<
               target: rollbackTarget,
               providerThreadTurns,
             });
-      if (input.restoreFiles !== false) yield* checkpoints.restore({ scope, checkpoint });
-      if (staleCheckpoints.length > 0) {
-        yield* checkpoints.deleteStaleRefs({ scope, checkpoints: staleCheckpoints });
-      }
 
       // Lock against full-row thread writes that could restore the old native session after rollback.
       yield* threadCommands.withLock(

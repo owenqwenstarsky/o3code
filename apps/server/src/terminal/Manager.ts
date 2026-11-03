@@ -3442,6 +3442,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
 
         if (input.deleteHistory) {
           yield* deleteAllHistoryForThread(input.threadId);
+          for (const key of closedSessionKeys) {
+            if (key.startsWith(`${input.threadId}\u0000`)) closedSessionKeys.delete(key);
+          }
         }
       }),
     );

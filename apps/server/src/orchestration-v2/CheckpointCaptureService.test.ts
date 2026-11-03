@@ -30,6 +30,7 @@ import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as EventSink from "./EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 
 const layerProjectionStoreTest = Layer.mergeAll(
   ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
@@ -269,6 +270,7 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
           Layer.provide(
             Layer.mergeAll(
               IdAllocator.layer,
+              ThreadCommandExecutor.layer,
               refLookupFails
                 ? CheckpointService.layer.pipe(
                     Layer.provide(
@@ -448,6 +450,7 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
         Layer.provide(
           Layer.mergeAll(
             IdAllocator.layer,
+            ThreadCommandExecutor.layer,
             Layer.mock(CheckpointService.CheckpointServiceV2)({
               materializeBaselineCheckpoint: () => Effect.die("a discarded run has no baseline"),
               capture: () => Effect.die("a discarded run must not be captured"),
@@ -477,7 +480,7 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
     }),
   );
 
-  it.effect("records the checkpoint of a cancelled run and keeps it cancelled", () =>
+  it.effect.each(["before", "during"])("preserves cancellation committed %s capture", (timing) =>
     Effect.gen(function* () {
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
       const now = yield* DateTime.now;
@@ -627,10 +630,10 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
           capturedAt: now,
         },
       });
-      for (const [status, completedAt] of [
-        ["running", null],
-        ["cancelled", cancelledAt],
-      ] as const) {
+      const updateStatus = Effect.fn("test.updateCaptureStatus")(function* (
+        status: "waiting" | "cancelled",
+        completedAt: DateTime.Utc | null,
+      ) {
         yield* projectionStore.apply({
           id: EventId.make(`event:checkpoint-capture-cancelled:run-${status}`),
           type: "run.updated",
@@ -651,7 +654,9 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
           occurredAt: completedAt ?? now,
           payload: { ...runningRootNode, status, completedAt },
         });
-      }
+      });
+      yield* updateStatus("waiting", null);
+      if (timing === "before") yield* updateStatus("cancelled", cancelledAt);
 
       const captured = {
         id: CheckpointId.make("checkpoint:cancelled-captured-1"),
@@ -672,10 +677,12 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
         Layer.provide(
           Layer.mergeAll(
             IdAllocator.layer,
+            ThreadCommandExecutor.layer,
             Layer.mock(CheckpointService.CheckpointServiceV2)({
               materializeBaselineCheckpoint: () =>
                 Effect.die("baseline materialization must be skipped when ordinal 0 is ready"),
-              capture: () => Effect.succeed(captured),
+              capture: () =>
+                updateStatus("cancelled", cancelledAt).pipe(Effect.orDie, Effect.as(captured)),
             }),
             Layer.mock(EventSink.EventSinkV2)({
               commitCommand: (input) =>
@@ -864,6 +871,7 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
         Layer.provide(
           Layer.mergeAll(
             IdAllocator.layer,
+            ThreadCommandExecutor.layer,
             CheckpointService.layer.pipe(
               Layer.provide(
                 Layer.mergeAll(

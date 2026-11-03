@@ -199,6 +199,7 @@ const layerCheckpointRollbackServiceProvided = CheckpointRollbackService.layer.p
 const layerCheckpointCaptureServiceProvided = CheckpointCaptureService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
+      ThreadCommandExecutor.layer,
       layerCheckpointServiceProvided,
       layerEventSink,
       IdAllocator.layer,
