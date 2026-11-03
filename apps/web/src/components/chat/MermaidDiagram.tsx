@@ -3,6 +3,7 @@ import type { DiagramType, MathResolver } from "pele/lazy";
 import { use, useState } from "react";
 
 import { serializeCodeBlockToMarkdown } from "../../markdown-clipboard";
+import { LRUCache } from "../../lib/lruCache";
 import { Button } from "../ui/button";
 
 type Pele = typeof import("pele/lazy");
@@ -45,15 +46,16 @@ let mathLoad: Promise<MathResolver | null> | null = null;
 
 // Pele has no typesetter, so $$...$$ labels go through the KaTeX the chat
 // already uses for math. It only loads for diagrams that contain math.
-function loadMath(): Promise<MathResolver | null> {
+export function loadMath(): Promise<MathResolver | null> {
   mathLoad ??= import("katex").then(
     ({ default: katex }) => {
-      const typeset = new Map<string, ReturnType<MathResolver>>();
+      const typeset = new LRUCache<{ markup: ReturnType<MathResolver> }>(128, 1024 * 1024);
       let probe: HTMLDivElement | null = null;
       // Pele calls this on every layout, including resizes.
       return (tex, size) => {
         const key = `${size}:${tex}`;
-        if (typeset.has(key)) return typeset.get(key);
+        const cached = typeset.get(key);
+        if (cached) return cached.markup;
         let markup: ReturnType<MathResolver> = null;
         try {
           if (!probe) {
@@ -83,7 +85,7 @@ function loadMath(): Promise<MathResolver | null> {
         } catch {
           // Unsupported TeX stays readable as its source.
         }
-        typeset.set(key, markup);
+        typeset.set(key, { markup }, (key.length + (markup?.html.length ?? 0)) * 2);
         return markup;
       };
     },
