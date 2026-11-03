@@ -1,6 +1,8 @@
 import { EnvironmentId } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Deferred from "effect/Deferred";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -30,6 +32,7 @@ interface FakeInstance {
   sessionValid: boolean;
   meCalls: number;
   tokenCalls: number;
+  beforeResponse?: (path: string) => Effect.Effect<void>;
 }
 
 const environmentId = EnvironmentId.make("workspace-env");
@@ -120,7 +123,9 @@ const layerFakeHttp = (instance: FakeInstance) =>
           });
         }
         return json({}, 404);
-      }),
+      }).pipe(
+        Effect.tap(() => instance.beforeResponse?.(new URL(request.url).pathname) ?? Effect.void),
+      ),
     ),
   );
 
@@ -238,6 +243,64 @@ it.effect("signs out and forgets the workspace when the instance rejects the ses
     expect(calls.removed).toEqual([environmentId]);
   }).pipe(Effect.provide(layerAccount(instance, calls)));
 });
+
+it.effect("keeps the current session when an older request is rejected", () => {
+  const instance: FakeInstance = {
+    workspaces: [mainWorkspace()],
+    sessionValid: false,
+    meCalls: 0,
+    tokenCalls: 0,
+  };
+  const calls: RegistryCalls = { registered: [], removed: [] };
+  return Effect.gen(function* () {
+    const started = yield* Deferred.make<void>();
+    const response = yield* Deferred.make<void>();
+    instance.beforeResponse = () =>
+      Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(response)));
+    const account = yield* InstanceAccount;
+    const store = yield* InstanceSessionStore;
+    const request = yield* account.me.pipe(Effect.flip, Effect.forkChild);
+    yield* Deferred.await(started);
+    const next = { ...signedIn, sessionToken: "new-session", userId: "user-2" };
+    yield* store.set(next);
+    yield* Deferred.succeed(response, undefined);
+    expect((yield* Fiber.join(request))._tag).toBe("InstanceSignedOutError");
+    expect(Option.getOrThrow(yield* account.session)).toEqual(next);
+    expect(calls.removed).toEqual([]);
+  }).pipe(Effect.provide(layerAccount(instance, calls)));
+});
+
+it.effect.each(["/o3/api/auth/me", "/.well-known/t3/environment"])(
+  "discards a workspace refresh after the session changes during %s",
+  (path) => {
+    const instance: FakeInstance = {
+      workspaces: [mainWorkspace()],
+      sessionValid: true,
+      meCalls: 0,
+      tokenCalls: 0,
+    };
+    const calls: RegistryCalls = { registered: [], removed: [] };
+    return Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const response = yield* Deferred.make<void>();
+      instance.beforeResponse = (requested) =>
+        requested === path
+          ? Deferred.succeed(started, undefined).pipe(Effect.andThen(Deferred.await(response)))
+          : Effect.void;
+      const account = yield* InstanceAccount;
+      const store = yield* InstanceSessionStore;
+      const request = yield* account.refreshWorkspaces.pipe(Effect.result, Effect.forkChild);
+      yield* Deferred.await(started);
+      const next = { ...withMain, sessionToken: "new-session", userId: "user-2" };
+      yield* store.set(next);
+      yield* Deferred.succeed(response, undefined);
+      yield* Fiber.join(request);
+      expect(Option.getOrThrow(yield* account.session)).toEqual(next);
+      expect(calls.registered).toEqual([]);
+      expect(calls.removed).toEqual([]);
+    }).pipe(Effect.provide(layerAccount(instance, calls, signedIn)));
+  },
+);
 
 it.effect("registers every running workspace and follows the default", () => {
   const frontendEnvironmentId = EnvironmentId.make("frontend-env");

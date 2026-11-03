@@ -221,7 +221,8 @@ function BrowserMiniPlayer({ threadRef, tabId, miniPlayer }: Props & { readonly 
     findActiveBrowserRecordingRuntimeTabId(threadRef, tabId) !== null;
   const serverSurfaceRef = useRef<ServerBrowserHandle | null>(null);
   const serverPictureInPicture =
-    useServerPictureInPictureKey() === serverPictureInPictureKey(threadRef.threadId, tabId);
+    useServerPictureInPictureKey() ===
+    serverPictureInPictureKey(threadRef.threadId, tabId, threadRef.environmentId);
   const viewportKey = streamedSourceKey(
     threadRef,
     previewMiniPlayerSourceKey(browserMiniPlayerSource(tabId)),
