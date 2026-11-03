@@ -26,7 +26,7 @@ import { InstanceConfig } from "./InstanceConfig.ts";
 import { InstanceSettings } from "./InstanceSettings.ts";
 import {
   InstanceStore,
-  type InstanceStoreError,
+  InstanceStoreError,
   type WorkspacePatch,
   type WorkspaceRecord,
 } from "./InstanceStore.ts";
@@ -404,75 +404,67 @@ const make = Effect.gen(function* () {
 
   const view = (workspaceId: string) => requireRecord(workspaceId).pipe(Effect.map(toView));
 
-  /** Removes the container, optionally the volumes, the tailnet device, then the row. */
-  const teardown = (record: WorkspaceRecord, deleteData: boolean) =>
-    serialized(record.workspaceId)(
-      Effect.gen(function* () {
-        yield* runtime
-          .removeContainer(record.containerId ?? containerName(record.slug))
-          .pipe(
-            Effect.catch((cause) => Effect.logWarning("Failed to remove container.", { cause })),
-          );
-        if (deleteData) {
-          yield* runtime
-            .removeData(record.workspaceId)
-            .pipe(
-              Effect.catch((cause) => Effect.logWarning("Failed to remove volumes.", { cause })),
-            );
-        }
-        if (runtime.kind === "docker" && record.tailnetHostname) {
-          yield* tailscale
-            .deleteDeviceByHostname(record.tailnetHostname.split(".")[0]!)
-            .pipe(
-              Effect.catch((cause) =>
-                Effect.logWarning("Failed to remove the workspace's Tailscale device.", { cause }),
-              ),
-            );
-        }
-        yield* store.deleteWorkspace(record.workspaceId);
-      }),
-    );
+  const teardown = Effect.fn("Workspaces.teardown")(
+    (record: WorkspaceRecord, deleteData: boolean) =>
+      serialized(record.workspaceId)(
+        Effect.gen(function* () {
+          const current = yield* requireRecord(record.workspaceId);
+          yield* runtime.removeContainer(current.containerId ?? containerName(current.slug));
+          if (deleteData) yield* runtime.removeData(current.workspaceId);
+          if (runtime.kind === "docker" && current.tailnetHostname) {
+            yield* tailscale.deleteDeviceByHostname(current.tailnetHostname.split(".")[0]!);
+          }
+          yield* store.deleteWorkspace(current.workspaceId);
+        }).pipe(
+          Effect.tapError(() =>
+            markError(record.workspaceId, "Workspace cleanup failed. Retry deletion."),
+          ),
+          Effect.mapError(
+            (cause) => new InstanceStoreError({ operation: "teardownWorkspace", cause }),
+          ),
+        ),
+      ),
+  );
 
   const action: Workspaces["Service"]["action"] = Effect.fn("Workspaces.action")(
     function* (workspaceId, kind) {
-      const record = yield* requireRecord(workspaceId);
-      switch (kind) {
-        case "start":
-          if (record.containerId === null) {
-            yield* inBackground(workspaceId, createAndStart(record));
-          } else {
-            yield* patch(workspaceId, { status: "starting", statusMessage: "Starting" });
-            yield* inBackground(workspaceId, runtime.start(record.containerId));
-          }
-          break;
-        case "stop":
-          yield* patch(workspaceId, { status: "stopping", statusMessage: null });
-          yield* inBackground(
-            workspaceId,
-            Effect.gen(function* () {
-              if (record.containerId) {
-                yield* runtime.stop(record.containerId);
+      yield* requireRecord(workspaceId);
+      yield* patch(workspaceId, {
+        status: kind === "stop" ? "stopping" : "starting",
+        statusMessage:
+          kind === "stop"
+            ? null
+            : kind === "recreate"
+              ? "Recreating"
+              : kind === "restart"
+                ? "Restarting"
+                : "Starting",
+      });
+      yield* inBackground(
+        workspaceId,
+        Effect.gen(function* () {
+          const record = yield* requireRecord(workspaceId);
+          switch (kind) {
+            case "start":
+            case "restart":
+              if (record.containerId === null) {
+                yield* createAndStart(record);
+              } else {
+                yield* kind === "start"
+                  ? runtime.start(record.containerId)
+                  : runtime.restart(record.containerId);
               }
+              break;
+            case "stop":
+              if (record.containerId) yield* runtime.stop(record.containerId);
               yield* patch(workspaceId, { status: "stopped", statusMessage: null });
-            }),
-          );
-          break;
-        case "restart":
-          if (record.containerId === null) {
-            yield* inBackground(workspaceId, createAndStart(record));
-          } else {
-            yield* patch(workspaceId, { status: "starting", statusMessage: "Restarting" });
-            yield* inBackground(workspaceId, runtime.restart(record.containerId));
+              break;
+            case "recreate":
+              yield* createAndStart(record);
+              break;
           }
-          break;
-        case "recreate":
-          yield* patch(workspaceId, { status: "starting", statusMessage: "Recreating" });
-          yield* inBackground(
-            workspaceId,
-            requireRecord(workspaceId).pipe(Effect.flatMap(createAndStart)),
-          );
-          break;
-      }
+        }),
+      );
       return yield* view(workspaceId);
     },
   );

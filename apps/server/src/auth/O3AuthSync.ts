@@ -226,11 +226,17 @@ export const make = Effect.gen(function* () {
         return { synced: { version: plan.version, hash: contentHash(plan.content) }, rewrote };
       }
       case "push": {
+        if (pulled.groupId === null) return unchanged;
         const result = yield* client.internal.authSyncPush({
           headers,
-          payload: { provider, baseVersion: plan.baseVersion, content: plan.content },
+          payload: {
+            groupId: pulled.groupId,
+            provider,
+            baseVersion: plan.baseVersion,
+            content: plan.content,
+          },
         });
-        if (result.current === null) return unchanged;
+        if (result.groupId !== pulled.groupId || result.current === null) return unchanged;
         const rewrote = !result.accepted && result.current.content !== local;
         if (rewrote) yield* writeLocal(file, result.current.content);
         return {

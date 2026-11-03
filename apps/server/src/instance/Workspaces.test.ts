@@ -12,7 +12,8 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import { InstanceConfig } from "./InstanceConfig.ts";
 import * as InstanceSettings from "./InstanceSettings.ts";
 import * as InstanceStore from "./InstanceStore.ts";
-import { TailscaleKeys } from "./TailscaleKeys.ts";
+import { DockerEngineError } from "./DockerEngine.ts";
+import { TailscaleKeys, TailscaleKeysError } from "./TailscaleKeys.ts";
 import { WorkspaceRuntime, type WorkspaceRuntimeSpec } from "./WorkspaceRuntime.ts";
 import * as Workspaces from "./Workspaces.ts";
 
@@ -24,6 +25,7 @@ interface FakeHost {
   readonly deletedDevices: Array<string>;
   running: Set<string>;
   mintedKeys: number;
+  cleanupFailure?: "container" | "data" | "tailnet";
   /** When set, `create` reports it was reached and then waits for the gate. */
   createGate?: {
     readonly entered: Deferred.Deferred<void>;
@@ -72,14 +74,26 @@ const layerFakes = (host: FakeHost) =>
             host.running.add(containerId);
           }),
         removeContainer: (containerId: string) =>
-          Effect.sync(() => {
-            host.removedContainers.push(containerId);
-            host.running.delete(containerId);
-          }),
+          Effect.suspend(() =>
+            host.cleanupFailure === "container"
+              ? Effect.fail(
+                  new DockerEngineError({ operation: "removeContainer", detail: "unavailable" }),
+                )
+              : Effect.sync(() => {
+                  host.removedContainers.push(containerId);
+                  host.running.delete(containerId);
+                }),
+          ),
         removeData: (workspaceId: string) =>
-          Effect.sync(() => {
-            host.removedData.push(workspaceId);
-          }),
+          Effect.suspend(() =>
+            host.cleanupFailure === "data"
+              ? Effect.fail(
+                  new DockerEngineError({ operation: "removeData", detail: "unavailable" }),
+                )
+              : Effect.sync(() => {
+                  host.removedData.push(workspaceId);
+                }),
+          ),
         inspect: (containerId: string) =>
           Effect.sync(() =>
             Option.some({
@@ -108,9 +122,15 @@ const layerFakes = (host: FakeHost) =>
             return Redacted.make(`tskey-${host.mintedKeys}`);
           }),
         deleteDeviceByHostname: (hostname: string) =>
-          Effect.sync(() => {
-            host.deletedDevices.push(hostname);
-          }),
+          Effect.suspend(() =>
+            host.cleanupFailure === "tailnet"
+              ? Effect.fail(
+                  new TailscaleKeysError({ operation: "deleteDevice", detail: "unavailable" }),
+                )
+              : Effect.sync(() => {
+                  host.deletedDevices.push(hostname);
+                }),
+          ),
       }),
     ),
     Layer.succeed(InstanceConfig, {
@@ -312,35 +332,66 @@ it.effect("keeps a user's workspaces apart and one of them the default", () => {
   }).pipe(Effect.provide(layerWorkspaces(host)));
 });
 
-it.effect("stopping a user's workspaces waits for a container still being created", () => {
-  const host = makeHost();
-  host.createGate = { entered: Deferred.makeUnsafe(), release: Deferred.makeUnsafe() };
-  return Effect.gen(function* () {
-    const workspaces = yield* Workspaces.Workspaces;
-    yield* insertUser;
-    const created = yield* workspaces.create({
-      userId,
-      email: "alice@acme.test",
-      label: "Default",
-      tools: [],
-      limits,
-    });
-    yield* Deferred.await(host.createGate!.entered);
+it.effect.each(["account", "action"] as const)(
+  "%s stop waits for a container still being created",
+  (kind) => {
+    const host = makeHost();
+    host.createGate = { entered: Deferred.makeUnsafe(), release: Deferred.makeUnsafe() };
+    return Effect.gen(function* () {
+      const workspaces = yield* Workspaces.Workspaces;
+      yield* insertUser;
+      const created = yield* workspaces.create({
+        userId,
+        email: "alice@acme.test",
+        label: "Default",
+        tools: [],
+        limits,
+      });
+      yield* Deferred.await(host.createGate!.entered);
 
-    // The account is disabled while the runtime is still creating the container.
-    const stopping = yield* Effect.forkChild(workspaces.stopAllForUser(userId));
-    yield* Deferred.succeed(host.createGate!.release, undefined);
-    yield* Fiber.join(stopping);
-    yield* workspaces.drain;
+      const stopping =
+        kind === "account" ? yield* Effect.forkChild(workspaces.stopAllForUser(userId)) : undefined;
+      if (kind === "action") yield* workspaces.action(created.id, "stop");
+      yield* Deferred.succeed(host.createGate!.release, undefined);
+      if (stopping) yield* Fiber.join(stopping);
+      yield* workspaces.drain;
 
-    expect(host.running.size).toBe(0);
-    expect(host.stopped).toEqual([host.created[0]!.containerId]);
-    expect(Option.getOrThrow(yield* workspaces.get(created.id))).toMatchObject({
-      status: "stopped",
-      statusMessage: "Account disabled",
-    });
-  }).pipe(Effect.provide(layerWorkspaces(host)));
-});
+      expect(host.running.size).toBe(0);
+      expect(host.stopped).toEqual([host.created[0]!.containerId]);
+      expect(Option.getOrThrow(yield* workspaces.get(created.id))).toMatchObject({
+        status: "stopped",
+        statusMessage: kind === "account" ? "Account disabled" : null,
+      });
+    }).pipe(Effect.provide(layerWorkspaces(host)));
+  },
+);
+
+it.effect.each(["container", "data", "tailnet"] as const)(
+  "retains a workspace after failed %s cleanup and allows retry",
+  (stage) => {
+    const host = makeHost();
+    return Effect.gen(function* () {
+      const workspaces = yield* Workspaces.Workspaces;
+      yield* insertUser;
+      const created = yield* workspaces.create({
+        userId,
+        email: "alice@acme.test",
+        label: "Default",
+        tools: [],
+        limits,
+      });
+      yield* workspaces.drain;
+      host.cleanupFailure = stage;
+      const result = yield* workspaces.removeAllForUser(userId, true).pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") expect(result.failure._tag).toBe("InstanceStoreError");
+      expect(Option.getOrThrow(yield* workspaces.get(created.id)).status).toBe("error");
+      delete host.cleanupFailure;
+      yield* workspaces.removeAllForUser(userId, true);
+      expect(yield* workspaces.listForUser(userId)).toEqual([]);
+    }).pipe(Effect.provide(layerWorkspaces(host)));
+  },
+);
 
 it("derives DNS-safe slugs from the email and label", () => {
   const taken = new Set<string>();

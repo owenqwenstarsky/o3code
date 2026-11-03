@@ -8,6 +8,7 @@ import {
   InstanceIntrospectResult,
   STATIC_WORKSPACE_ID,
 } from "@t3tools/contracts/instance";
+import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -101,6 +102,7 @@ export const make = Effect.gen(function* () {
   const http = yield* HttpClient.HttpClient;
   const credential = `${workspaceId}:${Redacted.value(config.secret.value)}`;
   const cache = yield* Ref.make(new Map<string, CachedSession>());
+  const validation = yield* KeyedLock.make<string>();
 
   const introspect = (token: string) =>
     HttpClientRequest.post(introspectUrl).pipe(
@@ -130,75 +132,82 @@ export const make = Effect.gen(function* () {
   const remember = (key: string, entry: CachedSession) =>
     Ref.update(cache, (current) => new Map(current).set(key, entry));
 
-  const validate = Effect.fn("O3Authority.validate")(function* (token: string) {
-    const key = tokenKey(token);
-    const now = yield* Clock.currentTimeMillis;
-    const cached = (yield* Ref.get(cache)).get(key);
-    // The token's own expiry holds whatever the cache or an unreachable instance would allow.
-    if (cached && cached.expiresAt.epochMilliseconds <= now) {
-      yield* forget(key, cached);
-      return yield* new O3AuthorityError({
-        reason: "inactive",
-        detail: "This workspace token has expired.",
-      });
-    }
-    if (cached && now - cached.checkedAtMs < RECHECK_AFTER_MS) return cached;
-
-    const result = yield* introspect(token).pipe(Effect.result);
-    if (result._tag === "Failure") {
-      if (cached && now - cached.lastSuccessMs < OUTAGE_GRACE_MS) {
-        yield* Effect.logWarning("O3 instance unreachable; keeping a recently validated session.", {
-          detail: result.failure.detail,
+  const validate = Effect.fn("O3Authority.validate")(
+    function* (token: string) {
+      const key = tokenKey(token);
+      const now = yield* Clock.currentTimeMillis;
+      const cached = (yield* Ref.get(cache)).get(key);
+      // The token's own expiry holds whatever the cache or an unreachable instance would allow.
+      if (cached && cached.expiresAt.epochMilliseconds <= now) {
+        yield* forget(key, cached);
+        return yield* new O3AuthorityError({
+          reason: "inactive",
+          detail: "This workspace token has expired.",
         });
-        return cached;
       }
-      return yield* result.failure;
-    }
-    const introspection = result.success;
-    if (
-      !introspection.active ||
-      // The instance's static dev runtime is one server standing in for every workspace.
-      (workspaceId !== STATIC_WORKSPACE_ID && introspection.workspaceId !== workspaceId)
-    ) {
-      if (cached) yield* forget(key, cached);
-      return yield* new O3AuthorityError({
-        reason: "inactive",
-        detail: "The instance no longer accepts this workspace token.",
-      });
-    }
-    if (cached) {
-      const refreshed = { ...cached, checkedAtMs: now, lastSuccessMs: now };
-      yield* remember(key, refreshed);
-      return refreshed;
-    }
-    const expiresAt = DateTime.makeUnsafe(introspection.expiresAt);
-    const issued = yield* sessions
-      .issue({
+      if (cached && now - cached.checkedAtMs < RECHECK_AFTER_MS) return cached;
+
+      const result = yield* introspect(token).pipe(Effect.result);
+      if (result._tag === "Failure") {
+        if (cached && now - cached.lastSuccessMs < OUTAGE_GRACE_MS) {
+          yield* Effect.logWarning(
+            "O3 instance unreachable; keeping a recently validated session.",
+            {
+              detail: result.failure.detail,
+            },
+          );
+          return cached;
+        }
+        if (cached) yield* forget(key, cached);
+        return yield* result.failure;
+      }
+      const introspection = result.success;
+      if (
+        !introspection.active ||
+        // The instance's static dev runtime is one server standing in for every workspace.
+        (workspaceId !== STATIC_WORKSPACE_ID && introspection.workspaceId !== workspaceId)
+      ) {
+        if (cached) yield* forget(key, cached);
+        return yield* new O3AuthorityError({
+          reason: "inactive",
+          detail: "The instance no longer accepts this workspace token.",
+        });
+      }
+      if (cached) {
+        const refreshed = { ...cached, checkedAtMs: now, lastSuccessMs: now };
+        yield* remember(key, refreshed);
+        return refreshed;
+      }
+      const expiresAt = DateTime.makeUnsafe(introspection.expiresAt);
+      const issued = yield* sessions
+        .issue({
+          subject: `o3:${introspection.userId}`,
+          method: "bearer-access-token",
+          scopes: AuthStandardClientScopes,
+          ttl: Duration.millis(Math.max(1_000, expiresAt.epochMilliseconds - now)),
+          client: {
+            label: introspection.label ?? "O3 Code",
+            deviceType: "desktop",
+          },
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) => new O3AuthorityError({ reason: "unreachable", detail: cause.message }),
+          ),
+        );
+      const entry: CachedSession = {
+        token,
+        sessionId: issued.sessionId,
         subject: `o3:${introspection.userId}`,
-        method: "bearer-access-token",
-        scopes: AuthStandardClientScopes,
-        ttl: Duration.millis(Math.max(1_000, expiresAt.epochMilliseconds - now)),
-        client: {
-          label: introspection.label ?? "O3 Code",
-          deviceType: "desktop",
-        },
-      })
-      .pipe(
-        Effect.mapError(
-          (cause) => new O3AuthorityError({ reason: "unreachable", detail: cause.message }),
-        ),
-      );
-    const entry: CachedSession = {
-      token,
-      sessionId: issued.sessionId,
-      subject: `o3:${introspection.userId}`,
-      expiresAt: issued.expiresAt,
-      checkedAtMs: now,
-      lastSuccessMs: now,
-    };
-    yield* remember(key, entry);
-    return entry;
-  });
+        expiresAt: issued.expiresAt,
+        checkedAtMs: now,
+        lastSuccessMs: now,
+      };
+      yield* remember(key, entry);
+      return entry;
+    },
+    (effect, token) => validation.withLock(tokenKey(token), effect),
+  );
 
   // Live sockets make no new requests, so revocation is noticed by rechecking known tokens.
   yield* Ref.get(cache).pipe(
