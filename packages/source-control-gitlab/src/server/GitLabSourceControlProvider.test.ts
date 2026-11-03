@@ -281,3 +281,62 @@ it.effect.each(["read", "decode"] as const)(
       else assert.propertyVal(error.cause, "_tag", "SchemaError");
     }),
 );
+
+it.effect("targets the context repository for creation, listing, and the default branch", () =>
+  Effect.gen(function* () {
+    const calls: Array<{
+      args: ReadonlyArray<string>;
+      env: Readonly<Record<string, string | undefined>> | undefined;
+    }> = [];
+    const provider = yield* GitLabSourceControlProvider.make.pipe(
+      Effect.provide(
+        GitLabCli.layer.pipe(
+          Layer.provideMerge(
+            TestSourceControlHost.layer({
+              process: {
+                run: (input) => {
+                  calls.push({ args: input.args, env: input.env });
+                  return Effect.succeed(
+                    processOutput(input.args.includes("list") ? "[]" : '{"default_branch":"main"}'),
+                  );
+                },
+              },
+            }),
+          ),
+        ),
+      ),
+    );
+    const context = {
+      provider: {
+        kind: SourceControlProviderKind.make("gitlab"),
+        name: "GitLab",
+        baseUrl: "https://code.example.test:8443",
+      },
+      remoteName: "upstream",
+      remoteUrl: "https://code.example.test:8443/Group/Subgroup/Target.git",
+    };
+    yield* provider.createChangeRequest({
+      cwd: "/fork",
+      context,
+      baseRefName: "main",
+      headSelector: "feature",
+      title: "Fix",
+      bodyFile: "/body.md",
+    });
+    yield* provider.listChangeRequests({
+      cwd: "/fork",
+      context,
+      headSelector: "feature",
+      state: "open",
+    });
+    assert.strictEqual(yield* provider.getDefaultBranch({ cwd: "/fork", context }), "main");
+    assert.include(calls[0]!.args, "projects/Group%2FSubgroup%2FTarget/merge_requests");
+    assert.include(calls[2]!.args, "projects/Group%2FSubgroup%2FTarget");
+    assert.includeMembers(
+      [...calls[1]!.args],
+      ["--repo", "code.example.test:8443/Group/Subgroup/Target"],
+    );
+    for (const call of [calls[0]!, calls[2]!])
+      assert.includeMembers([...call.args], ["--hostname", "code.example.test:8443"]);
+  }),
+);

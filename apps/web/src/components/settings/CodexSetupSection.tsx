@@ -628,7 +628,10 @@ function ManagedCodexSetup({
   );
 
   const handoffUrl =
-    needsManualCallback && url && auth?.flowId && providerAuthReturnUrl(returnUrl.toString())
+    needsManualCallback &&
+    url &&
+    auth?.flowId &&
+    providerAuthReturnUrl(returnUrl.toString(), window.location.origin)
       ? codexAuthHandoffUrl(
           {
             authorizationUrl: url,

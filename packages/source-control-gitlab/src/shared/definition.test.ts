@@ -13,8 +13,9 @@ describe("GitLab change request URLs", () => {
       number: 42,
       repositoryUrl: "https://gitlab.com/t3tools/platform/t3code",
     });
-    expect(parse("https://code.acme.test/team/project/-/merge_requests/9")).toMatchObject({
+    expect(parse("https://code.acme.test:8443/team/project/-/merge_requests/9")).toMatchObject({
       host: "code.acme.test",
+      authority: "code.acme.test:8443",
       repository: "team/project",
       number: 9,
     });
