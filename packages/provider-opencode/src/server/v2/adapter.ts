@@ -86,7 +86,11 @@ import {
 } from "@t3tools/provider-core/server/subagentProjection";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
-import { OPENCODE_PROVIDER, openCodePermissionRequestKind } from "../adapter.ts";
+import {
+  OPENCODE_PROVIDER,
+  openCodePermissionRequestKind,
+  openCodePermissionRules,
+} from "../adapter.ts";
 import { openCodeToolTurnItem } from "../toolItems.ts";
 
 const OpenCode2ProviderCapabilities = {
@@ -321,7 +325,7 @@ type TurnTerminal =
 type Rule = Permission.Rule;
 type RulesPolicy = Pick<
   ProviderAdapter.ProviderAdapterV2RuntimePolicy,
-  "runtimeMode" | "interactionMode"
+  "runtimeMode" | "interactionMode" | "approvalPolicy" | "sandboxPolicy"
 >;
 type NativeForm = EventOf<"form.created">["data"]["form"];
 
@@ -345,6 +349,9 @@ interface PendingRequest {
 }
 
 const rule = (action: string, effect: Rule["effect"]): Rule => ({ action, resource: "*", effect });
+
+const hasExplicitPolicy = (policy: RulesPolicy) =>
+  policy.approvalPolicy !== undefined || policy.sandboxPolicy !== undefined;
 
 /** OpenCode hides tools for names over 64 chars and rejects names over 100; hash long thread IDs. */
 export const t3McpServerName = Effect.fn("t3McpServerName")(function* (threadId: string) {
@@ -372,14 +379,20 @@ const sessionRules = (
   grants: ReadonlyArray<Rule>,
   mcpServerName: string | null,
 ): ReadonlyArray<Rule> => [
-  ...(policy.runtimeMode === "full-access"
-    ? [rule("*", "allow")]
-    : [
-        rule("shell", "ask"),
-        rule("edit", policy.runtimeMode === "auto-accept-edits" ? "allow" : "ask"),
-        rule("external_directory", "ask"),
-      ]),
-  ...grants,
+  ...(hasExplicitPolicy(policy)
+    ? openCodePermissionRules({ ...policy, cwd: null }).map(({ permission, pattern, action }) => ({
+        action: permission === "bash" ? "shell" : permission,
+        resource: pattern,
+        effect: action,
+      }))
+    : policy.runtimeMode === "full-access"
+      ? [rule("*", "allow")]
+      : [
+          rule("shell", "ask"),
+          rule("edit", policy.runtimeMode === "auto-accept-edits" ? "allow" : "ask"),
+          rule("external_directory", "ask"),
+        ]),
+  ...(hasExplicitPolicy(policy) ? [] : grants),
   // Plan edits are re-allowed only for plan paths; free-tier sessions refuse denied shell/read.
   ...(policy.interactionMode === "plan" ? [rule("edit", "deny")] : []),
   ...paths,
@@ -2763,7 +2776,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
     ) {
       const plan = policy.interactionMode === "plan";
       const paths =
-        policy.runtimeMode === "full-access" && !plan
+        policy.runtimeMode === "full-access" && !hasExplicitPolicy(policy) && !plan
           ? []
           : yield* pathsFor(thread.directory, plan ? [thread.agent, "plan"] : [thread.agent]);
       return sessionRules(

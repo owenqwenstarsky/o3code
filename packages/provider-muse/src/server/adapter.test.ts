@@ -441,6 +441,53 @@ describe("MuseAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 
+  it.effect.each([
+    { approvalPolicy: "never", sandboxPolicy: { type: "readOnly" } },
+    { approvalPolicy: "on-request" },
+    { sandboxPolicy: { type: "workspaceWrite" } },
+  ])("rejects unsupported explicit policies before launching a Muse host: %j", (overrides) =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const createHost = vi.fn(async () => fake.host);
+      const error = yield* makeHarness(
+        fake,
+        INSTANCE_ID,
+        undefined,
+        undefined,
+        undefined,
+        { ...runtimePolicy, ...overrides },
+        { createHost },
+      ).pipe(Effect.flip);
+      assert.equal(error._tag, "ProviderAdapterProtocolError");
+      assert.isTrue("detail" in error && error.detail.includes("explicit approval or sandbox"));
+      assert.equal(createHost.mock.calls.length, 0);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("rejects explicit policy overrides on an attached Muse thread", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      const { runtime, providerThread } = yield* makeHarness(fake);
+      const explicitPolicy = {
+        ...runtimePolicy,
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly" },
+      };
+      const ensured = yield* runtime
+        .ensureThread({
+          threadId: THREAD_ID,
+          modelSelection: modelSelection(),
+          runtimePolicy: explicitPolicy,
+        })
+        .pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }));
+      assert.isTrue(ensured, "An attached thread must reject unsupported policies");
+      const started = yield* runtime
+        .startTurn(yield* turnInput(providerThread, 1, explicitPolicy))
+        .pipe(Effect.match({ onFailure: () => true, onSuccess: () => false }));
+      assert.isTrue(started, "A turn must reject unsupported policies");
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
   it.effect("rejects a host without session MCP support before opening a native session", () =>
     Effect.gen(function* () {
       yield* (yield* McpProviderSessions.McpProviderSessions).set({

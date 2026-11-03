@@ -2,7 +2,9 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Sink from "effect/Sink";
 import * as Stdio from "effect/Stdio";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -22,6 +24,53 @@ const encodeJsonl = (value: unknown) => encoder.encode(`${encodeUnknownJsonStrin
 const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 it.layer(NodeServices.layer)("effect-codex-app-server protocol", (it) => {
+  it.effect("terminates pending and subsequent writes when the output sink fails", () =>
+    Effect.gen(function* () {
+      const { stdio } = yield* makeInMemoryStdio();
+      const writer = yield* Deferred.make<Fiber.Fiber<unknown, unknown>>();
+      const terminated = yield* Deferred.make<CodexError.CodexAppServerError>();
+      const failure = new Error("broken pipe");
+      const transport = yield* CodexProtocol.makeCodexAppServerPatchedProtocol({
+        stdio: Stdio.make({
+          ...stdio,
+          stdout: () =>
+            Sink.forEach(() =>
+              Effect.withFiber((fiber) =>
+                Deferred.succeed(writer, fiber).pipe(Effect.andThen(Effect.die(failure))),
+              ),
+            ),
+        }),
+        onTermination: (error) => Deferred.succeed(terminated, error).pipe(Effect.asVoid),
+      });
+      const pending = yield* transport.request("thread/read", {}).pipe(Effect.forkScoped);
+      yield* Fiber.await(yield* Deferred.await(writer));
+      const termination = yield* Deferred.poll(terminated);
+      assert.isTrue(Option.isSome(termination), "Writer failure must terminate the transport");
+      const error = yield* Deferred.await(terminated);
+      assert.instanceOf(error, CodexError.CodexAppServerTransportError);
+      assert.equal(error.operation, "write-output-stream");
+      assert.strictEqual(
+        yield* Fiber.join(pending).pipe(
+          Effect.match({
+            onFailure: (failure) => failure,
+            onSuccess: () => assert.fail("Expected the pending request to fail"),
+          }),
+        ),
+        error,
+      );
+      assert.strictEqual(
+        yield* transport.request("thread/list", {}).pipe(
+          Effect.match({
+            onFailure: (failure) => failure,
+            onSuccess: () => assert.fail("Expected the subsequent request to fail"),
+          }),
+        ),
+        error,
+      );
+      assert.strictEqual(yield* transport.notify("initialized").pipe(Effect.flip), error);
+    }),
+  );
+
   it.effect(
     "encodes requests without a jsonrpc field and routes inbound requests and notifications",
     () =>

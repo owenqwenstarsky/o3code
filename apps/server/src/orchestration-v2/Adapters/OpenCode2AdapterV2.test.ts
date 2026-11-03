@@ -1728,6 +1728,51 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect("enforces an explicit non-interactive read-only policy on a full-access session", () =>
+    Effect.gen(function* () {
+      const permissions = [
+        { action: "*", resource: "*", effect: "deny" },
+        ...[
+          "shell",
+          "edit",
+          "webfetch",
+          "websearch",
+          "codesearch",
+          "external_directory",
+          "doom_loop",
+        ].map((action) => ({ action, resource: "*", effect: "deny" })),
+        ...["question", "read", "glob", "grep", "lsp", "todowrite", "task", "skill"].map(
+          (action) => ({ action, resource: "*", effect: "allow" }),
+        ),
+        { action: "read", resource: "*.env", effect: "deny" },
+        { action: "read", resource: "*.env.*", effect: "deny" },
+        { action: "read", resource: "*.env.example", effect: "allow" },
+        ...buildPaths,
+        ...mcpRules,
+      ];
+      const runtime = yield* openCode2ReplayRuntimeWithInstructions([
+        ...opening,
+        out("session.get", { sessionID: SESSION }),
+        replyData("session.get", sessionInfo()),
+        ...noOpenRequests,
+        out("agent.list", "<any>"),
+        reply("agent.list", agentList),
+        out("session.update", { sessionID: SESSION, permissions }),
+        reply("session.update", null),
+      ]);
+      yield* runtime.resumeThread({
+        providerThread: providerThread(yield* DateTime.now),
+        threadId,
+        modelSelection: bigPickle,
+        runtimePolicy: {
+          ...policy(),
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "readOnly" },
+        },
+      });
+    }).pipe(Effect.scoped),
+  );
+
   it.effect("moves the session when the thread's worktree changed", () =>
     Effect.gen(function* () {
       const runtime = yield* openCode2ReplayRuntimeWithInstructions([

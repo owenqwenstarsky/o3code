@@ -31,6 +31,8 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
+import { vi } from "vite-plus/test";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -4329,6 +4331,50 @@ describe("PiRpc early process exit", () => {
       getInputFd: () => Sink.drain,
       getOutputFd: () => Stream.empty,
     });
+
+  it.effect.each(["before termination", "during termination"])(
+    "kills surviving process-group descendants when the child exits %s",
+    (when) =>
+      Effect.gen(function* () {
+        const exited = yield* Deferred.make<ChildProcessSpawner.ExitCode>();
+        const termSent = yield* Deferred.make<void>();
+        const signals: Array<Parameters<typeof process.kill>[1]> = [];
+        using _kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+          assert.equal(pid, -FAKE_PID);
+          signals.push(signal);
+          if (signal === "SIGTERM") Deferred.doneUnsafe(termSent, Effect.void);
+          return true;
+        });
+        const spawner = ChildProcessSpawner.make(() =>
+          Effect.succeed({
+            ...makeHandle({ exitCode: Deferred.await(exited), stderr: Stream.empty }),
+            stdout: Stream.never,
+          }),
+        );
+        const connection = yield* makePiRpcConnection({
+          command: "pi",
+          args: ["--mode", "rpc"],
+          cwd: undefined,
+          env: {},
+        }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.provideService(HostProcess.Platform, "linux"),
+        );
+        if (when === "before termination") {
+          yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0));
+          yield* connection.exited;
+        }
+        const terminating = yield* connection.terminate.pipe(Effect.forkScoped);
+        if (when === "during termination") {
+          yield* Deferred.await(termSent);
+          yield* Deferred.succeed(exited, ChildProcessSpawner.ExitCode(0));
+          yield* connection.exited;
+        }
+        yield* TestClock.adjust("1 second");
+        yield* Fiber.join(terminating);
+        assert.include(signals, "SIGKILL");
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
 
   it.effect("reports a nonzero exit code instead of an unexplained stdout close", () =>
     Effect.gen(function* () {
