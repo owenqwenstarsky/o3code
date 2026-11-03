@@ -65,6 +65,16 @@ export const make = Effect.gen(function* () {
     if (handleOpenUrl(url)) event.preventDefault();
   });
 
+  const pendingOpenFiles: Array<string> = [];
+  let handleOpenFile = (path: string) => {
+    pendingOpenFiles.push(path);
+  };
+  yield* electronApp.on("open-file", (event: { preventDefault: () => void }, path: string) => {
+    if (!DesktopWebLinks.isWebPageFile(path)) return;
+    event.preventDefault();
+    handleOpenFile(path);
+  });
+
   return DesktopLaunchLinks.of({
     configure: Effect.gen(function* () {
       const electronApp = yield* ElectronApp.ElectronApp;
@@ -135,11 +145,10 @@ export const make = Effect.gen(function* () {
         openWebLink(url) ||
         openAppLink(url);
       for (const url of pendingOpenUrls.splice(0)) handleOpenUrl(url);
-      yield* electronApp.on("open-file", (event: { preventDefault: () => void }, path: string) => {
-        if (!DesktopWebLinks.isWebPageFile(path)) return;
-        event.preventDefault();
+      handleOpenFile = (path) => {
         void runPromise(webLinks.receive(NodeURL.pathToFileURL(path).href));
-      });
+      };
+      for (const path of pendingOpenFiles.splice(0)) handleOpenFile(path);
       handleSecondInstance = (argv) => {
         if (
           argv?.some(
