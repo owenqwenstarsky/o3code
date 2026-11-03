@@ -1,3 +1,4 @@
+import { parseGitRemoteHost } from "@t3tools/source-control-core/shared/definition";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -277,6 +278,7 @@ export class GitLabCli extends Context.Service<
 
     readonly listMergeRequests: (input: {
       readonly cwd: string;
+      readonly context?: SourceControlProvider.SourceControlProviderContext;
       readonly headSelector: string;
       readonly source?: SourceControlProvider.SourceControlRefSelector;
       readonly state: "open" | "closed" | "merged" | "all";
@@ -301,6 +303,7 @@ export class GitLabCli extends Context.Service<
 
     readonly createMergeRequest: (input: {
       readonly cwd: string;
+      readonly context?: SourceControlProvider.SourceControlProviderContext;
       readonly baseBranch: string;
       readonly headSelector: string;
       readonly source?: SourceControlProvider.SourceControlRefSelector;
@@ -311,6 +314,7 @@ export class GitLabCli extends Context.Service<
 
     readonly getDefaultBranch: (input: {
       readonly cwd: string;
+      readonly context?: SourceControlProvider.SourceControlProviderContext;
     }) => Effect.Effect<string | null, GitLabCliError>;
 
     readonly checkoutMergeRequest: (input: {
@@ -419,6 +423,16 @@ const classifyGlabFailure = (stderr: string): VcsProcessExitFailureKind | null =
   return null;
 };
 
+function repositoryTarget(context: SourceControlProvider.SourceControlProviderContext | undefined) {
+  if (!context) return undefined;
+  const remote = parseGitRemoteHost(context.remoteUrl);
+  if (!remote) return undefined;
+  const path = context.remoteUrl.includes("://")
+    ? new URL(context.remoteUrl).pathname
+    : context.remoteUrl.slice(context.remoteUrl.indexOf(":") + 1);
+  return { host: remote.host, repository: path.replace(/^\/+|\/+$/gu, "").replace(/\.git$/u, "") };
+}
+
 /** @public */
 export const make = Effect.gen(function* () {
   const { process } = yield* SourceControlHost.SourceControlHost;
@@ -471,11 +485,14 @@ export const make = Effect.gen(function* () {
   return GitLabCli.of({
     execute,
     listMergeRequests: Effect.fn("GitLabCli.listMergeRequests")(function (input) {
+      const target = repositoryTarget(input.context);
       return execute({
+        ...(target ? { host: target.host } : {}),
         cwd: input.cwd,
         args: [
           "mr",
           "list",
+          ...(target ? ["--repo", `${target.host}/${target.repository}`] : []),
           "--source-branch",
           sourceRefName(input),
           ...stateArgs(input.state),
@@ -626,13 +643,17 @@ export const make = Effect.gen(function* () {
     }),
     createMergeRequest: Effect.fn("GitLabCli.createMergeRequest")(function (input) {
       const sourceProject = sourceProjectIdentifier(input.source);
+      const target = repositoryTarget(input.context);
       return execute({
         cwd: input.cwd,
         args: [
           "api",
           "--method",
           "POST",
-          "projects/:fullpath/merge_requests",
+          ...(target ? ["--hostname", target.host] : []),
+          target
+            ? `projects/${encodeURIComponent(target.repository)}/merge_requests`
+            : "projects/:fullpath/merge_requests",
           "--raw-field",
           `source_branch=${sourceRefName(input)}`,
           "--raw-field",
@@ -646,9 +667,15 @@ export const make = Effect.gen(function* () {
       }).pipe(Effect.asVoid);
     }),
     getDefaultBranch: Effect.fn("GitLabCli.getDefaultBranch")(function (input) {
+      const target = repositoryTarget(input.context);
       return execute({
         cwd: input.cwd,
-        args: ["api", "projects/:fullpath"],
+        args: [
+          "api",
+          ...(target
+            ? ["--hostname", target.host, `projects/${encodeURIComponent(target.repository)}`]
+            : ["projects/:fullpath"]),
+        ],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>

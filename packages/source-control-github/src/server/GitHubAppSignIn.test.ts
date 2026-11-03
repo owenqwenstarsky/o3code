@@ -50,7 +50,7 @@ function harness(options: {
   /** Without one, the server has no `gh` login to fall back to. */
   readonly ghSignedIn?: boolean;
   /** Makes every settings write fail, as a full disk would. */
-  readonly settingsWritesFail?: boolean;
+  readonly settingsWritesFail?: boolean | (() => boolean);
   /** Holds a request open until it completes, to interleave other work with it. */
   readonly gate?: (sent: Sent) => Effect.Effect<void>;
 }) {
@@ -101,17 +101,23 @@ function harness(options: {
       ...service,
       settings: {
         ...service.settings,
-        update: () =>
-          Effect.fail(
-            new ServerSettingsError({ settingsPath: "settings.json", operation: "write-file" }),
-          ),
+        update: (patch) =>
+          (
+            typeof options.settingsWritesFail === "function"
+              ? options.settingsWritesFail()
+              : options.settingsWritesFail
+          )
+            ? Effect.fail(
+                new ServerSettingsError({ settingsPath: "settings.json", operation: "write-file" }),
+              )
+            : service.settings.update(patch),
       },
     })),
   ).pipe(Layer.provideMerge(host));
   const layer = GitHubAppAccess.layer.pipe(
     Layer.provideMerge(GitHubRest.layerWithDependencies),
     Layer.provideMerge(SourceControlRateLimit.layer),
-    Layer.provideMerge(options.settingsWritesFail === true ? failingWrites : host),
+    Layer.provideMerge(options.settingsWritesFail ? failingWrites : host),
     Layer.provide(NodeCrypto.layer),
     Layer.provide(Layer.succeed(HttpClient.HttpClient, http)),
   );
@@ -372,16 +378,35 @@ describe("GitHubAppSignIn", () => {
     });
 
     it.effect("serves a refreshed token GitHub issued even when saving it fails", () => {
-      const { layer } = harness({
+      let writesFail = true;
+      let refreshes = 0;
+      const { layer, requests } = harness({
         signIns: { "github.com": session({ accessTokenExpiresAt: 3 * 60_000 }) },
-        settingsWritesFail: true,
-        handle: () => ({ body: refreshed }),
+        settingsWritesFail: () => writesFail,
+        handle: () => ({
+          body:
+            ++refreshes === 1
+              ? refreshed
+              : { ...refreshed, access_token: "ghu_rotated", refresh_token: "ghr_rotated" },
+        }),
       });
       return Effect.gen(function* () {
         const signIn = yield* GitHubAppSignIn.GitHubAppSignIn;
-        const pending = yield* Effect.forkChild(signIn.token("github.com"));
-        yield* TestClock.adjust("1 second");
-        expect(yield* Fiber.join(pending)).toEqual(Option.some("ghu_refreshed"));
+        expect(yield* signIn.token("github.com")).toEqual(Option.some("ghu_refreshed"));
+        expect(yield* signIn.token("github.com")).toEqual(Option.some("ghu_refreshed"));
+        expect(requests).toHaveLength(1);
+        yield* signIn.invalidate("github.com", "ghu_refreshed");
+        expect(yield* signIn.token("github.com")).toEqual(Option.some("ghu_rotated"));
+        expect(requests[1]?.form.get("refresh_token")).toBe("ghr_refreshed");
+        writesFail = false;
+        expect(yield* signIn.token("github.com")).toEqual(Option.some("ghu_rotated"));
+        expect(requests).toHaveLength(2);
+        expect(JSON.parse((yield* savedSignIns)["github.com"]!)).toMatchObject({
+          refreshToken: "ghr_rotated",
+        });
+        yield* signIn.invalidate("github.com", "ghu_rotated");
+        yield* signIn.token("github.com");
+        expect(requests[2]?.form.get("refresh_token")).toBe("ghr_rotated");
       }).pipe(Effect.provide(layer));
     });
 

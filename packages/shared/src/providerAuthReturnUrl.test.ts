@@ -19,3 +19,22 @@ describe("provider auth return destinations", () => {
     "https://attacker.example/welcome",
   ])("rejects %s", (url) => expect(providerAuthReturnUrl(url)).toBeUndefined());
 });
+
+it.each([
+  "https://code.example.test",
+  "https://instance.tail123.ts.net",
+  "http://instance.tail123.ts.net:8080",
+])("accepts only the current instance origin %s", (origin) => {
+  const value = `${origin}/settings/providers?instanceId=work&code=secret`;
+  expect(providerAuthReturnUrl(value, origin)).toBe(`${origin}/settings/providers?instanceId=work`);
+  expect(providerAuthReturnUrl(value)).toBeUndefined();
+  for (const rejected of [
+    "https://attacker.example/settings",
+    `${origin}.attacker.example/settings`,
+    `${origin.replace(/:\d+$/u, "")}:9999/settings`,
+    `${origin}/evil`,
+    `${origin.replace("://", "://user:password@")}/settings`,
+  ]) {
+    expect(providerAuthReturnUrl(rejected, origin)).toBeUndefined();
+  }
+});

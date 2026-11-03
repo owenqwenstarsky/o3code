@@ -1,7 +1,14 @@
-import { SecretRequestError } from "@t3tools/contracts";
+import {
+  SecretRequestError,
+  SecretRequestAnswerInput,
+  ThreadId,
+  TurnItemId,
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  secretRequestAnswerInput,
   secretRequestDisplay,
   secretRequestFailureMessage,
   secretRequestPrivacyNote,
@@ -36,4 +43,22 @@ describe("secretRequestFailureMessage", () => {
     );
     expect(secretRequestFailureMessage(undefined)).toBe("Could not answer the request. Try again.");
   });
+});
+
+it("preserves every character of a non-empty secret through the client and wire codec", () => {
+  const item = { threadId: ThreadId.make("thread"), id: TurnItemId.make("item") };
+  const decode = Schema.decodeUnknownSync(Schema.toCodecJson(SecretRequestAnswerInput));
+  for (const secret of ["  token\n", " ", "\tpassword\t"]) {
+    const input = {
+      threadId: item.threadId,
+      turnItemId: item.id,
+      answer: { type: "save" as const, secret },
+    };
+    expect(decode(input)).toEqual(input);
+    expect(secretRequestAnswerInput(item, input.answer)).toEqual(input);
+  }
+  expect(secretRequestAnswerInput(item, { type: "save", secret: "" })).toBeNull();
+  expect(() =>
+    decode({ threadId: item.threadId, turnItemId: item.id, answer: { type: "save", secret: "" } }),
+  ).toThrow();
 });

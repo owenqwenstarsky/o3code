@@ -35,6 +35,13 @@ describe("Codex desktop handoff", () => {
     expect(readCodexAuthHandoff(codexAuthHandoffUrl(input), false)).toEqual(input);
     const delivery = codexAuthDeliveryUrl(input, callbackUrl);
     expect(new URL(delivery).search).toBe("");
+    for (const origin of ["https://code.example.test", "http://instance.tail123.ts.net:8080"]) {
+      const localDelivery = delivery.replace("https://app.t3.codes", origin);
+      expect(readCodexAuthDelivery(localDelivery, origin)?.returnUrl).toBe(
+        input.returnUrl.replace("https://app.t3.codes", origin),
+      );
+      expect(readCodexAuthDelivery(localDelivery, "https://attacker.example")).toBeUndefined();
+    }
     expect(readCodexAuthDelivery(delivery)).toEqual({
       callbackUrl,
       environmentId: input.environmentId,

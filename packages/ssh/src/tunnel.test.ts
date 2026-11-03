@@ -112,8 +112,17 @@ describe("ssh tunnel scripts", () => {
       port: 2222,
     } as const;
     const spawnedCommands: Array<ReadonlyArray<string>> = [];
+    let launchScript = "";
     const spawner = ChildProcessSpawner.make((command) =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
+        if (command._tag === "StandardCommand") {
+          const stdin = command.options.stdin;
+          if (typeof stdin === "object" && "stream" in stdin && Stream.isStream(stdin.stream)) {
+            launchScript = new TextDecoder().decode(
+              Buffer.concat(yield* Stream.runCollect(stdin.stream)),
+            );
+          }
+        }
         spawnedCommands.push(commandArgs(command));
         return makeSuccessfulProcess('loaded nvm default\n{"remotePort":3774}\n');
       }),
@@ -124,6 +133,9 @@ describe("ssh tunnel scripts", () => {
     return Effect.gen(function* () {
       const result = yield* SshTunnel.launchOrReuseRemoteServer(target, undefined, ARCHIVE);
       assert.equal(result.remotePort, 3774);
+      assert.include(launchScript, 'ps -o pid= -o lstart= -p "$REMOTE_PID"');
+      assert.include(launchScript, 'server_owned "$REMOTE_PID"');
+      assert.notInclude(launchScript, '[ -n "$REMOTE_PID" ] && kill -0 "$REMOTE_PID"');
       assert.deepEqual(spawnedCommands[0]?.slice(-5, -1), ["sh", "-l", "-s", "--"]);
     }).pipe(Effect.provide(layerProcess));
   });
@@ -275,6 +287,7 @@ describe("ssh tunnel scripts", () => {
         let tunnels = 0;
         let stops = 0;
         let remoteRunning = false;
+        const stopScripts: string[] = [];
         const target = { alias: "devbox", hostname: "devbox", username: null, port: null };
         const spawner = ChildProcessSpawner.make((command) =>
           Effect.gen(function* () {
@@ -303,6 +316,15 @@ describe("ssh tunnel scripts", () => {
                 remoteRunning = true;
               }
               return makeSuccessfulProcess('{"remotePort":3773}\n');
+            }
+            if (command._tag === "StandardCommand") {
+              const stdin = command.options.stdin;
+              if (typeof stdin === "object" && "stream" in stdin && Stream.isStream(stdin.stream)) {
+                const script = new TextDecoder().decode(
+                  Buffer.concat(yield* Stream.runCollect(stdin.stream)),
+                );
+                stopScripts.push(script);
+              }
             }
             const stop = makeSuccessfulProcess('{"stopped":true}\n');
             if (!isTarget) return stop;
@@ -350,6 +372,10 @@ describe("ssh tunnel scripts", () => {
           const first = yield* Fiber.join(firstReconnect);
           const second = yield* Fiber.join(secondReconnect);
 
+          for (const script of stopScripts) {
+            assert.include(script, 'server_owned "$REMOTE_PID"');
+            assert.include(script, 'ps -o pid= -o lstart= -p "$1"');
+          }
           assert.equal(launchesBeforeShutdown, 1);
           assert.equal(launches, 2);
           assert.equal(tunnels, 2);

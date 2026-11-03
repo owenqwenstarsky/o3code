@@ -232,6 +232,7 @@ export const make = Effect.gen(function* () {
         return gitlab
           .listMergeRequests({
             cwd: input.cwd,
+            ...(input.context ? { context: input.context } : {}),
             headSelector: input.headSelector,
             ...(source ? { source } : {}),
             state: input.state,
@@ -281,6 +282,7 @@ export const make = Effect.gen(function* () {
         return gitlab
           .createMergeRequest({
             cwd: input.cwd,
+            ...(input.context ? { context: input.context } : {}),
             baseBranch: input.baseRefName,
             headSelector: input.headSelector,
             ...(source ? { source } : {}),
