@@ -1,5 +1,5 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import type { ConnectionTarget } from "@t3tools/client-runtime/connection";
+import type { ConnectionCatalogEntry } from "@t3tools/client-runtime/connection";
 import { Atom } from "effect/reactivity";
 
 import {
@@ -9,25 +9,26 @@ import {
 
 import { environmentCatalog } from "../connection/catalog";
 
-const connectionIdOf = (entry: { readonly target: ConnectionTarget }) =>
-  entry.target._tag === "BearerConnectionTarget" ? entry.target.connectionId : null;
-
 /**
  * The user's home environment: their default O3 workspace. Falls back to any workspace the
  * instance registered, for a catalog saved before the default was marked.
  */
 export const primaryEnvironmentIdIn = (
-  entries: Iterable<readonly [EnvironmentId, { readonly target: ConnectionTarget }]>,
+  entries: Iterable<
+    readonly [EnvironmentId, Pick<ConnectionCatalogEntry, "target" | "alternateRoutes">]
+  >,
 ): EnvironmentId | null => {
   let fallback: EnvironmentId | null = null;
   for (const [environmentId, entry] of entries) {
-    if (entry.target._tag === "PrimaryConnectionTarget") return environmentId;
-    const connectionId = connectionIdOf(entry);
-    if (connectionId?.startsWith(INSTANCE_DEFAULT_WORKSPACE_CONNECTION_PREFIX)) {
-      return environmentId;
-    }
-    if (fallback === null && connectionId?.startsWith(INSTANCE_WORKSPACE_CONNECTION_PREFIX)) {
-      fallback = environmentId;
+    for (const { target } of [entry, ...(entry.alternateRoutes ?? [])]) {
+      if (target._tag === "PrimaryConnectionTarget") return environmentId;
+      const connectionId = target.connectionId;
+      if (connectionId.startsWith(INSTANCE_DEFAULT_WORKSPACE_CONNECTION_PREFIX)) {
+        return environmentId;
+      }
+      if (fallback === null && connectionId.startsWith(INSTANCE_WORKSPACE_CONNECTION_PREFIX)) {
+        fallback = environmentId;
+      }
     }
   }
   return fallback;
