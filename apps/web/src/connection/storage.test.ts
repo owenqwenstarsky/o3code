@@ -1,4 +1,5 @@
 import {
+  BearerConnectionTarget,
   ConnectionTransientError,
   PrimaryConnectionTarget,
 } from "@t3tools/client-runtime/connection";
@@ -30,6 +31,37 @@ afterEach(() => {
 });
 
 describe("ConnectionStorage.makeCatalogStore", () => {
+  it.effect("merges updates from separate runtimes without restoring removed connections", () =>
+    Effect.gen(function* () {
+      let raw = encodeCatalog(emptyCatalog);
+      const backend = {
+        read: Effect.sync(() => raw),
+        write: (next: string) =>
+          Effect.sync(() => {
+            raw = next;
+          }),
+      };
+      const first = yield* ConnectionStorage.makeCatalogStore(backend);
+      const second = yield* ConnectionStorage.makeCatalogStore(backend);
+      yield* first.read;
+      yield* second.read;
+      const target = new BearerConnectionTarget({
+        environmentId: EnvironmentId.make("shared"),
+        label: "Shared",
+        connectionId: "shared",
+      });
+      yield* first.update((document) => ({ ...document, targets: [target] }));
+      yield* second.update((document) => ({
+        ...document,
+        disabledEnvironmentIds: [target.environmentId],
+      }));
+      expect(decodeCatalog(raw).targets).toEqual([target]);
+      expect((yield* first.read).disabledEnvironmentIds).toEqual([target.environmentId]);
+      yield* first.update((document) => ({ ...document, targets: [] }));
+      yield* second.update((document) => ({ ...document, disabledEnvironmentIds: [] }));
+      expect(decodeCatalog(raw).targets).toEqual([]);
+    }),
+  );
   it.effect("quarantines malformed catalogs and starts from an empty document", () =>
     Effect.gen(function* () {
       const writes: string[] = [];

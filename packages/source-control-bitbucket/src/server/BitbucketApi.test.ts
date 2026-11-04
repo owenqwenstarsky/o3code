@@ -1,6 +1,8 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import { assert, it, vi } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Context from "effect/Context";
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -71,6 +73,7 @@ function makeLayer(input: {
     request: HttpClientRequest.HttpClientRequest,
   ) => HttpClientError.HttpClientError;
   readonly stall?: boolean;
+  readonly redirect?: (value: RequestRedirect | undefined) => void;
   readonly git?: Partial<HostGit>;
   readonly env?: Record<string, string>;
   readonly remoteUrl?: string;
@@ -84,6 +87,10 @@ function makeLayer(input: {
             Effect.map((response) => HttpClientResponse.fromWeb(request, response)),
           ),
   );
+  const httpClient = HttpClient.make((request, _url, _signal, fiber) => {
+    input.redirect?.(Context.getOrUndefined(fiber.context, FetchHttpClient.RequestInit)?.redirect);
+    return execute(request);
+  });
   const gitMock = {
     readConfigValue: vi.fn<HostGit["readConfigValue"]>(() =>
       Effect.succeed<string | null>("git@bitbucket.org:pingdotgg/t3code.git"),
@@ -127,12 +134,7 @@ function makeLayer(input: {
 
   const layer = BitbucketApi.layer.pipe(
     Layer.provide(SourceControlRateLimit.layer),
-    Layer.provide(
-      Layer.succeed(
-        HttpClient.HttpClient,
-        HttpClient.make((request) => execute(request)),
-      ),
-    ),
+    Layer.provide(Layer.succeed(HttpClient.HttpClient, httpClient)),
     Layer.provide(
       ConfigProvider.layer(
         ConfigProvider.fromEnv({
@@ -851,6 +853,7 @@ it.effect("does not follow a redirect off the configured Bitbucket", () =>
   }).pipe(
     Effect.provide(
       makeLayer({
+        redirect: (value) => assert.strictEqual(value, "manual"),
         response: () =>
           new Response(null, {
             status: 302,

@@ -549,7 +549,8 @@ export interface AcpRegistryCatalogOptions {
 
 const INSTALL_LOCK_RETRY_COUNT = 300;
 const INSTALL_LOCK_RETRY_DELAY = "100 millis";
-const INSTALL_LOCK_STALE_MS = 5 * 60 * 1_000;
+// Headers and body each have a 20-minute download deadline.
+const INSTALL_LOCK_STALE_MS = 60 * 60 * 1_000;
 const PREPARED_BINARY_RESERVATION_MS = 30 * 1_000;
 
 function isAlreadyExists(error: PlatformError.PlatformError): boolean {
@@ -1326,15 +1327,16 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
   const acquireInstallLock = Effect.fn("AcpRegistryCatalog.acquireInstallLock")(function* (
     lockPath: string,
   ) {
+    const owner = yield* crypto.randomUUIDv4();
     for (let attempt = 0; attempt < INSTALL_LOCK_RETRY_COUNT; attempt += 1) {
-      const acquired = yield* fileSystem.writeFileString(lockPath, "", { flag: "wx" }).pipe(
+      const acquired = yield* fileSystem.writeFileString(lockPath, owner, { flag: "wx" }).pipe(
         Effect.as(true),
         Effect.catchIf(
           (error) => isAlreadyExists(error),
           () => Effect.succeed(false),
         ),
       );
-      if (acquired) return;
+      if (acquired) return owner;
       const now = yield* Clock.currentTimeMillis;
       const lockInfo = yield* fileSystem.stat(lockPath).pipe(Effect.option);
       const mtime = Option.flatMap(lockInfo, (info) => info.mtime);
@@ -1441,7 +1443,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       ),
     );
     const lockPath = `${installRoot}.lock`;
-    yield* acquireInstallLock(lockPath).pipe(
+    const lockOwner = yield* acquireInstallLock(lockPath).pipe(
       Effect.mapError((cause) =>
         isAcpRegistryError(cause)
           ? cause
@@ -1588,7 +1590,14 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       return yield* assertExecutableInRoot(installRoot, executablePath);
     }).pipe(
       Effect.scoped,
-      Effect.ensuring(fileSystem.remove(lockPath, { force: true }).pipe(Effect.ignore)),
+      Effect.ensuring(
+        fileSystem.readFileString(lockPath).pipe(
+          Effect.flatMap((owner) =>
+            owner === lockOwner ? fileSystem.remove(lockPath, { force: true }) : Effect.void,
+          ),
+          Effect.ignore,
+        ),
+      ),
       Effect.mapError((cause) =>
         isAcpRegistryError(cause)
           ? cause

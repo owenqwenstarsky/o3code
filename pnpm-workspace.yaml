@@ -131,6 +131,7 @@ overrides:
   "@legendapp/list": 3.3.5
   "@pierre/diffs": 1.6.1
   dbus-next: 0.10.2
+  "dbus-next>xml2js": 0.6.2
   node-pty: 1.2.0-beta.15
   app-builder-lib: 26.16.1
   # Keep jsdom's optional peer consistent so Vite+ has one test-runner instance.

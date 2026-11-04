@@ -88,7 +88,11 @@ it.effect(
     const instance: FakeInstance = { answer: "active", calls: 0, authorization: undefined };
     return Effect.gen(function* () {
       const authority = yield* O3Authority.O3Authority;
-      const first = yield* authority.authenticate("o3w_token");
+      const [first, concurrent] = yield* Effect.all(
+        [authority.authenticate("o3w_token"), authority.authenticate("o3w_token")],
+        { concurrency: "unbounded" },
+      );
+      expect(concurrent.sessionId).toBe(first.sessionId);
       const again = yield* authority.authenticate("o3w_token");
       expect(again.sessionId).toBe(first.sessionId);
       expect(first.subject).toBe("o3:user-1");
@@ -122,6 +126,7 @@ it.effect("refuses another workspace's token and tolerates a brief instance outa
     yield* TestClock.adjust("5 minutes");
     const outage = yield* authority.authenticate("o3w_mine").pipe(Effect.flip);
     expect(outage.reason).toBe("unreachable");
+    expect(yield* activeSessionIds).toEqual([]);
   }).pipe(Effect.provide(layerAuthority(instance)));
 });
 

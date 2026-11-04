@@ -1,3 +1,4 @@
+import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ArrowDownIcon, ArrowUpIcon, PencilIcon, PlusIcon, StarIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -142,7 +143,7 @@ export function ProviderModelsSection({
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<LegendListRef | null>(null);
   const scrollToSlugRef = useRef<string | null>(null);
   const hiddenModelSet = new Set(hiddenModels);
   const favoriteModelSet = new Set(favoriteModels);
@@ -151,6 +152,7 @@ export function ProviderModelsSection({
     hiddenModels: hiddenModelSet,
     modelOrder,
   });
+  const displayIndexByModel = new Map(displayModels.map((model, index) => [model, index]));
   const favoriteCount = displayModels.filter((model) => favoriteModelSet.has(model.slug)).length;
   const hiddenCount = displayModels.filter(
     (model) => !model.isCustom && hiddenModelSet.has(model.slug),
@@ -172,12 +174,10 @@ export function ProviderModelsSection({
   useEffect(() => {
     const slug = scrollToSlugRef.current;
     if (slug === null) return;
-    const row = listRef.current?.querySelector<HTMLElement>(
-      `[data-model-slug="${CSS.escape(slug)}"]`,
-    );
-    if (!row) return;
+    const index = visibleModels.findIndex((model) => model.slug === slug);
+    if (index < 0 || !listRef.current) return;
     scrollToSlugRef.current = null;
-    row.scrollIntoView({ block: "nearest" });
+    void listRef.current.scrollIndexIntoView({ index, animated: false });
   });
 
   // Derive after the effect and use hiddenModels directly to preserve the editor's option-array cache.
@@ -278,7 +278,7 @@ export function ProviderModelsSection({
 
   const renderRow = (model: (typeof displayModels)[number]) => {
     const group = groupOf(model);
-    const index = displayModels.indexOf(model);
+    const index = displayIndexByModel.get(model)!;
     const previousModel = displayModels[index - 1];
     const nextModel = displayModels[index + 1];
     return (
@@ -304,6 +304,39 @@ export function ProviderModelsSection({
     </div>
   );
 
+  const renderModel = (model: ServerProviderModel, index: number) => {
+    const group = groupOf(model);
+    const previous = visibleModels[index - 1];
+    const startsGroup = previous === undefined || groupOf(previous) !== group;
+    const editingEntry =
+      canManageCustomModels && model.isCustom && editingSlug === model.slug
+        ? customModels.find((entry) => entry.slug === model.slug)
+        : undefined;
+    return (
+      <div key={`${instanceId}:${model.slug}:group`}>
+        {startsGroup && favoriteCount > 0 && group === "favorite"
+          ? groupLabel("Favorites", index === 0)
+          : null}
+        {startsGroup && favoriteCount > 0 && group === "visible"
+          ? groupLabel("All", index === 0)
+          : null}
+        {startsGroup && group === "hidden" ? groupLabel("Hidden from picker", index === 0) : null}
+        {renderRow(model)}
+        {editingEntry ? (
+          <CustomModelEditor
+            key={`${instanceId}:${model.slug}:editor`}
+            instanceId={instanceId}
+            driverKind={driverKind}
+            entry={editingEntry}
+            builtInModels={builtInModels}
+            onSave={handleSaveEdit}
+            onCancel={() => setEditingSlug(null)}
+          />
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <div className="lg:flex lg:h-full lg:min-h-0 lg:flex-col">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -324,12 +357,14 @@ export function ProviderModelsSection({
               type="button"
               size="xs"
               variant="ghost-muted"
-              onClick={() =>
+              disabled={!canWritePreferences}
+              onClick={() => {
+                if (!canWritePreferences) return;
                 onHiddenModelsChange(
                   nextHiddenModelsForBulkToggle(models, hiddenModels),
                   builtInModels.map((model) => model.slug),
-                )
-              }
+                );
+              }}
             >
               {allBuiltInModelsHidden ? "Enable all" : "Disable all"}
             </Button>
@@ -349,6 +384,7 @@ export function ProviderModelsSection({
             variant="ghost-muted"
             // The ghost padding would inset the label from the column edge the toggles align to.
             className="-me-2 ml-auto"
+            disabled={!canManageCustomModels}
             onClick={() => setIsAdding(true)}
           >
             <PlusIcon className="size-3" />
@@ -356,50 +392,23 @@ export function ProviderModelsSection({
           </Button>
         ) : null}
       </div>
-      <div
-        ref={listRef}
-        className="mt-2 -mx-2 max-h-64 overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1"
-      >
-        {visibleModels.length === 0 ? (
-          <p className="px-2 py-2 text-xs text-muted-foreground">
-            {isFiltering ? "No models match." : "No models reported for this provider yet."}
-          </p>
-        ) : null}
-        {visibleModels.map((model, index) => {
-          const group = groupOf(model);
-          const previous = visibleModels[index - 1];
-          const startsGroup = previous === undefined || groupOf(previous) !== group;
-          const editingEntry =
-            canManageCustomModels && model.isCustom && editingSlug === model.slug
-              ? customModels.find((entry) => entry.slug === model.slug)
-              : undefined;
-          return (
-            <div key={`${instanceId}:${model.slug}:group`}>
-              {startsGroup && favoriteCount > 0 && group === "favorite"
-                ? groupLabel("Favorites", index === 0)
-                : null}
-              {startsGroup && favoriteCount > 0 && group === "visible"
-                ? groupLabel("All", index === 0)
-                : null}
-              {startsGroup && group === "hidden"
-                ? groupLabel("Hidden from picker", index === 0)
-                : null}
-              {renderRow(model)}
-              {editingEntry ? (
-                <CustomModelEditor
-                  key={`${instanceId}:${model.slug}:editor`}
-                  instanceId={instanceId}
-                  driverKind={driverKind}
-                  entry={editingEntry}
-                  builtInModels={builtInModels}
-                  onSave={handleSaveEdit}
-                  onCancel={() => setEditingSlug(null)}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+      {visibleModels.length === 0 ? (
+        <p className="px-2 py-2 text-xs text-muted-foreground">
+          {isFiltering ? "No models match." : "No models reported for this provider yet."}
+        </p>
+      ) : (
+        <LegendList<ServerProviderModel>
+          ref={listRef}
+          data={visibleModels}
+          extraData={renderModel}
+          keyExtractor={(model) => `${instanceId}:${model.slug}`}
+          renderItem={({ item, index }) => renderModel(item, index)}
+          estimatedItemSize={40}
+          drawDistance={400}
+          className="mt-2 -mx-2 min-h-0 max-h-64 lg:max-h-none lg:flex-1"
+          style={{ height: Math.min(visibleModels.length * 40, 256) }}
+        />
+      )}
 
       {driverKind === "antigravity" || !canManageCustomModels ? null : isAdding ? (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">

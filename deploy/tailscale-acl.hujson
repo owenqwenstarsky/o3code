@@ -1,4 +1,5 @@
-// Merge into your tailnet policy file (Tailscale admin console > Access controls).
+// Apply to your tailnet policy (Tailscale admin console > Access controls).
+// Remove or narrow broad grants and ACLs first; rules are additive.
 // Also turn on HTTPS certificates under DNS, which Tailscale Serve needs.
 {
   "tagOwners": {

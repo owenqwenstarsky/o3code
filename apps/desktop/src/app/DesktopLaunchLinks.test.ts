@@ -12,6 +12,8 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { afterAll, beforeEach, vi } from "vite-plus/test";
 
+vi.mock("electron", () => ({}));
+
 const stateDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-desktop-launch-links-"));
 afterAll(() => {
   NodeFS.rmSync(stateDir, { recursive: true, force: true });
@@ -142,9 +144,48 @@ describe("DesktopLaunchLinks", () => {
         "requestSingleInstanceLock",
         "on:second-instance",
         "on:open-url",
+        "on:open-file",
       ]);
     },
   );
+
+  it.effect("buffers page files opened before configure and delivers later files once", () => {
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    const received: string[] = [];
+    const delivered = Promise.withResolvers<void>();
+    const early = { preventDefault: vi.fn() };
+    const ignored = { preventDefault: vi.fn() };
+    const later = { preventDefault: vi.fn() };
+    return Effect.gen(function* () {
+      const launchLinks = yield* DesktopLaunchLinks.DesktopLaunchLinks;
+      listeners.get("open-file")?.(ignored, "/tmp/readme.txt");
+      listeners.get("open-file")?.(early, "/tmp/early page.html");
+      assert.equal(early.preventDefault.mock.calls.length, 1);
+      assert.equal(ignored.preventDefault.mock.calls.length, 0);
+      assert.deepEqual(received, []);
+      yield* launchLinks.configure;
+      listeners.get("open-file")!(later, "/tmp/later.html");
+      yield* Effect.promise(() => delivered.promise);
+      assert.equal(later.preventDefault.mock.calls.length, 1);
+      assert.deepEqual(received, ["file:///tmp/early%20page.html", "file:///tmp/later.html"]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(layerLaunchLinks(true, [], "darwin", undefined, undefined, listeners)),
+      Effect.provideService(ElectronApp.ElectronApp, {} as ElectronApp.ElectronApp["Service"]),
+      Effect.provideService(
+        ElectronWindow.ElectronWindow,
+        {} as ElectronWindow.ElectronWindow["Service"],
+      ),
+      Effect.provideService(DesktopWebLinks.DesktopWebLinks, {
+        receive: (url) =>
+          Effect.sync(() => {
+            received.push(url);
+            if (url === "file:///tmp/later.html") delivered.resolve();
+          }),
+        setRendererReady: () => Effect.void,
+      }),
+    );
+  });
 
   it.effect.each(["before configure", "after configure"] as const)(
     "reveals the running window when a second instance launches %s",

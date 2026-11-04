@@ -3564,6 +3564,36 @@ export class PreviewManager extends Context.Service<
   }
 >()("@t3tools/desktop/preview/Manager/PreviewManager") {}
 
+export const copyToDownloads = Effect.fn("PreviewManager.copyToDownloads")(function* (
+  source: string,
+  fileName: string,
+  directory: string,
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const extension = path.extname(fileName);
+  const stem = path.basename(fileName, extension) || "download";
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const target = path.join(
+      directory,
+      attempt === 0 ? `${stem}${extension}` : `${stem} (${attempt})${extension}`,
+    );
+    const copied = yield* Stream.run(
+      fileSystem.stream(source),
+      fileSystem.sink(target, { flag: "wx" }),
+    ).pipe(
+      Effect.as(true),
+      Effect.catchIf(
+        (error) => error.reason._tag === "AlreadyExists",
+        () => Effect.succeed(false),
+      ),
+    );
+    if (!copied) continue;
+    shell.showItemInFolder(target);
+    return;
+  }
+});
+
 /** @public */
 export const make = Effect.gen(function* PreviewManagerMake() {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -3571,27 +3601,9 @@ export const make = Effect.gen(function* PreviewManagerMake() {
   const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
   const passkeys = yield* PreviewPasskeys.PreviewPasskeys;
   const downloadSessions = new WeakSet<Electron.Session>();
-  const fileSystem = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-  const runForkDownload = Effect.runForkWith(yield* Effect.context<never>());
-  const copyToDownloads = Effect.fn("PreviewManager.copyToDownloads")(function* (
-    source: string,
-    fileName: string,
-  ) {
-    const directory = app.getPath("downloads");
-    const extension = path.extname(fileName);
-    const stem = path.basename(fileName, extension) || "download";
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const target = path.join(
-        directory,
-        attempt === 0 ? `${stem}${extension}` : `${stem} (${attempt})${extension}`,
-      );
-      if (yield* fileSystem.exists(target)) continue;
-      yield* fileSystem.copyFile(source, target);
-      shell.showItemInFolder(target);
-      return;
-    }
-  });
+  const runForkDownload = Effect.runForkWith(
+    yield* Effect.context<FileSystem.FileSystem | Path.Path>(),
+  );
   const placeServerDownloads = (session: Electron.Session) => {
     if (downloadSessions.has(session)) return;
     downloadSessions.add(session);
@@ -3602,7 +3614,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
       item.once("done", (_doneEvent, state) => {
         if (state !== "completed") return;
         runForkDownload(
-          copyToDownloads(item.getSavePath(), item.getFilename()).pipe(
+          copyToDownloads(item.getSavePath(), item.getFilename(), app.getPath("downloads")).pipe(
             Effect.catch((error) =>
               Effect.logWarning("preview download copy failed", { cause: error }),
             ),

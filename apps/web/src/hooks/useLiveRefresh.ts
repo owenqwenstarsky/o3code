@@ -42,6 +42,15 @@ function shouldRefreshOnInterval(input: {
 
 // Survive remounts so returning to a view does not make fresh reads look overdue.
 const lastRefreshedAtByView = new Map<string, number>();
+const MAX_RETAINED_VIEWS = 512;
+
+function rememberRefresh(viewId: string, now: number): void {
+  lastRefreshedAtByView.delete(viewId);
+  lastRefreshedAtByView.set(viewId, now);
+  if (lastRefreshedAtByView.size > MAX_RETAINED_VIEWS) {
+    lastRefreshedAtByView.delete(lastRefreshedAtByView.keys().next().value!);
+  }
+}
 
 let lastInteractedAt = 0;
 const interactionWatchers = new Set<() => void>();
@@ -93,11 +102,19 @@ export function useLiveRefresh(
   } = options;
   const runRefresh = useEffectEvent((viewId: string, now: number) => {
     if (refresh === null) return;
-    lastRefreshedAtByView.set(viewId, now);
+    rememberRefresh(viewId, now);
     refresh();
   });
   const fallbackViewId = useId();
   const viewId = key ?? fallbackViewId;
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- release timestamps owned by this hook when its identity unmounts
+  useEffect(
+    () => () => {
+      if (key === undefined) lastRefreshedAtByView.delete(fallbackViewId);
+    },
+    [key, fallbackViewId],
+  );
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- refresh interval tied to page visibility and user interaction listeners
   useEffect(() => {
@@ -109,7 +126,7 @@ export function useLiveRefresh(
       if (now - lastInteractedAt >= LIVE_REFRESH_IDLE_AFTER_MS) return;
       const lastRefreshedAt = lastRefreshedAtByView.get(viewId);
       if (lastRefreshedAt === undefined) {
-        lastRefreshedAtByView.set(viewId, now);
+        rememberRefresh(viewId, now);
         return;
       }
       if (shouldRefreshOnArrival({ visible: visible(), now, lastRefreshedAt })) read(now);

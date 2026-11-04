@@ -33,6 +33,7 @@ const MESSAGES = {
   actEnvironment: `${HELPER}; its act() sets ${ACT_ENVIRONMENT} for exactly as long as it runs.`,
   actAroundInput:
     "Do not wrap real input (userEvent or a locator's click/fill) in act; the browser runner flushes React updates after real input. Await the input directly.",
+  undisposedRender: `${HELPER}, register it with an AsyncDisposableStack, or dispose it in a finally block.`,
   lifecycleHook:
     "Browser tests acquire what they need with `using`/`await using` instead of lifecycle hooks, so nothing outlives the test that created it.",
 };
@@ -135,6 +136,99 @@ export default defineRule({
       return method !== undefined && LOCATOR_INPUT.has(method) && isLocatorChain(callee.object);
     };
 
+    const isRenderCall = (callee: ESTree.Node) => {
+      const identifier =
+        callee.type === "Identifier"
+          ? callee
+          : callee.type === "MemberExpression" &&
+              callee.object.type === "Identifier" &&
+              Option.getOrUndefined(getPropertyName(callee.property)) === "render"
+            ? callee.object
+            : undefined;
+      if (!identifier) return false;
+      let scope = context.sourceCode.getScope(identifier);
+      while (true) {
+        const variable = scope.set.get(identifier.name);
+        if (variable)
+          return variable.defs.some(
+            (def) =>
+              def.type === "ImportBinding" &&
+              def.parent?.type === "ImportDeclaration" &&
+              RENDER_HELPER.test(def.parent.source.value) &&
+              (callee.type === "Identifier"
+                ? def.node.type === "ImportSpecifier" && importedName(def.node) === "render"
+                : def.node.type === "ImportNamespaceSpecifier"),
+          );
+        if (!scope.upper) return false;
+        scope = scope.upper;
+      }
+    };
+
+    const isDisposedRender = (node: ESTree.CallExpression) => {
+      const awaited = node.parent;
+      // A helper that returns the screen hands disposal to its caller.
+      if (awaited?.type === "ReturnStatement" || awaited?.type === "ArrowFunctionExpression")
+        return true;
+      if (awaited?.type !== "AwaitExpression") return false;
+      const owner = awaited.parent;
+      if (owner?.type === "ReturnStatement" || owner?.type === "ArrowFunctionExpression")
+        return true;
+      if (
+        owner?.type === "CallExpression" &&
+        owner.callee.type === "MemberExpression" &&
+        Option.getOrUndefined(getPropertyName(owner.callee.property)) === "use"
+      )
+        return true;
+      if (owner?.type !== "VariableDeclarator" || owner.parent.type !== "VariableDeclaration")
+        return false;
+      if (owner.parent.kind === "await using") return true;
+      if (owner.id.type !== "Identifier") return false;
+      const name = owner.id.name;
+      const declaration = owner.parent;
+      const block = declaration.parent;
+      if (block?.type !== "BlockStatement") return false;
+      const isName = (value: ESTree.Node | null | undefined) =>
+        value?.type === "Identifier" && value.name === name;
+      const returned = block.body.some((statement) => {
+        if (statement.type !== "ReturnStatement") return false;
+        const value = statement.argument;
+        // `Object.assign(screen, …)` and `{ ...screen }` still hand over the screen's disposer.
+        return (
+          isName(value) ||
+          (value?.type === "CallExpression" && isName(value.arguments[0])) ||
+          (value?.type === "ObjectExpression" &&
+            value.properties.some(
+              (property) => property.type === "SpreadElement" && isName(property.argument),
+            ))
+        );
+      });
+      if (returned) return true;
+      const next = block.body[block.body.indexOf(declaration) + 1];
+      return (
+        next?.type === "TryStatement" &&
+        next.finalizer?.body.some((statement) => {
+          if (
+            statement.type !== "ExpressionStatement" ||
+            statement.expression.type !== "AwaitExpression"
+          )
+            return false;
+          const call = statement.expression.argument;
+          if (call.type !== "CallExpression" || call.callee.type !== "MemberExpression")
+            return false;
+          const member = call.callee;
+          return (
+            member.object.type === "Identifier" &&
+            member.object.name === name &&
+            member.computed &&
+            member.property.type === "MemberExpression" &&
+            member.property.object.type === "Identifier" &&
+            member.property.object.name === "Symbol" &&
+            Option.getOrUndefined(getPropertyName(member.property.property)) === "asyncDispose"
+          );
+        })
+      );
+    };
+
     return {
       ImportDeclaration(node) {
         for (const specifier of node.specifiers) {
@@ -187,6 +281,10 @@ export default defineRule({
       CallExpression(node) {
         const callee = unwrapExpression(node.callee);
         if (Option.isNone(callee)) return;
+        if (isBrowserTest && isRenderCall(callee.value) && !isDisposedRender(node)) {
+          context.report({ node, message: MESSAGES.undisposedRender });
+          return;
+        }
         if (callee.value.type === "MemberExpression") {
           // vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true) leaves the flag on for the whole test.
           const method = getPropertyName(callee.value.property);

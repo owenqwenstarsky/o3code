@@ -6,6 +6,7 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -116,6 +117,65 @@ it.effect("preserves a due run when a save only pads the scheduled hour", () =>
       );
     }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect(
+  "does not resurrect a dispatched occurrence when an unchanged schedule save races it",
+  () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-07-01T09:00:00.000Z"));
+      const editing = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      let pauseEdit = false;
+      const layerDependencies = Layer.mergeAll(
+        NodeCrypto.layer,
+        Layer.mock(Scheduler.Scheduler)({ register: () => Effect.void }),
+        Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+          launch: () => Effect.succeed({ threadId: "thread-racing-edit", resumed: false } as never),
+        }),
+        Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+          namedProjectsRoot: "/projects",
+          isScratchProject: () =>
+            pauseEdit
+              ? Deferred.succeed(editing, undefined).pipe(
+                  Effect.andThen(Deferred.await(release)),
+                  Effect.as(false),
+                )
+              : Effect.succeed(false),
+        }),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+      );
+      yield* Effect.gen(function* () {
+        const service = yield* ScheduledTaskService.ScheduledTaskService;
+        const input = yield* decodeUpsertInput({
+          id: "scheduled-task:racing-edit",
+          title: "Review",
+          prompt: "Review changes.",
+          enabled: true,
+          schedule: { type: "interval", everyMs: 60_000 },
+          projectId: "project-racing-edit",
+          workspaceStrategy: { type: "worktree", baseRef: "main" },
+          modelSelection: { instanceId: "codex", model: "test" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        });
+        const created = yield* service.upsert(input);
+        pauseEdit = true;
+        const edit = yield* service
+          .upsert({ ...input, title: "Edited" })
+          .pipe(Effect.forkChild({ startImmediately: true }));
+        yield* Deferred.await(editing);
+        yield* TestClock.setTime(Date.parse("2026-07-01T09:01:00.000Z"));
+        const dispatched = yield* service.runNow({ id: created.task.id });
+        expect(dispatched.task.nextRunAt).not.toBe(created.task.nextRunAt);
+        yield* Deferred.succeed(release, undefined);
+        const updated = yield* Fiber.join(edit);
+        expect(updated.task.title).toBe("Edited");
+        expect(updated.task.nextRunAt).toBe(dispatched.task.nextRunAt);
+        expect(updated.task.runCount).toBe(1);
+      }).pipe(Effect.provide(ScheduledTaskService.layer.pipe(Layer.provide(layerDependencies))));
+    }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );
 
 it.effect("keeps the task list order when a toggle or edit rewrites updated_at", () =>

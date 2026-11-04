@@ -5,6 +5,7 @@ import { resolveAnnotationSubmission } from "./AnnotationKeyboard.ts";
 const keyboardEvent = (
   overrides: Partial<Parameters<typeof resolveAnnotationSubmission>[0]> = {},
 ) => ({
+  isTrusted: true,
   key: "Enter",
   metaKey: false,
   ctrlKey: false,
@@ -18,5 +19,13 @@ describe("resolveAnnotationSubmission", () => {
     expect(resolveAnnotationSubmission(keyboardEvent({ shiftKey: true }), true)).toBeNull();
     expect(resolveAnnotationSubmission(keyboardEvent({ isComposing: true }), true)).toBeNull();
     expect(resolveAnnotationSubmission(keyboardEvent({ key: " " }), true)).toBeNull();
+    for (const modifiers of [{}, { metaKey: true }, { ctrlKey: true }]) {
+      expect(
+        resolveAnnotationSubmission(keyboardEvent({ ...modifiers, isTrusted: false }), true),
+      ).toBeNull();
+      expect(resolveAnnotationSubmission(keyboardEvent(modifiers), true)).toBe(
+        modifiers.metaKey || modifiers.ctrlKey ? "send" : "attach",
+      );
+    }
   });
 });

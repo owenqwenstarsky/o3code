@@ -1,3 +1,4 @@
+import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -960,7 +961,11 @@ export const make = Effect.gen(function* () {
         ? base
         : base.pipe(HttpClientRequest.bodyText(input.body, "application/json"));
     return withAuth(withBody).pipe(
-      Effect.flatMap(httpClient.execute),
+      Effect.flatMap((request) =>
+        httpClient
+          .execute(request)
+          .pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" })),
+      ),
       Effect.mapError(
         (cause): BitbucketApiError => new BitbucketRequestError({ operation: "request", cause }),
       ),

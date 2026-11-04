@@ -375,6 +375,7 @@ export const InstanceAuthSyncPullResult = Schema.Struct({
 export type InstanceAuthSyncPullResult = typeof InstanceAuthSyncPullResult.Type;
 
 export const InstanceAuthSyncPushRequest = Schema.Struct({
+  groupId: InstanceAuthGroupId,
   provider: InstanceAuthSyncProvider,
   /** Accepted only while the group's version still equals this one. */
   baseVersion: NonNegativeInt,

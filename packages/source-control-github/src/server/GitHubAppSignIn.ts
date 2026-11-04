@@ -16,7 +16,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
-import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -128,8 +127,25 @@ export const make = Effect.gen(function* () {
     Effect.orElseSucceed((): Readonly<Record<string, string>> => ({})),
   );
 
-  const readSession = (host: string) =>
-    readSignIns.pipe(Effect.map((signIns) => decodeSession(signIns[host] ?? "")));
+  const unsaved = new Map<string, { from: string; next: GitHubAppSession }>();
+  const readSession = Effect.fn("GitHubAppSignIn.readSession")(function* (host: string) {
+    const current = decodeSession((yield* readSignIns)[host] ?? "");
+    const pending = unsaved.get(host);
+    if (!pending) return current;
+    if (Option.isNone(current) || current.value.accessToken !== pending.from) {
+      unsaved.delete(host);
+      return current;
+    }
+    yield* writeSession(host, pending.next).pipe(
+      Effect.tap(() =>
+        Effect.sync(() => {
+          unsaved.delete(host);
+        }),
+      ),
+      Effect.ignore,
+    );
+    return Option.some(pending.next);
+  });
 
   const writeSession = Effect.fn("GitHubAppSignIn.writeSession")(function* (
     host: string,
@@ -154,7 +170,16 @@ export const make = Effect.gen(function* () {
   ) {
     const current = yield* readSession(host);
     if (Option.isNone(current) || current.value.accessToken !== from.accessToken) return false;
-    yield* writeSession(host, next);
+    yield* writeSession(host, next).pipe(
+      Effect.catch((cause) => {
+        if (next === null) return Effect.fail(new GitHubAppSessionError({ host, cause }));
+        unsaved.set(host, { from: unsaved.get(host)?.from ?? from.accessToken, next });
+        return Effect.logError("Could not save the refreshed app sign-in; using it unsaved.", {
+          host,
+          cause,
+        });
+      }),
+    );
     return true;
   });
 
@@ -230,15 +255,7 @@ export const make = Effect.gen(function* () {
       access_token: response.access_token,
     });
     // GitHub has retired the old pair, so an unsaved new one is still the only usable token.
-    const saved = yield* replaceSession(host, session, next).pipe(
-      Effect.retry({ times: 2, schedule: Schedule.spaced(Duration.millis(250)) }),
-      Effect.catch((cause) =>
-        Effect.logError("Could not save the refreshed app sign-in; using it unsaved.", {
-          host,
-          cause,
-        }).pipe(Effect.as(true)),
-      ),
-    );
+    const saved = yield* replaceSession(host, session, next);
     if (saved) return Option.some(next.accessToken);
     // Signed out or signed in again meanwhile: serve whatever is stored now.
     return Option.map(yield* readSession(host), (current) => current.accessToken);

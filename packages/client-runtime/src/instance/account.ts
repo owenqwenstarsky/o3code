@@ -15,6 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import { HttpClient } from "effect/http";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
 
@@ -160,6 +161,7 @@ const make = Effect.gen(function* () {
   const store = yield* InstanceSessionStore;
   const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
   const httpClient = yield* HttpClient.HttpClient;
+  const sessionLock = yield* Semaphore.make(1);
 
   const clientFor = (url: string) =>
     makeInstanceApiClient(url).pipe(Effect.provideService(HttpClient.HttpClient, httpClient));
@@ -182,11 +184,36 @@ const make = Effect.gen(function* () {
       { discard: true },
     );
 
-  const signOutLocally = Effect.gen(function* () {
+  const isCurrentSession = Effect.fn("clientRuntime.instance.isCurrentSession")(function* (
+    session: StoredInstanceSession,
+  ) {
     const current = yield* store.get;
-    if (Option.isSome(current)) yield* forgetEnvironments(savedEnvironmentIds(current.value));
-    yield* store.clear;
+    return (
+      Option.isSome(current) &&
+      current.value.url === session.url &&
+      current.value.sessionToken === session.sessionToken
+    );
   });
+
+  const requireCurrentSession = Effect.fn("clientRuntime.instance.requireCurrentSession")(
+    function* (session: StoredInstanceSession) {
+      if (!(yield* isCurrentSession(session))) {
+        return yield* new InstanceSignedOutError({ message: "Your O3 instance session changed." });
+      }
+    },
+  );
+
+  const signOutLocally = Effect.fn("clientRuntime.instance.signOutLocally")(
+    (session: StoredInstanceSession) =>
+      sessionLock.withPermit(
+        Effect.gen(function* () {
+          if (!(yield* isCurrentSession(session))) return;
+          const current = yield* store.get;
+          if (Option.isSome(current)) yield* forgetEnvironments(savedEnvironmentIds(current.value));
+          yield* store.clear;
+        }),
+      ),
+  );
 
   const requireSession = store.get.pipe(
     Effect.flatMap(
@@ -198,13 +225,14 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const call = Effect.fn("clientRuntime.instance.call")(function* <A, E>(
+  const callWithSession = Effect.fn("clientRuntime.instance.call")(function* <A, E>(
+    session: StoredInstanceSession,
     request: (
       client: InstanceApiClient,
       headers: { readonly authorization: string },
     ) => Effect.Effect<A, E>,
   ) {
-    const session = yield* requireSession;
+    yield* requireCurrentSession(session);
     const client = yield* clientFor(session.url);
     return yield* request(client, { authorization: `Bearer ${session.sessionToken}` }).pipe(
       Effect.timeoutOrElse({
@@ -214,7 +242,7 @@ const make = Effect.gen(function* () {
       Effect.catchIf(
         (cause) => isTagged(cause, "InstanceUnauthorizedError"),
         (cause) =>
-          signOutLocally.pipe(
+          signOutLocally(session).pipe(
             Effect.andThen(
               Effect.fail(new InstanceSignedOutError({ message: errorMessage(cause) })),
             ),
@@ -222,6 +250,9 @@ const make = Effect.gen(function* () {
       ),
     );
   });
+
+  const call: InstanceAccount["Service"]["call"] = (request) =>
+    Effect.flatMap(requireSession, (session) => callWithSession(session, request));
 
   const toAccountError = (cause: unknown): InstanceSignedOutError | InstanceUnreachableError =>
     cause instanceof InstanceSignedOutError || cause instanceof InstanceUnreachableError
@@ -245,7 +276,7 @@ const make = Effect.gen(function* () {
         reason: "not-ready",
       });
     }
-    const issued = yield* call((client, headers) =>
+    const issued = yield* callWithSession(session, (client, headers) =>
       client.account.myWorkspaceToken({ headers, params: { workspaceId: workspace.id } }),
     ).pipe(
       Effect.mapError((cause) =>
@@ -273,26 +304,31 @@ const make = Effect.gen(function* () {
     if (taken.has(descriptor.environmentId)) return null;
     const connectionId = workspaceConnectionId(descriptor.environmentId, workspace.isDefault);
     const label = workspace.label.length > 0 ? workspace.label : `${session.name} workspace`;
-    yield* registry
-      .register(
-        new BearerConnectionRegistration({
-          target: new BearerConnectionTarget({
-            environmentId: descriptor.environmentId,
-            label,
-            connectionId,
-          }),
-          profile: new BearerConnectionProfile({
-            connectionId,
-            environmentId: descriptor.environmentId,
-            label,
-            httpBaseUrl,
-            wsBaseUrl: workspace.wsBaseUrl ?? httpBaseUrl.replace(/^http/, "ws"),
-          }),
-          credential: new BearerConnectionCredential({ token: issued.token }),
-        }),
-      )
-      .pipe(Effect.orDie);
-    yield* registry.setEnabled(descriptor.environmentId, true).pipe(Effect.ignore);
+    yield* sessionLock.withPermit(
+      Effect.gen(function* () {
+        yield* requireCurrentSession(session);
+        yield* registry
+          .register(
+            new BearerConnectionRegistration({
+              target: new BearerConnectionTarget({
+                environmentId: descriptor.environmentId,
+                label,
+                connectionId,
+              }),
+              profile: new BearerConnectionProfile({
+                connectionId,
+                environmentId: descriptor.environmentId,
+                label,
+                httpBaseUrl,
+                wsBaseUrl: workspace.wsBaseUrl ?? httpBaseUrl.replace(/^http/, "ws"),
+              }),
+              credential: new BearerConnectionCredential({ token: issued.token }),
+            }),
+          )
+          .pipe(Effect.orDie);
+        yield* registry.setEnabled(descriptor.environmentId, true).pipe(Effect.ignore);
+      }),
+    );
     return {
       workspaceId: workspace.id,
       environmentId: descriptor.environmentId,
@@ -306,6 +342,7 @@ const make = Effect.gen(function* () {
     session: StoredInstanceSession,
     current: InstanceMe,
   ) {
+    yield* requireCurrentSession(session);
     const defaultWorkspace = current.workspaces[0] ?? null;
     if (current.user.mustChangePassword) {
       return yield* new InstanceWorkspaceUnavailableError({
@@ -349,20 +386,28 @@ const make = Effect.gen(function* () {
     });
     const next = [...connected, ...kept];
     const nextEnvironmentIds = new Set(next.map((entry) => entry.environmentId));
-    yield* forgetEnvironments(
-      savedEnvironmentIds(session).filter(
-        (environmentId) => !nextEnvironmentIds.has(environmentId),
-      ),
+    yield* sessionLock.withPermit(
+      Effect.gen(function* () {
+        yield* requireCurrentSession(session);
+        yield* forgetEnvironments(
+          savedEnvironmentIds(session).filter(
+            (environmentId) => !nextEnvironmentIds.has(environmentId),
+          ),
+        );
+        const { environmentId: _legacy, ...rest } = session;
+        yield* store.set({ ...rest, workspaces: next });
+      }),
     );
-    const { environmentId: _legacy, ...rest } = session;
-    yield* store.set({ ...rest, workspaces: next });
     if (defaultError !== null) return yield* defaultError;
     return defaultWorkspace;
   });
 
   const connectWorkspaces = Effect.gen(function* () {
     const session = yield* requireSession;
-    return yield* connectWith(session, yield* me);
+    const current = yield* callWithSession(session, (client, headers) =>
+      client.account.me({ headers }),
+    ).pipe(Effect.mapError(toAccountError));
+    return yield* connectWith(session, current);
   });
 
   const needsReconnect = (session: StoredInstanceSession, current: InstanceMe, now: number) => {
@@ -424,15 +469,20 @@ const make = Effect.gen(function* () {
               : unreachable(url)(cause),
           ),
         );
-      const previous = yield* store.get;
-      if (Option.isSome(previous)) yield* forgetEnvironments(savedEnvironmentIds(previous.value));
-      yield* store.set({
-        url,
-        name: descriptor.name,
-        sessionToken: result.sessionToken,
-        userId: result.user.id,
-        email: result.user.email,
-      });
+      yield* sessionLock.withPermit(
+        Effect.gen(function* () {
+          const previous = yield* store.get;
+          if (Option.isSome(previous))
+            yield* forgetEnvironments(savedEnvironmentIds(previous.value));
+          yield* store.set({
+            url,
+            name: descriptor.name,
+            sessionToken: result.sessionToken,
+            userId: result.user.id,
+            email: result.user.email,
+          });
+        }),
+      );
       return result;
     }),
     session: store.get,
@@ -442,13 +492,20 @@ const make = Effect.gen(function* () {
     refreshWorkspaces: Effect.gen(function* () {
       const session = yield* requireSession;
       // Asking every time still notices a revoked session or a disabled account.
-      const current = yield* me;
+      const current = yield* callWithSession(session, (client, headers) =>
+        client.account.me({ headers }),
+      ).pipe(Effect.mapError(toAccountError));
+      yield* requireCurrentSession(session);
       if (!needsReconnect(session, current, yield* Clock.currentTimeMillis)) return;
       yield* connectWith(session, current).pipe(Effect.asVoid);
     }).pipe(Effect.withSpan("clientRuntime.instance.refreshWorkspaces")),
     signOut: Effect.gen(function* () {
-      yield* call((client, headers) => client.account.logout({ headers })).pipe(Effect.ignore);
-      yield* signOutLocally;
+      const session = yield* store.get;
+      if (Option.isNone(session)) return;
+      yield* callWithSession(session.value, (client, headers) =>
+        client.account.logout({ headers }),
+      ).pipe(Effect.ignore);
+      yield* signOutLocally(session.value);
     }).pipe(Effect.withSpan("clientRuntime.instance.signOut")),
   });
 });

@@ -35,8 +35,8 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener);
 };
 
-export const serverPictureInPictureKey = (threadId: string, tabId: string) =>
-  JSON.stringify([threadId, tabId]);
+export const serverPictureInPictureKey = (threadId: string, tabId: string, environmentId: string) =>
+  JSON.stringify([environmentId, threadId, tabId]);
 
 export function supportsServerPictureInPicture(): boolean {
   if (typeof document === "undefined") return false;
@@ -138,7 +138,7 @@ export async function openServerPictureInPicture(input: {
     if (video.webkitPresentationMode !== "picture-in-picture") onLeave();
   };
   const current: ActivePictureInPicture = {
-    key: serverPictureInPictureKey(input.threadId, input.tabId),
+    key: serverPictureInPictureKey(input.threadId, input.tabId, input.environmentId),
     stop: () => {
       stopped = true;
       stopWatchingPreview();
