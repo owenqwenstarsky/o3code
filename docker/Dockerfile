@@ -1,7 +1,8 @@
 # Images for an O3 instance and its per-user workspaces. Build from the repo root:
 #   docker build -f docker/Dockerfile --target instance -t o3code/instance .
 #   docker build -f docker/Dockerfile --target workspace -t o3code/workspace .
-# Both run the server from source on Node's type stripping, like `vp run dev`.
+# Both run the server from source on Node's type stripping, like `vp run dev`, so the server's
+# workspace packages, which it lists as devDependencies for the bundled CLI, are installed too.
 
 ARG NODE_VERSION=26.12.1
 
@@ -12,7 +13,7 @@ COPY . .
 RUN vp install --frozen-lockfile -- --yes \
  && vp run --filter @t3tools/web build \
  && rm -rf node_modules apps/*/node_modules packages/*/node_modules \
- && vp install --frozen-lockfile --prod --filter "t3..." -- --yes \
+ && vp install --frozen-lockfile --filter "t3..." -- --yes \
  && rm -rf apps/desktop apps/web/src apps/web/test packages/*/test \
  && printf '#!/bin/sh\nexec node /opt/o3/apps/server/src/bin.ts "$@"\n' > /usr/local/bin/t3 \
  && chmod +x /usr/local/bin/t3

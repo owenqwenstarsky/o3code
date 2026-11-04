@@ -1,9 +1,9 @@
 # O3 instances
 
 An O3 instance (`t3 instance serve`, [apps/server/src/instance](../../apps/server/src/instance))
-is a control plane above ordinary T3 servers. It owns accounts, the admin API, and one or more
-Docker workspaces per user, one of them the user's default. Each workspace runs an unmodified
-`t3 serve`. Clients reach workspaces
+is a control plane above ordinary T3 servers. It owns accounts, the admin API, and Docker
+workspaces. A workspace stands on its own; users are attached to it as members, and each user
+picks one of theirs as the default. Each workspace runs an unmodified `t3 serve`. Clients reach workspaces
 directly; the instance never proxies their traffic. See the [admin guide](../user/instance-admin.md)
 for deployment.
 
@@ -12,7 +12,7 @@ for deployment.
 A workspace joins the tailnet with a single-use, tagged auth key that the instance mints, and
 serves O3 Code through Tailscale Serve under its own `ts.net` name. That gives every workspace a
 separate HTTPS origin, so HTML renders, previews, and guest pages from one workspace cannot act in
-another, whether it belongs to another user, the same user, or an admin who opens them. A shared proxy hostname would lose that
+another, whether one person opens both or different people do. A shared proxy hostname would lose that
 isolation. Do not route workspaces through the instance's origin.
 
 Tailscale runs in kernel mode (`NET_ADMIN`, `/dev/net/tun`) so tools inside the workspace reach
@@ -54,12 +54,21 @@ migration list stays the only one that decides T3 schema.
 
 Docker is reached through its Engine API over the unix socket
 ([DockerEngine](../../apps/server/src/instance/DockerEngine.ts)), and every container operation on
-a workspace is serialized. Adding, removing, renaming, and re-defaulting workspaces share one
-instance-wide lock, because slugs are unique across users and a user keeps exactly one default. The
+a workspace is serialized. Adding, removing, and renaming workspaces and changing their members
+share one instance-wide lock, because labels and slugs are unique across the instance and each user
+keeps exactly one default. The
 database records intent (`provisioning`, `starting`, `stopped`); a reconcile loop compares it with
 `docker inspect` and probes workspaces that are not yet confirmed running.
 
-## Migrated workspaces share their user's id
+## Members share one server
+
+A workspace is one `t3 serve`, so its members share its projects, threads, terminal, files, and
+agent sign-ins; isolation is per workspace, not per user. Inside the workspace each member still
+gets their own shadow session (`o3:<user>`), and introspection checks membership on every call, so
+removing a member ends their access within the 30-second recheck. A workspace left with no active
+member is stopped, not deleted, because it holds data that other people or a later member may need.
+
+## Migrated workspaces share their first user's id
 
 Workspaces created before several were allowed per user took their user's id as their workspace id
 ([002_MultipleWorkspaces](../../apps/server/src/instance/Migrations/002_MultipleWorkspaces.ts)). That

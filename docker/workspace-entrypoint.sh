@@ -2,6 +2,16 @@
 # Runs as root: joins this workspace to the tailnet as its own device, then drops to `o3`.
 set -euo pipefail
 
+drop_to_o3() {
+  chown o3:o3 /home/o3
+  exec setpriv --reuid=o3 --regid=o3 --init-groups env HOME=/home/o3 USER=o3 /usr/local/bin/o3-workspace-start
+}
+
+# Local development: Docker publishes the server on a host loopback port instead.
+if [ "${O3_PUBLISH:-tailnet}" = "loopback" ]; then
+  drop_to_o3
+fi
+
 mkdir -p /var/lib/tailscale /var/run/tailscale
 chmod 700 /var/lib/tailscale
 tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock \
@@ -20,5 +30,4 @@ fi
 tailscale set --operator=o3
 unset O3_TS_AUTHKEY
 
-chown o3:o3 /home/o3
-exec setpriv --reuid=o3 --regid=o3 --init-groups env HOME=/home/o3 USER=o3 /usr/local/bin/o3-workspace-start
+drop_to_o3

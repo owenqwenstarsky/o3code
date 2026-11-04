@@ -17,6 +17,7 @@ import * as Migrator from "effect/sql/Migrator";
 import Migration0001 from "./Migrations/001_InstanceCore.ts";
 import Migration0002 from "./Migrations/002_MultipleWorkspaces.ts";
 import Migration0003 from "./Migrations/003_AuthSyncGroups.ts";
+import Migration0004 from "./Migrations/004_SharedWorkspaces.ts";
 
 export class InstanceStoreError extends Schema.TaggedError<InstanceStoreError>()(
   "InstanceStoreError",
@@ -43,9 +44,7 @@ export type UserRecord = typeof UserRecord.Type;
 
 export const WorkspaceRecord = Schema.Struct({
   workspaceId: InstanceWorkspaceId,
-  userId: InstanceUserId,
   label: Schema.String,
-  isDefault: Schema.BooleanFromBit,
   slug: Schema.String,
   status: InstanceWorkspaceStatus,
   statusMessage: Schema.NullOr(Schema.String),
@@ -61,8 +60,25 @@ export const WorkspaceRecord = Schema.Struct({
 });
 export type WorkspaceRecord = typeof WorkspaceRecord.Type;
 
+/** A workspace as one of its members sees it. */
+export const UserWorkspaceRecord = Schema.Struct({
+  ...WorkspaceRecord.fields,
+  isDefault: Schema.BooleanFromBit,
+});
+export type UserWorkspaceRecord = typeof UserWorkspaceRecord.Type;
+
+export const MemberRecord = Schema.Struct({
+  workspaceId: InstanceWorkspaceId,
+  userId: InstanceUserId,
+  isDefault: Schema.BooleanFromBit,
+  createdAt: Schema.String,
+});
+export type MemberRecord = typeof MemberRecord.Type;
+
 const decodeUsers = Schema.decodeUnknownEffect(Schema.Array(UserRecord));
 const decodeWorkspaces = Schema.decodeUnknownEffect(Schema.Array(WorkspaceRecord));
+const decodeUserWorkspaces = Schema.decodeUnknownEffect(Schema.Array(UserWorkspaceRecord));
+const decodeMembers = Schema.decodeUnknownEffect(Schema.Array(MemberRecord));
 const encodeWorkspace = Schema.encodeEffect(WorkspaceRecord);
 const encodeTools = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)));
 const encodeLimits = Schema.encodeSync(Schema.fromJsonString(InstanceWorkspaceLimits));
@@ -85,9 +101,8 @@ export type UserPatch = Partial<
   >
 >;
 
-/** `isDefault` changes only through `setDefaultWorkspace`, which keeps one default per user. */
 export type WorkspacePatch = Partial<
-  Omit<WorkspaceRecord, "workspaceId" | "userId" | "isDefault" | "slug" | "createdAt" | "updatedAt">
+  Omit<WorkspaceRecord, "workspaceId" | "slug" | "createdAt" | "updatedAt">
 >;
 
 export class InstanceStore extends Context.Service<
@@ -111,10 +126,25 @@ export class InstanceStore extends Context.Service<
       ReadonlyArray<WorkspaceRecord>,
       InstanceStoreError
     >;
-    /** Default first, then oldest first. */
+    /** The workspaces the user is a member of, default first, then oldest first. */
     readonly listWorkspacesForUser: (
       userId: string,
-    ) => Effect.Effect<ReadonlyArray<WorkspaceRecord>, InstanceStoreError>;
+    ) => Effect.Effect<ReadonlyArray<UserWorkspaceRecord>, InstanceStoreError>;
+    /** One workspace's members, or every membership when `workspaceId` is null. */
+    readonly listMembers: (
+      workspaceId: string | null,
+    ) => Effect.Effect<ReadonlyArray<MemberRecord>, InstanceStoreError>;
+    /** Idempotent; the workspace becomes the user's default when they have none. */
+    readonly addMember: (
+      workspaceId: string,
+      userId: string,
+      createdAt: string,
+    ) => Effect.Effect<void, InstanceStoreError>;
+    /** The user's oldest remaining workspace becomes their default if this one was. */
+    readonly removeMember: (
+      workspaceId: string,
+      userId: string,
+    ) => Effect.Effect<void, InstanceStoreError>;
     readonly getWorkspace: (
       workspaceId: string,
     ) => Effect.Effect<Option.Option<WorkspaceRecord>, InstanceStoreError>;
@@ -126,11 +156,11 @@ export class InstanceStore extends Context.Service<
       patch: WorkspacePatch,
       updatedAt: string,
     ) => Effect.Effect<void, InstanceStoreError>;
+    /** Members whose default this was fall back to their oldest remaining workspace. */
     readonly deleteWorkspace: (workspaceId: string) => Effect.Effect<void, InstanceStoreError>;
     readonly setDefaultWorkspace: (
       userId: string,
       workspaceId: string,
-      updatedAt: string,
     ) => Effect.Effect<void, InstanceStoreError>;
     readonly getSetting: (key: string) => Effect.Effect<Option.Option<string>, InstanceStoreError>;
     readonly putSetting: (
@@ -155,11 +185,15 @@ const USER_COLUMNS = `
   created_at AS "createdAt", updated_at AS "updatedAt", last_login_at AS "lastLoginAt"`;
 
 const WORKSPACE_COLUMNS = `
-  workspace_id AS "workspaceId", user_id AS "userId", label, is_default AS "isDefault", slug, status, status_message AS "statusMessage",
-  container_id AS "containerId", tailnet_hostname AS "tailnetHostname", image,
-  tools_json AS "tools", limits_json AS "limits", secret_hash AS "secretHash",
-  disk_usage_bytes AS "diskUsageBytes",
-  created_at AS "createdAt", updated_at AS "updatedAt"`;
+  w.workspace_id AS "workspaceId", w.label, w.slug, w.status, w.status_message AS "statusMessage",
+  w.container_id AS "containerId", w.tailnet_hostname AS "tailnetHostname", w.image,
+  w.tools_json AS "tools", w.limits_json AS "limits", w.secret_hash AS "secretHash",
+  w.disk_usage_bytes AS "diskUsageBytes",
+  w.created_at AS "createdAt", w.updated_at AS "updatedAt"`;
+
+const MEMBER_COLUMNS = `
+  workspace_id AS "workspaceId", user_id AS "userId", is_default AS "isDefault",
+  created_at AS "createdAt"`;
 
 const USER_PATCH_COLUMNS: Record<keyof UserPatch, string> = {
   name: "name",
@@ -199,8 +233,21 @@ const make = Effect.gen(function* () {
 
   const selectWorkspaces = (where: string, params: ReadonlyArray<unknown>) =>
     sql
-      .unsafe(`SELECT ${WORKSPACE_COLUMNS} FROM o3_workspaces ${where}`, params)
+      .unsafe(`SELECT ${WORKSPACE_COLUMNS} FROM o3_workspaces w ${where}`, params)
       .pipe(Effect.flatMap(decodeWorkspaces));
+
+  // Clear-then-set elsewhere keeps the partial unique index (one default per user) satisfied.
+  const promoteDefault = (userId: string) => sql`
+    UPDATE o3_workspace_members SET is_default = 1
+    WHERE user_id = ${userId}
+      AND NOT EXISTS (
+        SELECT 1 FROM o3_workspace_members WHERE user_id = ${userId} AND is_default = 1
+      )
+      AND workspace_id = (
+        SELECT workspace_id FROM o3_workspace_members WHERE user_id = ${userId}
+        ORDER BY created_at ASC, workspace_id ASC LIMIT 1
+      )
+  `;
 
   const patchRow = (
     table: string,
@@ -265,15 +312,52 @@ const make = Effect.gen(function* () {
       sql`DELETE FROM o3_users WHERE user_id = ${userId}`.pipe(Effect.asVoid, fail("deleteUser")),
     ),
     listWorkspaces: Effect.fn("InstanceStore.listWorkspaces")(() =>
-      selectWorkspaces("ORDER BY created_at ASC", []).pipe(fail("listWorkspaces")),
+      selectWorkspaces("ORDER BY w.created_at ASC", []).pipe(fail("listWorkspaces")),
     ),
     listWorkspacesForUser: Effect.fn("InstanceStore.listWorkspacesForUser")((userId) =>
-      selectWorkspaces("WHERE user_id = ? ORDER BY is_default DESC, created_at ASC", [userId]).pipe(
-        fail("listWorkspacesForUser"),
+      sql
+        .unsafe(
+          `SELECT ${WORKSPACE_COLUMNS}, m.is_default AS "isDefault"
+           FROM o3_workspace_members m JOIN o3_workspaces w ON w.workspace_id = m.workspace_id
+           WHERE m.user_id = ? ORDER BY m.is_default DESC, w.created_at ASC`,
+          [userId],
+        )
+        .pipe(Effect.flatMap(decodeUserWorkspaces), fail("listWorkspacesForUser")),
+    ),
+    listMembers: Effect.fn("InstanceStore.listMembers")((workspaceId) =>
+      sql
+        .unsafe(
+          `SELECT ${MEMBER_COLUMNS} FROM o3_workspace_members
+           ${workspaceId === null ? "" : "WHERE workspace_id = ?"} ORDER BY created_at ASC`,
+          workspaceId === null ? [] : [workspaceId],
+        )
+        .pipe(Effect.flatMap(decodeMembers), fail("listMembers")),
+    ),
+    addMember: Effect.fn("InstanceStore.addMember")((workspaceId, userId, createdAt) =>
+      sql`
+        INSERT INTO o3_workspace_members (workspace_id, user_id, is_default, created_at)
+        VALUES (
+          ${workspaceId}, ${userId},
+          NOT EXISTS (
+            SELECT 1 FROM o3_workspace_members WHERE user_id = ${userId} AND is_default = 1
+          ),
+          ${createdAt}
+        )
+        ON CONFLICT (workspace_id, user_id) DO NOTHING
+      `.pipe(Effect.asVoid, fail("addMember")),
+    ),
+    removeMember: Effect.fn("InstanceStore.removeMember")((workspaceId, userId) =>
+      sql`
+        DELETE FROM o3_workspace_members WHERE workspace_id = ${workspaceId} AND user_id = ${userId}
+      `.pipe(
+        Effect.andThen(promoteDefault(userId)),
+        sql.withTransaction,
+        Effect.asVoid,
+        fail("removeMember"),
       ),
     ),
     getWorkspace: Effect.fn("InstanceStore.getWorkspace")((workspaceId) =>
-      selectWorkspaces("WHERE workspace_id = ?", [workspaceId]).pipe(
+      selectWorkspaces("WHERE w.workspace_id = ?", [workspaceId]).pipe(
         Effect.map((rows) => Option.fromNullishOr(rows[0])),
         fail("getWorkspace"),
       ),
@@ -283,11 +367,11 @@ const make = Effect.gen(function* () {
         Effect.flatMap(
           (row) => sql`
             INSERT INTO o3_workspaces (
-              workspace_id, user_id, label, is_default, slug, status, status_message,
+              workspace_id, label, slug, status, status_message,
               container_id, tailnet_hostname, image, tools_json, limits_json, secret_hash,
               disk_usage_bytes, created_at, updated_at
             ) VALUES (
-              ${row.workspaceId}, ${row.userId}, ${row.label}, ${row.isDefault}, ${row.slug},
+              ${row.workspaceId}, ${row.label}, ${row.slug},
               ${row.status}, ${row.statusMessage}, ${row.containerId}, ${row.tailnetHostname},
               ${row.image}, ${row.tools}, ${row.limits}, ${row.secretHash},
               ${row.diskUsageBytes}, ${row.createdAt}, ${row.updatedAt}
@@ -314,24 +398,31 @@ const make = Effect.gen(function* () {
       }).pipe(fail("updateWorkspace")),
     ),
     deleteWorkspace: Effect.fn("InstanceStore.deleteWorkspace")((workspaceId) =>
-      sql`DELETE FROM o3_workspaces WHERE workspace_id = ${workspaceId}`.pipe(
-        Effect.asVoid,
-        fail("deleteWorkspace"),
-      ),
+      Effect.gen(function* () {
+        const members = yield* sql<{ readonly userId: string }>`
+          SELECT user_id AS "userId" FROM o3_workspace_members WHERE workspace_id = ${workspaceId}
+        `;
+        yield* sql`DELETE FROM o3_workspaces WHERE workspace_id = ${workspaceId}`;
+        yield* Effect.forEach(members, (member) => promoteDefault(member.userId), {
+          discard: true,
+        });
+      }).pipe(sql.withTransaction, fail("deleteWorkspace")),
     ),
-    setDefaultWorkspace: Effect.fn("InstanceStore.setDefaultWorkspace")(
-      (userId, workspaceId, updatedAt) =>
-        Effect.gen(function* () {
-          // Clear first: the partial unique index allows one default per user at any moment.
-          yield* sql`
-            UPDATE o3_workspaces SET is_default = 0, updated_at = ${updatedAt}
-            WHERE user_id = ${userId} AND is_default = 1 AND workspace_id != ${workspaceId}
-          `;
-          yield* sql`
-            UPDATE o3_workspaces SET is_default = 1, updated_at = ${updatedAt}
-            WHERE user_id = ${userId} AND workspace_id = ${workspaceId}
-          `;
-        }).pipe(sql.withTransaction, fail("setDefaultWorkspace")),
+    setDefaultWorkspace: Effect.fn("InstanceStore.setDefaultWorkspace")((userId, workspaceId) =>
+      Effect.gen(function* () {
+        const member = yield* sql`
+          SELECT 1 FROM o3_workspace_members WHERE user_id = ${userId} AND workspace_id = ${workspaceId}
+        `;
+        if (member.length === 0) return;
+        yield* sql`
+          UPDATE o3_workspace_members SET is_default = 0
+          WHERE user_id = ${userId} AND is_default = 1 AND workspace_id != ${workspaceId}
+        `;
+        yield* sql`
+          UPDATE o3_workspace_members SET is_default = 1
+          WHERE user_id = ${userId} AND workspace_id = ${workspaceId}
+        `;
+      }).pipe(sql.withTransaction, fail("setDefaultWorkspace")),
     ),
     getSetting: Effect.fn("InstanceStore.getSetting")((key) =>
       sql<{
@@ -383,6 +474,7 @@ const layerMigrations = Layer.effectDiscard(
       "1_InstanceCore": Migration0001,
       "2_MultipleWorkspaces": Migration0002,
       "3_AuthSyncGroups": Migration0003,
+      "4_SharedWorkspaces": Migration0004,
     }),
   }),
 );

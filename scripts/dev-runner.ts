@@ -212,6 +212,18 @@ export class DevRunnerNoHomeError extends Schema.TaggedError<DevRunnerNoHomeErro
   }
 }
 
+export class DevRunnerLiveHomeError extends Schema.TaggedError<DevRunnerLiveHomeError>()(
+  "DevRunnerLiveHomeError",
+  {
+    mode: Schema.Literals(["dev", "dev:instance", "dev:server", "dev:web", "dev:desktop"]),
+    home: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `${this.mode} would start a server against ${this.home}, the live install's data. Pick a home outside ~/.t3 and ~/.t3/userdata with --home-dir.`;
+  }
+}
+
 const optionalStringConfig = (name: string): Config.Config<string | undefined> =>
   Config.String(name).pipe(
     Config.option,
@@ -698,6 +710,7 @@ interface DevRunnerCliInput {
   readonly devUrl: URL | undefined;
   readonly dryRun: boolean;
   readonly share: boolean;
+  readonly docker?: boolean | undefined;
   readonly seed?: boolean | undefined;
   readonly built: boolean;
   readonly runArgs: ReadonlyArray<string>;
@@ -759,6 +772,17 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   // Without a home the server falls through to ~/.t3 and migrates the developer's real database.
   if (resolvedT3Home === undefined && SERVER_MODES.has(input.mode)) {
     return yield* new DevRunnerNoHomeError({ mode: input.mode });
+  }
+  if (resolvedT3Home !== undefined && SERVER_MODES.has(input.mode)) {
+    const path = yield* Path.Path;
+    const home = yield* resolveBaseDir(resolvedT3Home);
+    // ~/.t3 itself is the live install's base dir and ~/.t3/userdata its database; dev homes
+    // elsewhere under ~/.t3 (worktrees, ~/.t3/dev) are fine.
+    const liveHome = path.join(yield* HostProcess.HomeDirectory, ".t3");
+    const liveState = path.join(liveHome, "userdata");
+    if (home === liveHome || home === liveState || home.startsWith(`${liveState}${path.sep}`)) {
+      return yield* new DevRunnerLiveHomeError({ mode: input.mode, home });
+    }
   }
   const env = yield* createDevRunnerEnv({
     mode: input.mode,
@@ -883,6 +907,9 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     env,
   });
 
+  // Only the flag selects Docker, so a parent dev app's environment can't.
+  if (input.docker === true) env.T3CODE_DEV_DOCKER = "1";
+  else delete env.T3CODE_DEV_DOCKER;
   const args = [...(built ? BUILT_DEV_ARGS : MODE_ARGS[input.mode]), ...input.runArgs];
   const spawnCommand = yield* resolveSpawnCommand("vp", args, { env });
   const processContext = {
@@ -982,6 +1009,12 @@ const devRunnerCli = Command.make("dev-runner", {
   share: Flag.Boolean("share").pipe(
     Flag.withDescription(
       "Publish the web dev server on this machine's tailnet over HTTPS (via `tailscale serve`) and print the pairing URL for it. Removed again on exit.",
+    ),
+    Flag.withDefault(false),
+  ),
+  docker: Flag.Boolean("docker").pipe(
+    Flag.withDescription(
+      "dev and dev:instance: run each workspace as a real container in the local Docker (Docker Desktop on macOS), published on a loopback port (and on the tailnet with --share), instead of one stand-in server. Builds o3code/workspace:dev from this checkout when it's missing; T3CODE_DEV_DOCKER_REBUILD=1 rebuilds it.",
     ),
     Flag.withDefault(false),
   ),

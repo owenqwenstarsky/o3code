@@ -684,7 +684,7 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             Effect.provideService(HostProcess.Platform, "linux"),
             Effect.provideService(HostProcess.WorkingDirectory, input.cwd),
             // No ~/.t3 here, so these runs never seed from this machine's install.
-            Effect.provideService(HostProcess.HomeDirectory, input.cwd),
+            Effect.provideService(HostProcess.HomeDirectory, NodePath.join(input.cwd, "home")),
             Effect.provideService(
               HostProcess.Environment,
               input.ambientHome === undefined ? {} : { T3CODE_HOME: input.ambientHome },
@@ -875,6 +875,38 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
           assert.equal(error._tag, "DevRunnerNoHomeError");
           assert.equal(spawned, false);
         }),
+      );
+
+      it.effect.each([".t3", ".t3/userdata", ".t3/userdata/nested", "~/.t3"])(
+        "refuses the live install's data as a dev home: %s",
+        (selected) =>
+          Effect.gen(function* () {
+            const path = yield* Path.Path;
+            const root = yield* makeWorktree;
+            const home = path.join(root, "home");
+            const error = yield* runDevRunnerWithInput({
+              ...devServerInput,
+              t3Home: selected.startsWith("~") ? selected : path.join(home, selected),
+            }).pipe(
+              Effect.provide(Layer.mergeAll(emptyConfigLayer, netServiceLayer)),
+              Effect.provideService(HostProcess.Platform, "linux"),
+              Effect.provideService(HostProcess.WorkingDirectory, root),
+              Effect.provideService(HostProcess.HomeDirectory, home),
+              Effect.provideService(HostProcess.Environment, {}),
+              Effect.flip,
+            );
+            assert.equal(error._tag, "DevRunnerLiveHomeError");
+            // A worktree under ~/.t3 is not the live install.
+            const worktreeHome = yield* spawnedHome({
+              t3Home: path.join(home, ".t3", "worktrees", "repo", "x", ".t3"),
+              cwd: root,
+              ambientHome: undefined,
+            });
+            assert.equal(
+              worktreeHome,
+              path.join(root, "home", ".t3", "worktrees", "repo", "x", ".t3"),
+            );
+          }).pipe(Effect.scoped),
       );
 
       it.effect("falls back to an ambient T3CODE_HOME outside a worktree", () =>

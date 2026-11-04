@@ -1,10 +1,11 @@
 import type {
+  InstanceAdminWorkspace,
   InstanceSettings,
   InstanceTool,
   InstanceUserId,
   InstanceUserRole,
-  InstanceWorkspace,
   InstanceWorkspaceAction,
+  InstanceWorkspaceId,
   InstanceWorkspaceLimits,
 } from "@t3tools/contracts/instance";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -19,6 +20,7 @@ import {
   adminUserSessionsAtom,
   adminUsersAtom,
   adminWorkspaceLogsAtom,
+  adminWorkspacesAtom,
   instanceRequest,
 } from "../../instance/instanceState";
 import { useRefreshWhileSettling } from "../../instance/useRefreshWhileSettling";
@@ -183,6 +185,11 @@ export function AdminOverviewPanel() {
         <SettingsRow
           title="Workspaces"
           description={data ? `${data.workspacesRunning} of ${data.workspacesTotal} running` : "…"}
+          control={
+            <Button render={<Link to="/settings/admin/workspaces" />} size="sm" variant="outline">
+              Manage workspaces
+            </Button>
+          }
         />
         <SettingsRow
           title="Memory limits"
@@ -259,14 +266,68 @@ export function AdminOverviewPanel() {
 
 // Users
 
+type NewUserWorkspaceMode = "new" | "existing";
+
+function WorkspaceChecklist({
+  workspaces,
+  selected,
+  onChange,
+}: {
+  workspaces: ReadonlyArray<{
+    id: InstanceWorkspaceId;
+    label: string;
+    members: ReadonlyArray<unknown>;
+  }>;
+  selected: ReadonlyArray<InstanceWorkspaceId>;
+  onChange: (next: ReadonlyArray<InstanceWorkspaceId>) => void;
+}) {
+  if (workspaces.length === 0) {
+    return <p className="text-xs text-muted-foreground">No workspaces yet.</p>;
+  }
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {workspaces.map((workspace) => {
+        const checked = selected.includes(workspace.id);
+        return (
+          <label key={workspace.id} className="flex items-start gap-2 text-sm">
+            <Checkbox
+              checked={checked}
+              onCheckedChange={(value) =>
+                onChange(
+                  value
+                    ? [...selected, workspace.id]
+                    : selected.filter((id) => id !== workspace.id),
+                )
+              }
+            />
+            <span>
+              <span className="font-medium">{workspace.label}</span>
+              <span className="block text-xs text-muted-foreground">
+                {memberCount(workspace.members.length)}
+              </span>
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function memberCount(count: number) {
+  return count === 0 ? "No members" : `${count} member${count === 1 ? "" : "s"}`;
+}
+
 function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
   const tools = useEnvironmentQuery(adminToolsAtom);
   const settings = useEnvironmentQuery(adminSettingsAtom);
+  const allWorkspaces = useEnvironmentQuery(adminWorkspacesAtom);
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<InstanceUserRole>("member");
+  const [mode, setMode] = useState<NewUserWorkspaceMode>("new");
   const [selectedTools, setSelectedTools] = useState<ReadonlyArray<string> | null>(null);
+  const [workspaceIds, setWorkspaceIds] = useState<ReadonlyArray<InstanceWorkspaceId>>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
@@ -277,7 +338,9 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
     setEmail("");
     setName("");
     setRole("member");
+    setMode("new");
     setSelectedTools(null);
+    setWorkspaceIds([]);
     setError(null);
     setCreated(null);
   };
@@ -290,10 +353,19 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
       const result = await instanceRequest((client, headers) =>
         client.admin.createUser({
           headers,
-          payload: { email, name, role, tools: chosenTools },
+          payload: {
+            email,
+            name,
+            role,
+            workspace:
+              mode === "new"
+                ? { kind: "new", tools: chosenTools }
+                : { kind: "existing", workspaceIds },
+          },
         }),
       );
       setCreated({ email: result.user.email, password: result.temporaryPassword });
+      allWorkspaces.refresh();
       onCreated();
     } catch (cause) {
       setError(errorText(cause));
@@ -316,7 +388,7 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
         <DialogHeader>
           <DialogTitle>Add user</DialogTitle>
           <DialogDescription>
-            Creates the account and a workspace with the tools you pick.
+            Creates the account and gives it a new workspace or adds it to existing ones.
           </DialogDescription>
         </DialogHeader>
         {created ? (
@@ -368,14 +440,42 @@ function CreateUserDialog({ onCreated }: { onCreated: () => void }) {
                     </SelectPopup>
                   </Select>
                 </div>
-                <div className="grid gap-2 text-sm">
-                  <span className="font-medium">Tools</span>
-                  <ToolChecklist
-                    tools={tools.data?.tools ?? []}
-                    selected={chosenTools}
-                    onChange={setSelectedTools}
-                  />
+                <div className="grid gap-1 text-sm">
+                  <span className="font-medium">Workspace</span>
+                  <Select
+                    value={mode}
+                    onValueChange={(value) => setMode(value === "existing" ? "existing" : "new")}
+                  >
+                    <SelectTrigger size="sm" aria-label="Workspace">
+                      <SelectValue>
+                        {mode === "new" ? "New workspace" : "Add to existing workspaces"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value="new">New workspace</SelectItem>
+                      <SelectItem value="existing">Add to existing workspaces</SelectItem>
+                    </SelectPopup>
+                  </Select>
                 </div>
+                {mode === "new" ? (
+                  <div className="grid gap-2 text-sm">
+                    <span className="font-medium">Tools</span>
+                    <ToolChecklist
+                      tools={tools.data?.tools ?? []}
+                      selected={chosenTools}
+                      onChange={setSelectedTools}
+                    />
+                  </div>
+                ) : (
+                  <div className="grid gap-2 text-sm">
+                    <span className="font-medium">Workspaces</span>
+                    <WorkspaceChecklist
+                      workspaces={allWorkspaces.data?.workspaces ?? []}
+                      selected={workspaceIds}
+                      onChange={setWorkspaceIds}
+                    />
+                  </div>
+                )}
                 {error ? (
                   <Alert variant="error">
                     <AlertDescription>{error}</AlertDescription>
@@ -455,30 +555,38 @@ function useMemoryWarning(memoryMb: number) {
     : null;
 }
 
-function AddWorkspaceDialog({
-  userId,
+function NewWorkspaceDialog({
+  memberUserIds: fixedMembers,
   onCreated,
 }: {
-  userId: InstanceUserId;
+  /** Preselected members, such as the user whose page opened the dialog. */
+  memberUserIds?: ReadonlyArray<InstanceUserId>;
   onCreated: () => void;
 }) {
   const tools = useEnvironmentQuery(adminToolsAtom);
   const settings = useEnvironmentQuery(adminSettingsAtom);
+  const users = useEnvironmentQuery(adminUsersAtom);
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState("");
   const [selectedTools, setSelectedTools] = useState<ReadonlyArray<string> | null>(null);
   const [selectedLimits, setSelectedLimits] = useState<InstanceWorkspaceLimits | null>(null);
+  const [selectedMembers, setSelectedMembers] = useState<ReadonlyArray<InstanceUserId> | null>(
+    null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const chosenTools = selectedTools ?? settings.data?.defaultTools ?? [];
   const chosenLimits = selectedLimits ?? settings.data?.defaultLimits ?? null;
+  const chosenMembers = selectedMembers ?? fixedMembers ?? [];
   const memoryWarning = useMemoryWarning(chosenLimits?.memoryMb ?? 0);
+  const activeUsers = (users.data?.users ?? []).filter(({ user }) => !user.disabled);
 
   const reset = () => {
     setLabel("");
     setSelectedTools(null);
     setSelectedLimits(null);
+    setSelectedMembers(null);
     setError(null);
   };
 
@@ -490,10 +598,10 @@ function AddWorkspaceDialog({
       await instanceRequest((client, headers) =>
         client.admin.createWorkspace({
           headers,
-          params: { userId },
           payload: {
             label: label.trim(),
             tools: chosenTools,
+            memberUserIds: chosenMembers,
             ...(chosenLimits ? { limits: chosenLimits } : {}),
           },
         }),
@@ -516,13 +624,14 @@ function AddWorkspaceDialog({
       }}
     >
       <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        Add workspace
+        New workspace
       </Button>
       <DialogPopup className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Add workspace</DialogTitle>
+          <DialogTitle>New workspace</DialogTitle>
           <DialogDescription>
-            A separate container with its own files, tailnet address, tools and limits.
+            A separate container with its own files, tailnet address, tools and limits. Everyone on
+            it shares its projects, threads and agent sign-ins.
           </DialogDescription>
         </DialogHeader>
         <form className="flex min-h-0 flex-col" onSubmit={(event) => void submit(event)}>
@@ -539,6 +648,33 @@ function AddWorkspaceDialog({
                   value={label}
                 />
               </label>
+              <div className="grid gap-2 text-sm">
+                <span className="font-medium">Members</span>
+                {activeUsers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No active users.</p>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {activeUsers.map(({ user }) => (
+                      <label key={user.id} className="flex items-start gap-2 text-sm">
+                        <Checkbox
+                          checked={chosenMembers.includes(user.id)}
+                          onCheckedChange={(value) =>
+                            setSelectedMembers(
+                              value
+                                ? [...chosenMembers, user.id]
+                                : chosenMembers.filter((id) => id !== user.id),
+                            )
+                          }
+                        />
+                        <span>
+                          <span className="font-medium">{user.name}</span>
+                          <span className="block text-xs text-muted-foreground">{user.email}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="grid gap-2 text-sm">
                 <span className="font-medium">Tools</span>
                 <ToolChecklist
@@ -576,13 +712,100 @@ function AddWorkspaceDialog({
   );
 }
 
-function AdminWorkspaceSection({
+const ADD_MEMBER_PLACEHOLDER = "";
+
+function setMembership(workspaceId: InstanceWorkspaceId, userId: InstanceUserId, member: boolean) {
+  return mutate(
+    member ? "Couldn't add them to the workspace" : "Couldn't remove them from the workspace",
+    () =>
+      instanceRequest((client, headers) =>
+        member
+          ? client.admin.addWorkspaceMember({ headers, params: { workspaceId, userId } })
+          : client.admin.removeWorkspaceMember({ headers, params: { workspaceId, userId } }),
+      ),
+  );
+}
+
+function WorkspaceMembersRow({
   workspace,
-  isOnly,
   onChanged,
 }: {
-  workspace: InstanceWorkspace;
-  isOnly: boolean;
+  workspace: InstanceAdminWorkspace;
+  onChanged: () => void;
+}) {
+  const users = useEnvironmentQuery(adminUsersAtom);
+  const memberIds = new Set(workspace.members.map((member) => member.userId));
+  const candidates = (users.data?.users ?? []).filter(
+    ({ user }) => !user.disabled && !memberIds.has(user.id),
+  );
+  const change = (userId: InstanceUserId, member: boolean) =>
+    setMembership(workspace.id, userId, member).then((ok) => {
+      if (!ok) return;
+      users.refresh();
+      onChanged();
+    });
+  return (
+    <SettingsRow
+      title="Members"
+      description={
+        workspace.members.length === 0
+          ? "Nobody is on this workspace, so it stays stopped until you add someone."
+          : "Everyone here sees the same projects, threads, terminal and agent sign-ins."
+      }
+      control={
+        candidates.length === 0 ? null : (
+          <Select
+            value={ADD_MEMBER_PLACEHOLDER}
+            onValueChange={(value) => {
+              const user = candidates.find((candidate) => candidate.user.id === value)?.user;
+              if (user) void change(user.id, true);
+            }}
+          >
+            <SelectTrigger size="sm" aria-label="Add a member">
+              <SelectValue>Add member…</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {candidates.map(({ user }) => (
+                <SelectItem key={user.id} value={user.id}>
+                  {user.name}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        )
+      }
+    >
+      {workspace.members.length > 0 ? (
+        <ul className="mt-3 grid gap-1">
+          {workspace.members.map((member) => (
+            <li key={member.userId} className="flex items-center justify-between gap-2 text-sm">
+              <span className="flex min-w-0 items-center gap-2">
+                <Link
+                  to="/settings/admin/users/$userId"
+                  params={{ userId: member.userId }}
+                  className="truncate hover:underline"
+                >
+                  {member.name}
+                </Link>
+                <span className="truncate text-xs text-muted-foreground">{member.email}</span>
+                {member.disabled ? <Badge variant="outline">Disabled</Badge> : null}
+              </span>
+              <Button size="xs" variant="ghost" onClick={() => void change(member.userId, false)}>
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </SettingsRow>
+  );
+}
+
+function AdminWorkspaceSection({
+  workspace,
+  onChanged,
+}: {
+  workspace: InstanceAdminWorkspace;
   onChanged: () => void;
 }) {
   const workspaceId = workspace.id;
@@ -619,13 +842,6 @@ function AdminWorkspaceSection({
       onChanged();
     });
 
-  const makeDefault = () =>
-    mutate("Couldn't change the default workspace", () =>
-      instanceRequest((client, headers) =>
-        client.admin.setDefaultWorkspace({ headers, params: { workspaceId } }),
-      ),
-    ).then((ok) => ok && onChanged());
-
   const deleteWorkspace = () =>
     mutate("Couldn't delete the workspace", () =>
       instanceRequest((client, headers) =>
@@ -635,9 +851,9 @@ function AdminWorkspaceSection({
 
   return (
     <SettingsSection
-      title={isOnly ? "Workspace" : workspace.label}
+      title={workspace.label}
       titleAction={
-        !isOnly && workspace.isDefault ? <Badge variant="secondary">Default</Badge> : null
+        workspace.members.length === 0 ? <Badge variant="outline">No members</Badge> : null
       }
     >
       <SettingsRow
@@ -651,25 +867,15 @@ function AdminWorkspaceSection({
           .join(" · ")}
         status={workspaceStatusBadge(workspace)}
       />
+      <WorkspaceMembersRow workspace={workspace} onChanged={onChanged} />
       <SettingsRow
         title="Name"
-        description={
-          workspace.isDefault
-            ? `${workspace.label}. The user's default workspace, which their apps open first.`
-            : workspace.label
-        }
+        description={workspace.label}
         control={
           editingLabel === null ? (
-            <div className="flex flex-wrap justify-end gap-1">
-              <Button size="sm" variant="outline" onClick={() => setEditingLabel(workspace.label)}>
-                Rename
-              </Button>
-              {workspace.isDefault ? null : (
-                <Button size="sm" variant="outline" onClick={() => void makeDefault()}>
-                  Make default
-                </Button>
-              )}
-            </div>
+            <Button size="sm" variant="outline" onClick={() => setEditingLabel(workspace.label)}>
+              Rename
+            </Button>
           ) : null
         }
       >
@@ -794,19 +1000,10 @@ function AdminWorkspaceSection({
       </SettingsRow>
       <SettingsRow
         title="Delete workspace"
-        description={
-          isOnly
-            ? "A user keeps at least one workspace. Delete the user to remove it."
-            : "Removes the container and its tailnet device."
-        }
+        description="Removes the container and its tailnet device for everyone on it."
         control={
           confirmDelete ? null : (
-            <Button
-              disabled={isOnly}
-              size="sm"
-              variant="destructive-outline"
-              onClick={() => setConfirmDelete(true)}
-            >
+            <Button size="sm" variant="destructive-outline" onClick={() => setConfirmDelete(true)}>
               Delete…
             </Button>
           )
@@ -833,13 +1030,87 @@ function AdminWorkspaceSection({
   );
 }
 
+// Workspaces
+
+export function AdminWorkspacesPanel() {
+  const workspaces = useEnvironmentQuery(adminWorkspacesAtom);
+  const list = workspaces.data?.workspaces ?? [];
+  useRefreshWhileSettling(workspaces, list);
+  return (
+    <SettingsPageContainer>
+      <QueryError error={workspaces.error} />
+      <SettingsSection
+        title="Workspaces"
+        headerAction={<NewWorkspaceDialog onCreated={workspaces.refresh} />}
+      >
+        {workspaces.data && list.length === 0 ? (
+          <SettingsRow title="No workspaces yet" description="Create one and add people to it." />
+        ) : (
+          <SettingsRow
+            title={`${list.length} workspace${list.length === 1 ? "" : "s"}`}
+            description="Each is one O3 Code server. Everyone on a workspace shares it."
+            status={workspaceSummaryBadge(list)}
+          />
+        )}
+      </SettingsSection>
+      {list.map((workspace) => (
+        <AdminWorkspaceSection
+          key={workspace.id}
+          workspace={workspace}
+          onChanged={workspaces.refresh}
+        />
+      ))}
+    </SettingsPageContainer>
+  );
+}
+
+function AddToWorkspaceSelect({
+  userId,
+  memberOf,
+  onChanged,
+}: {
+  userId: InstanceUserId;
+  memberOf: ReadonlySet<string>;
+  onChanged: () => void;
+}) {
+  const workspaces = useEnvironmentQuery(adminWorkspacesAtom);
+  const candidates = (workspaces.data?.workspaces ?? []).filter(
+    (workspace) => !memberOf.has(workspace.id),
+  );
+  if (candidates.length === 0) return null;
+  return (
+    <Select
+      value={ADD_MEMBER_PLACEHOLDER}
+      onValueChange={(value) => {
+        const workspace = candidates.find((candidate) => candidate.id === value);
+        if (!workspace) return;
+        void setMembership(workspace.id, userId, true).then((ok) => {
+          if (!ok) return;
+          workspaces.refresh();
+          onChanged();
+        });
+      }}
+    >
+      <SelectTrigger size="sm" aria-label="Add to a workspace">
+        <SelectValue>Add to workspace…</SelectValue>
+      </SelectTrigger>
+      <SelectPopup>
+        {candidates.map((workspace) => (
+          <SelectItem key={workspace.id} value={workspace.id}>
+            {workspace.label}
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
+  );
+}
+
 export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
   const navigate = useNavigate();
   const detail = useEnvironmentQuery(adminUserAtom(userId));
   const sessions = useEnvironmentQuery(adminUserSessionsAtom(userId));
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [deleteData, setDeleteData] = useState(false);
 
   const user = detail.data?.user ?? null;
   const workspaces = detail.data?.workspaces ?? [];
@@ -868,7 +1139,7 @@ export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
   const deleteUser = () =>
     mutate("Couldn't delete the user", () =>
       instanceRequest((client, headers) =>
-        client.admin.deleteUser({ headers, params: { userId }, payload: { deleteData } }),
+        client.admin.deleteUser({ headers, params: { userId } }),
       ),
     ).then((ok) => {
       if (ok) void navigate({ to: "/settings/admin/users" });
@@ -880,6 +1151,16 @@ export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
         client.admin.revokeUserSession({ headers, params: { userId, sessionId } }),
       ),
     ).then((ok) => ok && sessions.refresh());
+
+  const makeDefault = (workspaceId: InstanceWorkspaceId) =>
+    mutate("Couldn't change the default workspace", () =>
+      instanceRequest((client, headers) =>
+        client.admin.setDefaultWorkspace({ headers, params: { userId, workspaceId } }),
+      ),
+    ).then((ok) => ok && refresh());
+
+  const leave = (workspaceId: InstanceWorkspaceId) =>
+    setMembership(workspaceId, userId, false).then((ok) => ok && refresh());
 
   const several = workspaces.length > 1;
 
@@ -894,10 +1175,7 @@ export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
       {temporaryPassword && user ? (
         <TemporaryPasswordNotice email={user.email} password={temporaryPassword} />
       ) : null}
-      <SettingsSection
-        title={user?.name ?? "User"}
-        headerAction={<AddWorkspaceDialog userId={userId} onCreated={refresh} />}
-      >
+      <SettingsSection title={user?.name ?? "User"}>
         <SettingsRow
           title="Email"
           description={user ? `${user.email} · created ${formatDate(user.createdAt)}` : "…"}
@@ -934,8 +1212,8 @@ export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
           title={user?.disabled ? "Disabled" : "Active"}
           description={
             user?.disabled
-              ? `Can't sign in. ${several ? "The workspaces are" : "The workspace is"} stopped and the data kept.`
-              : `Disabling signs the user out and stops ${several ? "all their workspaces" : "their workspace"}.`
+              ? "Can't sign in. Workspaces nobody active is on are stopped, with their files kept."
+              : "Disabling signs the user out and stops workspaces nobody else active is on."
           }
           control={
             user ? (
@@ -951,19 +1229,67 @@ export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
         />
       </SettingsSection>
 
-      {workspaces.map((workspace) => (
-        <AdminWorkspaceSection
-          key={workspace.id}
-          isOnly={!several}
-          workspace={workspace}
-          onChanged={refresh}
+      <SettingsSection
+        title="Workspaces"
+        headerAction={
+          user && !user.disabled ? (
+            <div className="flex flex-wrap justify-end gap-1">
+              <AddToWorkspaceSelect
+                userId={userId}
+                memberOf={new Set(workspaces.map((workspace) => workspace.id))}
+                onChanged={refresh}
+              />
+              <NewWorkspaceDialog memberUserIds={[userId]} onCreated={refresh} />
+            </div>
+          ) : null
+        }
+      >
+        {workspaces.map((workspace) => (
+          <SettingsRow
+            key={workspace.id}
+            title={
+              <span className="flex items-center gap-2">
+                {workspace.label}
+                {several && workspace.isDefault ? <Badge variant="secondary">Default</Badge> : null}
+              </span>
+            }
+            description={workspace.tailnetHostname ?? workspace.statusMessage ?? undefined}
+            status={workspaceStatusBadge(workspace)}
+            control={
+              <div className="flex flex-wrap justify-end gap-1">
+                {workspace.isDefault ? null : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void makeDefault(workspace.id)}
+                  >
+                    Make default
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" onClick={() => void leave(workspace.id)}>
+                  Remove
+                </Button>
+              </div>
+            }
+          />
+        ))}
+        {detail.data && workspaces.length === 0 ? (
+          <SettingsRow
+            title="No workspaces"
+            description="Add this user to a workspace so they have somewhere to work."
+            status={workspaceStatusBadge(null)}
+          />
+        ) : null}
+        <SettingsRow
+          title="Manage workspaces"
+          description="Tools, resources, logs and members of every workspace."
+          control={
+            <Button render={<Link to="/settings/admin/workspaces" />} size="sm" variant="outline">
+              Open
+            </Button>
+          }
         />
-      ))}
-      {detail.data && workspaces.length === 0 ? (
-        <SettingsSection title="Workspace">
-          <SettingsRow title="No workspace" status={workspaceStatusBadge(null)} />
-        </SettingsSection>
-      ) : null}
+      </SettingsSection>
 
       <SettingsSection title="Signed-in devices">
         {(sessions.data?.sessions ?? []).map((session) => (
@@ -986,11 +1312,7 @@ export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
       <SettingsSection title="Danger zone">
         <SettingsRow
           title="Delete user"
-          description={
-            several
-              ? `Removes the account and all ${workspaces.length} of its workspace containers and tailnet devices.`
-              : "Removes the account, its workspace container and its tailnet device."
-          }
+          description="Removes the account. Its workspaces and their files stay; any left with nobody active are stopped."
           control={
             confirmDelete ? null : (
               <Button
@@ -1004,21 +1326,13 @@ export function AdminUserDetailPanel({ userId }: { userId: InstanceUserId }) {
           }
         >
           {confirmDelete ? (
-            <div className="mt-3 grid gap-3">
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={deleteData} onCheckedChange={(value) => setDeleteData(value)} />
-                {several
-                  ? "Also delete the files of every workspace. This can't be undone."
-                  : "Also delete the workspace's files. This can't be undone."}
-              </label>
-              <div className="flex gap-2">
-                <Button size="sm" variant="destructive" onClick={() => void deleteUser()}>
-                  Delete {user?.email ?? "user"}
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>
-                  Cancel
-                </Button>
-              </div>
+            <div className="mt-3 flex gap-2">
+              <Button size="sm" variant="destructive" onClick={() => void deleteUser()}>
+                Delete {user?.email ?? "user"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </Button>
             </div>
           ) : null}
         </SettingsRow>
