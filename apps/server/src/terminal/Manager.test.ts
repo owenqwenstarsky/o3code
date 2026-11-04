@@ -613,6 +613,21 @@ it.layer(
       yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
       expect((yield* Ref.get(attachEvents)).map((event) => event.type)).toEqual(["closed"]);
       expect(ptyAdapter.spawnInputs).toHaveLength(0);
+
+      yield* manager.close({ threadId: "thread-1-other", terminalId: DEFAULT_TERMINAL_ID });
+      yield* manager.close({ threadId: "thread-1", deleteHistory: true });
+      const stopOther = yield* manager.attachStream(
+        { ...openInput({ threadId: "thread-1-other" }), resume: true },
+        () => Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(stopOther));
+      expect(ptyAdapter.spawnInputs).toHaveLength(0);
+      const stopRecreated = yield* manager.attachStream(
+        { ...openInput(), resume: true },
+        () => Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(stopRecreated));
+      expect(ptyAdapter.spawnInputs).toHaveLength(1);
     }),
   );
 

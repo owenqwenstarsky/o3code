@@ -120,7 +120,7 @@ export function codexAuthDeliveryUrl(input: CodexAuthHandoff, callbackUrl: strin
   const request = codexAuthorizationRequest(input.authorizationUrl);
   codexCallbackUrl(callbackUrl, request.redirectUri, request.state);
   const destination = providerAuthReturnUrl(input.returnUrl);
-  if (!destination) throw new Error("Invalid T3 Code return address.");
+  if (!destination) throw new Error("Invalid O3 Code return address.");
   const url = new URL(destination);
   const delivery = {
     environmentId: input.environmentId,
@@ -133,16 +133,16 @@ export function codexAuthDeliveryUrl(input: CodexAuthHandoff, callbackUrl: strin
   return url.toString();
 }
 
-export function readCodexAuthDelivery(value: string) {
+export function readCodexAuthDelivery(value: string, instanceOrigin?: string) {
   try {
     const url = new URL(value);
     if (!url.hash.startsWith("#codex-auth=") || url.hash.length > 32_768) return undefined;
     const input = decodeDelivery(decodeURIComponent(url.hash.slice("#codex-auth=".length)));
-    const destination = providerAuthReturnUrl(value);
+    const destination = providerAuthReturnUrl(value, instanceOrigin);
     if (!destination) return undefined;
     const returnUrl = new URL(destination);
     returnUrl.hash = input.returnHash;
-    const sanitized = providerAuthReturnUrl(returnUrl.toString());
+    const sanitized = providerAuthReturnUrl(returnUrl.toString(), instanceOrigin);
     if (!sanitized) return undefined;
     return { ...input, returnUrl: sanitized };
   } catch {

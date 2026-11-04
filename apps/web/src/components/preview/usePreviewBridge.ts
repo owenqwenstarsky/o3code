@@ -52,8 +52,11 @@ export function usePreviewBridge(input: {
   const { environmentId, threadId } = threadRef;
   const stableThreadRef: ScopedThreadRef = { environmentId, threadId };
 
-  const lastReportedUrl = useRef<string | null>(null);
-  const lastReportedKind = useRef<DesktopPreviewTabState["navStatus"]["kind"] | null>(null);
+  const delivery = useRef({
+    input: null as PreviewReportStatusInput | null,
+    nextId: 0,
+    deliveredId: 0,
+  });
   const lastDesktopNavStatus = useRef<DesktopPreviewTabState["navStatus"] | null>(null);
   const captureActivity = useRef<ReturnType<typeof createCaptureActivity> | null>(null);
   const handleStateChange = useEffectEvent(
@@ -68,27 +71,31 @@ export function usePreviewBridge(input: {
       if (state.favicon) {
         recordFaviconForThread(stableThreadRef, state.favicon);
       }
+      const pendingDelivery = delivery.current;
       const reported = buildReportInput({
         threadId: stableThreadRef.threadId,
         tabId,
         state,
-        lastReportedUrl: lastReportedUrl.current,
-        lastReportedKind: lastReportedKind.current,
+        lastReportedInput:
+          pendingDelivery.deliveredId === pendingDelivery.nextId ? pendingDelivery.input : null,
       });
       if (!reported || serverDriven) return;
-      lastReportedUrl.current = reported.lastReportedUrl;
-      lastReportedKind.current = reported.lastReportedKind;
+      const reportId = ++pendingDelivery.nextId;
       void reportStatus({
         environmentId: stableThreadRef.environmentId,
-        input: reported.input,
+        input: reported,
+      }).then((result) => {
+        if (result._tag === "Success" && reportId > pendingDelivery.deliveredId) {
+          pendingDelivery.input = reported;
+          pendingDelivery.deliveredId = reportId;
+        }
       });
     },
   );
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to preview bridge state changes and capture activity for the current tab
   useEffect(() => {
     if (!previewBridge || typeof window === "undefined") return;
-    lastReportedUrl.current = null;
-    lastReportedKind.current = null;
+    delivery.current = { input: null, nextId: 0, deliveredId: 0 };
     lastDesktopNavStatus.current = null;
     const activity = createCaptureActivity(runtimeTabId);
     captureActivity.current = activity;
@@ -138,21 +145,19 @@ function buildReportInput(args: {
   readonly threadId: ThreadId;
   readonly tabId: string;
   readonly state: DesktopPreviewTabState;
-  readonly lastReportedUrl: string | null;
-  readonly lastReportedKind: DesktopPreviewTabState["navStatus"]["kind"] | null;
-}): {
-  readonly input: PreviewReportStatusInput;
-  readonly lastReportedUrl: string;
-  readonly lastReportedKind: DesktopPreviewTabState["navStatus"]["kind"];
-} | null {
-  const { threadId, tabId, state, lastReportedUrl, lastReportedKind } = args;
+  readonly lastReportedInput: PreviewReportStatusInput | null;
+}): PreviewReportStatusInput | null {
+  const { threadId, tabId, state, lastReportedInput } = args;
   const status = state.navStatus;
   if (status.kind === "Idle") return null;
 
   const sameAsLast =
     status.kind !== "LoadFailed" &&
-    status.kind === lastReportedKind &&
-    status.url === lastReportedUrl;
+    status.kind === lastReportedInput?.navStatus._tag &&
+    status.url === lastReportedInput.navStatus.url &&
+    status.title === lastReportedInput.navStatus.title &&
+    state.canGoBack === lastReportedInput.canGoBack &&
+    state.canGoForward === lastReportedInput.canGoForward;
   if (sameAsLast) return null;
 
   const base = {
@@ -163,26 +168,18 @@ function buildReportInput(args: {
   };
   if (status.kind === "LoadFailed") {
     return {
-      input: {
-        ...base,
-        navStatus: {
-          _tag: "LoadFailed",
-          url: status.url,
-          title: status.title,
-          code: status.code,
-          description: status.description,
-        },
+      ...base,
+      navStatus: {
+        _tag: "LoadFailed",
+        url: status.url,
+        title: status.title,
+        code: status.code,
+        description: status.description,
       },
-      lastReportedUrl: status.url,
-      lastReportedKind: "LoadFailed",
     };
   }
   return {
-    input: {
-      ...base,
-      navStatus: { _tag: status.kind, url: status.url, title: status.title },
-    },
-    lastReportedUrl: status.url,
-    lastReportedKind: status.kind,
+    ...base,
+    navStatus: { _tag: status.kind, url: status.url, title: status.title },
   };
 }

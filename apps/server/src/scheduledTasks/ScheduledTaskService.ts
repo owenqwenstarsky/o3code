@@ -512,6 +512,7 @@ export const layer = Layer.effect(
     const saveTask = (
       task: ScheduledTask,
       requireExisting: boolean,
+      scheduleUnchanged: boolean,
       webhook: {
         readonly token: string | null;
         readonly secret: string | null;
@@ -582,7 +583,10 @@ export const layer = Layer.effect(
           interaction_mode = excluded.interaction_mode,
           creation_source = excluded.creation_source,
           updated_at = excluded.updated_at,
-          next_run_at = excluded.next_run_at,
+          next_run_at = CASE
+            WHEN ${scheduleUnchanged ? 1 : 0} = 1 THEN scheduled_tasks.next_run_at
+            ELSE excluded.next_run_at
+          END,
           -- Only rotate changes a live token, so a save racing a rotation
           -- cannot bring the old URL back.
           webhook_token = CASE
@@ -1189,7 +1193,7 @@ export const layer = Layer.effect(
         lastRunError: existingTask?.lastRunError ?? null,
         runCount: existingTask?.runCount ?? 0,
       };
-      yield* saveTask(task, input.requireExisting === true, webhook);
+      yield* saveTask(task, input.requireExisting === true, scheduleUnchanged, webhook);
       yield* notifyChanged;
       return { task: (yield* findTask(id)) ?? task };
     });

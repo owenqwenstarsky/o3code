@@ -276,6 +276,7 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
       options?.shellHistory === "preserve"
         ? `${script.command}\r`
         : projectScriptTerminalInput(script.command),
+      activeThreadRef,
     );
     if (!writeResult) return;
     if (writeResult._tag === "Failure") {

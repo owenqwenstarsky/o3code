@@ -6,7 +6,7 @@
 > This fork has no release pipeline. The release, deploy, preview, AUR, and relay workflows
 > were removed from `.github/workflows` because they depend on upstream credentials and hosted services
 > (Apple and Azure signing, Vercel, Cloudflare, Clerk, and others). Only `ci.yml`,
-> `agent-context-budget.yml`, `windows-tests.yml`, and the Claude workflows remain.
+> `agent-context-budget.yml`, and `windows-tests.yml` remain.
 >
 > The rest of this page describes the upstream pipeline as of commit `15fe28327`. Keep it as a design
 > reference for building a new one, and recover any removed workflow with

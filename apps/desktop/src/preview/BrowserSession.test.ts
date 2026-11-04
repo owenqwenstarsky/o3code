@@ -168,12 +168,7 @@ describe("BrowserSession", () => {
         return granted;
       };
 
-      for (const permission of [
-        "clipboard-sanitized-write",
-        "geolocation",
-        "fullscreen",
-        "loopback-network",
-      ]) {
+      for (const permission of ["clipboard-sanitized-write", "fullscreen", "loopback-network"]) {
         assert.isTrue(requestAllows(permission), `request handler should allow ${permission}`);
         assert.isTrue(
           checkHandler(null, permission) as boolean,
@@ -186,6 +181,7 @@ describe("BrowserSession", () => {
       // and unrelated permissions stay denied.
       for (const permission of [
         "clipboard-write",
+        "geolocation",
         "notifications",
         "midi",
         "local-network",

@@ -561,16 +561,19 @@ const seedRollbackHistory = Effect.gen(function* () {
   const restored: CheckpointId[] = [];
   const deletedRefs: CheckpointId[] = [];
   const committed: OrchestrationV2DomainEvent[] = [];
+  const restore = vi.fn<CheckpointService.CheckpointServiceV2["Service"]["restore"]>(
+    ({ checkpoint }) =>
+      Effect.sync(() => {
+        restored.push(checkpoint.id);
+      }),
+  );
   const serviceLayer = layerCheckpointRollbackService.pipe(
     Layer.provide(
       Layer.mergeAll(
         ThreadCommandExecutor.layer,
         IdAllocator.layer,
         Layer.mock(CheckpointService.CheckpointServiceV2)({
-          restore: ({ checkpoint }) =>
-            Effect.sync(() => {
-              restored.push(checkpoint.id);
-            }),
+          restore,
           deleteStaleRefs: ({ checkpoints }) =>
             Effect.sync(() => {
               deletedRefs.push(...checkpoints.map((checkpoint) => checkpoint.id));
@@ -626,6 +629,7 @@ const seedRollbackHistory = Effect.gen(function* () {
     checkpointId,
     rollback,
     rollbackCounts,
+    restore,
     restored,
     deletedRefs,
     committed,
@@ -635,6 +639,36 @@ const seedRollbackHistory = Effect.gen(function* () {
 it.layer(ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)))(
   "rollback history reads",
   (it) => {
+    it.effect.each(["queued", "preparing", "starting", "running", "waiting"] as const)(
+      "rejects rollback with no later terminal runs while a run is %s",
+      (status) =>
+        Effect.gen(function* () {
+          const history = yield* seedRollbackHistory;
+          const { runs } = yield* history.store.getThreadRecords(history.threadId, ["runs"]);
+          const run = runs.find((candidate) => candidate.id === history.runId(6))!;
+          yield* history.store.apply({
+            id: EventId.make(`rollback-active-${status}`),
+            type: "run.updated",
+            threadId: history.threadId,
+            runId: run.id,
+            occurredAt: history.now,
+            payload: { ...run, status, completedAt: null },
+          });
+          const error = yield* history.rollback(6).pipe(
+            Effect.match({
+              onSuccess: () => undefined,
+              onFailure: (error) => error,
+            }),
+          );
+          assert.equal(
+            error?._tag === "CheckpointRollbackExecutionError" ? error.reason : undefined,
+            "active-run",
+          );
+          assert.deepEqual(history.rollbackCounts, []);
+          assert.deepEqual(history.restored, []);
+        }),
+    );
+
     it.effect("rolls back later terminal runs despite obsolete unrelated SQLite payloads", () =>
       Effect.gen(function* () {
         const history = yield* seedRollbackHistory;
@@ -701,6 +735,17 @@ it.layer(ProjectionStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMe
       () =>
         Effect.gen(function* () {
           const history = yield* seedRollbackHistory;
+          history.restore.mockImplementationOnce(({ scope, checkpoint }) =>
+            Effect.fail(
+              new CheckpointService.CheckpointRestoreError({
+                scopeId: scope.id,
+                checkpointId: checkpoint.id,
+                cause: "restore failed",
+              }),
+            ),
+          );
+          yield* history.rollback(5).pipe(Effect.flip);
+          assert.deepEqual(history.rollbackCounts, []);
           yield* history.rollback(5);
           yield* history.rollback(2);
           yield* history.rollback(0);

@@ -53,6 +53,22 @@ describe("deriveAuthClientMetadata", () => {
     expect(metadata.browser).toBe(browser);
   });
 
+  it.each([
+    ["the loopback proxy's appended entry", "::ffff:127.0.0.1", true, "100.64.0.9"],
+    ["the socket peer when the proxy is not trusted", "::ffff:127.0.0.1", false, "127.0.0.1"],
+    ["the socket peer when it is not loopback", "100.64.0.7", true, "100.64.0.7"],
+  ])("takes the client address from %s", (_name, remoteAddress, trustLoopbackProxy, expected) => {
+    const metadata = deriveAuthClientMetadata({
+      request: {
+        headers: { "x-forwarded-for": "203.0.113.5, 100.64.0.9" },
+        source: { remoteAddress },
+      } as never,
+      trustLoopbackProxy,
+    });
+
+    expect(metadata.ipAddress).toBe(expected);
+  });
+
   it("applies client-presented display identity without replacing transport metadata", () => {
     const metadata = deriveAuthClientMetadata({
       request: {

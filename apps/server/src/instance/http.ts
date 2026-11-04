@@ -22,7 +22,6 @@ import { HttpServerRequest } from "effect/http";
 import * as HttpApiBuilder from "effect/http-api/HttpApiBuilder";
 
 import packageJson from "../../package.json" with { type: "json" };
-import { deriveAuthClientMetadata } from "../auth/utils.ts";
 import { AuthSync } from "./AuthSync.ts";
 import { InstanceAuth } from "./InstanceAuth.ts";
 import { InstanceConfig } from "./InstanceConfig.ts";
@@ -45,10 +44,10 @@ const internal = (cause: unknown) =>
 const orInternal = <A, E, R>(effect: Effect.Effect<A, E | InstanceStoreError, R>) =>
   effect.pipe(Effect.catchTags({ InstanceStoreError: internal }));
 
-const requestIp = Effect.map(
-  HttpServerRequest.HttpServerRequest,
-  (request) => deriveAuthClientMetadata({ request }).ipAddress ?? null,
-);
+const requestIp = Effect.gen(function* () {
+  const auth = yield* InstanceAuth;
+  return auth.clientIp(yield* HttpServerRequest.HttpServerRequest);
+});
 
 const layerUserAuth = Layer.effect(
   InstanceUserAuth,

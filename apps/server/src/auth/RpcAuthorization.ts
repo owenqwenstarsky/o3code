@@ -21,6 +21,8 @@ import {
   AuthPreviewOperateScope,
   AuthTerminalOperateScope,
   ORCHESTRATION_V2_WS_METHODS,
+  OrchestrationV2Command,
+  OrchestrationV2ThreadLaunchInput,
   AuthTerminalReadScope,
   type AuthEnvironmentScope,
   EnvironmentAuthorizationError,
@@ -242,10 +244,29 @@ const requiredScopesForSettingsUpdate = (payload: unknown) => {
 const decodeProjectMutation = Schema.decodeUnknownSync(ProjectMutation);
 const decodeAssetCreateUrlInput = Schema.decodeUnknownSync(AssetCreateUrlInput);
 
+const decodeOrchestrationCommand = Schema.decodeUnknownSync(OrchestrationV2Command);
+const decodeThreadLaunch = Schema.decodeUnknownSync(OrchestrationV2ThreadLaunchInput);
+
 const requiredScopesForRpcCall = (
   method: string,
   payload: unknown,
 ): ReadonlyArray<AuthEnvironmentScope> => {
+  if (method === ORCHESTRATION_V2_WS_METHODS.dispatchCommand) {
+    const command = decodeOrchestrationCommand(payload);
+    if (
+      (command.type === "message.dispatch" || command.type === "queued-run.edit") &&
+      command.text.trim() === "/logout" &&
+      (command.attachments?.length ?? 0) === 0
+    ) {
+      return [AuthOrchestrationOperateScope, AuthProvidersManageScope];
+    }
+  }
+  if (method === ORCHESTRATION_V2_WS_METHODS.launchThread) {
+    const { initialMessage } = decodeThreadLaunch(payload);
+    if (initialMessage?.text.trim() === "/logout" && initialMessage.attachments.length === 0) {
+      return [AuthOrchestrationOperateScope, AuthProvidersManageScope];
+    }
+  }
   if (method === WS_METHODS.serverRetryResourceTelemetry) {
     return [AuthEnvironmentMaintainScope, AuthDiagnosticsReadScope];
   }

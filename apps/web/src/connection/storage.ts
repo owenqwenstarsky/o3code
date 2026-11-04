@@ -32,7 +32,6 @@ import { InstanceSessionStore } from "@t3tools/client-runtime/instance";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Ref from "effect/Ref";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
@@ -431,14 +430,9 @@ interface CatalogStore {
 export const makeCatalogStore = Effect.fn("web.connectionStorage.makeCatalogStore")(function* (
   backend: CatalogBackend,
 ) {
-  const state = yield* Ref.make<Option.Option<ConnectionCatalogDocumentType>>(Option.none());
   const lock = yield* Semaphore.make(1);
 
   const loadUnlocked = Effect.fn("web.connectionStorage.loadCatalog")(function* () {
-    const cached = yield* Ref.get(state);
-    if (Option.isSome(cached)) {
-      return cached.value;
-    }
     const raw = yield* backend.read;
     let catalog = EMPTY_CONNECTION_CATALOG_DOCUMENT;
     if (raw !== null && raw.trim() !== "") {
@@ -470,7 +464,6 @@ export const makeCatalogStore = Effect.fn("web.connectionStorage.makeCatalogStor
         ),
       );
     }
-    yield* Ref.set(state, Option.some(catalog));
     return catalog;
   });
 
@@ -481,7 +474,6 @@ export const makeCatalogStore = Effect.fn("web.connectionStorage.makeCatalogStor
         Effect.gen(function* () {
           const next = transform(yield* loadUnlocked());
           yield* backend.write(yield* encodeCatalog(next));
-          yield* Ref.set(state, Option.some(next));
         }),
       );
     },

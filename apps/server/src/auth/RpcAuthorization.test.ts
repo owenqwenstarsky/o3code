@@ -3,10 +3,15 @@ import {
   AuthDiagnosticsReadScope,
   AuthFilesystemReadScope,
   AuthProvidersManageScope,
+  CommandId,
+  MessageId,
+  RunId,
+  ORCHESTRATION_V2_WS_METHODS,
   AuthSettingsWriteScope,
   DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProjectId,
   SecretProviderId,
   ThreadId,
   AuthOrchestrationOperateScope,
@@ -399,5 +404,86 @@ it.effect("denies manual cleanup before the handler without settings permission"
       requiredPermission: AuthSettingsWriteScope,
     });
     expect(handled).toBe(false);
+  }).pipe(Effect.scoped),
+);
+
+it.effect.each(["message.dispatch", "queued-run.edit"] as const)(
+  "requires provider management permission for a logout through %s",
+  (type) =>
+    Effect.gen(function* () {
+      const method = ORCHESTRATION_V2_WS_METHODS.dispatchCommand;
+      const group = WsRpcGroup.omit(
+        ...[...WsRpcGroup.requests.keys()].filter(
+          (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof method> => tag !== method,
+        ),
+      );
+      let handled = 0;
+      const handler = group.toLayerHandler(method, () =>
+        Effect.sync(() => ({ sequence: ++handled })),
+      );
+      const limited = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(handler, RpcAuthorization.layer([AuthOrchestrationOperateScope])),
+        ),
+      );
+      const allowed = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            handler,
+            RpcAuthorization.layer([AuthOrchestrationOperateScope, AuthProvidersManageScope]),
+          ),
+        ),
+      );
+      const command = {
+        type,
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+        commandId: CommandId.make("logout-permission"),
+        threadId: ThreadId.make("thread-logout-permission"),
+        messageId: MessageId.make("message-logout-permission"),
+        runId: RunId.make("run-logout-permission"),
+        text: " /logout ",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" as const },
+      };
+      expect(yield* limited[method]({ ...command, text: "hello" })).toEqual({ sequence: 1 });
+      expect(yield* limited[method](command).pipe(Effect.flip)).toMatchObject({
+        requiredPermission: AuthProvidersManageScope,
+      });
+      expect(handled).toBe(1);
+      expect(yield* allowed[method](command)).toEqual({ sequence: 2 });
+    }).pipe(Effect.scoped),
+);
+
+it.effect("requires provider management permission for a logout in a new thread", () =>
+  Effect.gen(function* () {
+    const method = ORCHESTRATION_V2_WS_METHODS.launchThread;
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof method> => tag !== method,
+      ),
+    );
+    const client = yield* RpcTest.makeClient(group).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          group.toLayerHandler(method, () =>
+            Effect.die("Unauthorized logout reached thread launch."),
+          ),
+          RpcAuthorization.layer([AuthOrchestrationOperateScope]),
+        ),
+      ),
+    );
+    expect(
+      yield* client[method]({
+        commandId: CommandId.make("launch-logout-permission"),
+        projectId: ProjectId.make("project-logout-permission"),
+        title: "Sign out",
+        modelSelection: { instanceId: ProviderInstanceId.make("antigravity"), model: "test" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        workspaceStrategy: { type: "root" },
+        initialMessage: { text: "/logout", attachments: [] },
+      }).pipe(Effect.flip),
+    ).toMatchObject({ requiredPermission: AuthProvidersManageScope });
   }).pipe(Effect.scoped),
 );

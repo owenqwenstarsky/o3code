@@ -153,11 +153,7 @@ function parsePiRecord(line: string): PiRpcRecord | undefined {
   }
 }
 
-/**
- * `hasExited` is consulted before each signal. Once the original child is
- * gone its pid/pgid can be recycled by the OS, so escalating blindly could
- * deliver SIGKILL to an unrelated process.
- */
+// Probe the process group before each signal; descendants can outlive its original leader.
 const terminatePiProcess = Effect.fn("PiRpc.terminatePiProcess")(function* (
   kill: (signal: NodeJS.Signals) => boolean,
   hasExited: () => boolean,
@@ -206,7 +202,7 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
   };
 
   const hasExited = (): boolean => {
-    if (childExited) return true;
+    if (platform === "win32" && childExited) return true;
     try {
       if (platform === "win32") process.kill(Number(child.pid), 0);
       else signalProcessGroup(Number(child.pid), 0);

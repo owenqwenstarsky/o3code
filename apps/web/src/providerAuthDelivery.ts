@@ -15,7 +15,7 @@ type ProviderAuthDelivery = NonNullable<ReturnType<typeof readCodexAuthDelivery>
  */
 export function startProviderAuthDelivery(): void {
   if (!window.location.hash.startsWith("#codex-auth=")) return;
-  const delivery = readCodexAuthDelivery(window.location.href);
+  const delivery = readCodexAuthDelivery(window.location.href, window.location.origin);
   window.history.replaceState(
     window.history.state,
     "",

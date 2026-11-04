@@ -274,6 +274,14 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       detail,
       ...(payload === undefined ? {} : { payload }),
     });
+  const validateRuntimePolicy = Effect.fn("MuseAdapter.validateRuntimePolicy")(function* (
+    policy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
+  ) {
+    if (policy.approvalPolicy !== undefined || policy.sandboxPolicy !== undefined)
+      return yield* protocolError(
+        "Muse Code does not support explicit approval or sandbox policies",
+      );
+  });
   return ProviderAdapter.ProviderAdapterV2.of({
     instanceId: options.instanceId,
     driver: MUSE_PROVIDER,
@@ -287,6 +295,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       input: ProviderAdapter.ProviderAdapterV2OpenSessionInput,
     ) {
       if (!options.settings.enabled) return yield* protocolError("Muse Code is disabled");
+      yield* validateRuntimePolicy(input.runtimePolicy);
       if (input.runtimePolicy.interactionMode === "plan")
         return yield* protocolError("Muse Code does not support dedicated Plan mode");
       const scope = yield* Effect.scope;
@@ -1782,6 +1791,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
       const register = Effect.fnUntraced(function* (
         args: ProviderAdapter.ProviderAdapterV2EnsureThreadInput,
       ) {
+        yield* validateRuntimePolicy(args.runtimePolicy);
         if (closed || (broken && !relaunchable))
           return yield* protocolError("Muse host is unavailable; reopen the session");
         if (broken) {
@@ -1956,6 +1966,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
         compact = false,
       ) {
+        yield* validateRuntimePolicy(turnInput.runtimePolicy);
         if (!validateThread(turnInput.providerThread) || broken || closed)
           return yield* protocolError("Muse thread is not attached to this host");
         if (active)

@@ -98,10 +98,17 @@ it.layer(layerInstance)("InstanceAuth", (it) => {
         name: "Limit",
         role: "member",
       });
-      for (let attempt = 0; attempt < 10; attempt += 1) {
-        const failure = yield* login("limit@acme.test", "wrong").pipe(Effect.flip);
-        expect(failure._tag).toBe("InstanceUnauthorizedError");
-      }
+      // A parallel burst must not slip past the limit before any failure is recorded.
+      const burst = yield* Effect.all(
+        Array.from({ length: 15 }, () => login("limit@acme.test", "wrong").pipe(Effect.flip)),
+        { concurrency: "unbounded" },
+      );
+      expect(burst.filter((failure) => failure._tag === "InstanceUnauthorizedError")).toHaveLength(
+        10,
+      );
+      expect(burst.filter((failure) => failure._tag === "InstanceRateLimitedError")).toHaveLength(
+        5,
+      );
       const limited = yield* login("limit@acme.test", created.temporaryPassword).pipe(Effect.flip);
       expect(limited._tag).toBe("InstanceRateLimitedError");
     }),

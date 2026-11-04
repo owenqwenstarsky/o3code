@@ -79,6 +79,41 @@ afterEach(async () => {
 });
 
 describe("third-party license generation", () => {
+  it("includes notices for every locked resource monitor dependency", async () => {
+    const fixture = await createFixture();
+    const config = JSON.parse(
+      await NodeFSP.readFile(
+        NodePath.join(REPOSITORY_ROOT, "third-party-licenses.config.json"),
+        "utf8",
+      ),
+    ) as { customNotices: Array<{ name: string; noticeFile?: string }> };
+    const notice = config.customNotices.find(
+      (entry) => entry.name === "Resource monitor Rust dependencies",
+    );
+    expect(notice).toBeDefined();
+    await writeJson(fixture.configFile, {
+      customNotices: [
+        { ...notice, noticeFile: NodePath.join(REPOSITORY_ROOT, notice!.noticeFile!) },
+      ],
+    });
+    const manifest = await generateThirdPartyLicenseManifest({
+      configFile: fixture.configFile,
+      packageManifests: [{ bundle: "desktop", path: fixture.appManifest }],
+    });
+    const entry = manifest.entries.find((entry) => entry.name === notice!.name);
+    const lockfile = await NodeFSP.readFile(
+      NodePath.join(REPOSITORY_ROOT, "native/resource-monitor/Cargo.lock"),
+      "utf8",
+    );
+    for (const block of lockfile.split("[[package]]")) {
+      if (!block.includes('source = "registry+')) continue;
+      const name = /^name = "(.+)"$/m.exec(block)![1];
+      const version = /^version = "(.+)"$/m.exec(block)![1];
+      expect(entry?.noticeText).toContain(`${name}@${version}`);
+    }
+    expect(entry?.noticeText).toContain("Copyright");
+  });
+
   it.each(["web", "mobile"])(
     "uses installer pins for device tool notices in the %s manifest",
     async (bundle) => {

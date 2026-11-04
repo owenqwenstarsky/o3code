@@ -5,8 +5,9 @@
 .git
 .t3
 .repos
-.env
-.env.*
+**/.env
+**/.env.*
+!**/.env.example
 release
 release-cli
 apps/mobile
@@ -16,7 +17,9 @@ infra
 !infra/task-cache/src/remoteCache.ts
 # pnpm then sees a workspace project there, which the lockfile expects to have a manifest.
 !infra/task-cache/package.json
-native
+native/*
+!native/libghostty-vt
+native/libghostty-vt/*
 # The web build's third-party license notices read this.
 !native/libghostty-vt/LICENSE
 packaging

@@ -9,8 +9,12 @@ import { AcpRegistrySettings } from "../settings.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { SpawnExecutableResolution } from "@t3tools/shared/shell";
 import * as Deferred from "effect/Deferred";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as ByteSize from "effect/ByteSize";
+import * as Option from "effect/Option";
+import * as PlatformError from "effect/PlatformError";
 import * as Path from "effect/Path";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -614,6 +618,130 @@ describe("AcpRegistrySupport", () => {
     );
   });
 
+  it.effect.each(["active download", "abandoned lock", "replaced owner"] as const)(
+    "protects install lock ownership: %s",
+    (scenario) =>
+      Effect.gen(function* () {
+        const lockPath = "/cache/tools/example-agent/1.2.3/linux-x86_64.lock";
+        const files = new Map<string, string>();
+        if (scenario !== "replaced owner") files.set(lockPath, "original-owner");
+        const contended = yield* Deferred.make<void>();
+        let downloads = 0;
+        let removedLocks = 0;
+        const agent = makeAgent({
+          binary: { "linux-x86_64": { archive: archiveUrl, cmd: "./agent" } },
+        });
+        const fs = FileSystem.makeNoop({
+          exists: (path) => Effect.sync(() => files.has(path)),
+          makeDirectory: () => Effect.void,
+          makeTempDirectoryScoped: () => Effect.succeed("/cache/tools/staged"),
+          readFileString: (path) =>
+            Effect.suspend(() =>
+              files.has(path)
+                ? Effect.succeed(files.get(path)!)
+                : Effect.fail(
+                    PlatformError.systemError({
+                      _tag: "NotFound",
+                      module: "FileSystem",
+                      method: "readFileString",
+                    }),
+                  ),
+            ),
+          writeFileString: (path, contents, options) =>
+            Effect.gen(function* () {
+              if (options?.flag === "wx" && files.has(path)) {
+                yield* Deferred.succeed(contended, undefined);
+                return yield* PlatformError.systemError({
+                  _tag: "AlreadyExists",
+                  module: "FileSystem",
+                  method: "writeFileString",
+                });
+              }
+              files.set(path, contents);
+            }),
+          stat: () =>
+            Effect.succeed({
+              type: "File",
+              mtime: Option.some(
+                DateTime.toDateUtc(
+                  DateTime.makeUnsafe(-(scenario === "abandoned lock" ? 61 : 6) * 60_000),
+                ),
+              ),
+              atime: Option.none(),
+              birthtime: Option.none(),
+              dev: 0n,
+              ino: Option.none(),
+              mode: 0o600,
+              nlink: Option.none(),
+              uid: Option.none(),
+              gid: Option.none(),
+              rdev: Option.none(),
+              size: ByteSize.zero,
+              blksize: Option.none(),
+              blocks: Option.none(),
+            }),
+          rename: (from, to) =>
+            Effect.sync(() => {
+              files.set(to, files.get(from)!);
+              files.delete(from);
+            }),
+          remove: (path) =>
+            Effect.sync(() => {
+              if (path === lockPath) removedLocks++;
+              files.delete(path);
+            }),
+        });
+        const resolver = yield* AcpRegistrySupport.makeAcpRegistryCatalog({
+          cacheDir: "/cache",
+          toolsDir: "/cache/tools",
+          registryUrl,
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(
+            HttpClient.HttpClient,
+            HttpClient.make((request) => {
+              if (request.url === registryUrl)
+                return Effect.succeed(
+                  HttpClientResponse.fromWeb(request, new Response(makeRegistry(agent))),
+                );
+              downloads++;
+              if (scenario === "replaced owner") files.set(lockPath, "replacement-owner");
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(request, new Response(null, { status: 500 })),
+              );
+            }),
+          ),
+        );
+        const preparing = yield* resolver
+          .prepare({ agentId: agent.id })
+          .pipe(Effect.flip, Effect.forkScoped);
+        if (scenario === "active download") {
+          yield* Deferred.await(contended);
+          yield* TestClock.adjust("31 seconds");
+        }
+        const error = yield* Fiber.join(preparing);
+        if (scenario === "active download") {
+          expect(error.reason).toBe("install_failed");
+          expect(downloads).toBe(0);
+          expect(removedLocks).toBe(0);
+          expect(files.get(lockPath)).toBe("original-owner");
+        } else {
+          expect(error.reason).toBe("download_failed");
+          expect(downloads).toBe(1);
+          if (scenario === "replaced owner") {
+            expect(files.get(lockPath)).toBe("replacement-owner");
+            expect(removedLocks).toBe(0);
+          } else {
+            expect(files.has(lockPath)).toBe(false);
+            expect(removedLocks).toBe(2);
+          }
+        }
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(layerResolver(() => Effect.die("Unexpected HTTP request"))),
+      ),
+  );
+
   it.effect(
     "prepares the registry version despite an older PATH binary and permits explicit overrides",
     () => {
@@ -751,6 +879,62 @@ describe("AcpRegistrySupport", () => {
       expect(yield* fileSystem.readFileString(resolved.spawn.command)).toBe(
         "#!/bin/sh\necho managed\n",
       );
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(
+          NodeServices.layer,
+          TestProviderHost.layer().pipe(Layer.provide(NodeServices.layer)),
+        ),
+      ),
+      Effect.provideService(HostProcess.Platform, "linux"),
+      Effect.provideService(HostProcess.Architecture, "x64"),
+    );
+  });
+
+  it.effect("rejects a symlinked archive command without changing its target's mode", () => {
+    const downloadUrl = "https://registry.test/agent.tar.gz";
+    const agent = makeAgent({
+      binary: { "linux-x86_64": { archive: downloadUrl, cmd: "./agent" } },
+    });
+    return Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const cacheDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-acp-symlink-" });
+      const outside = `${cacheDir}/outside`;
+      yield* fileSystem.writeFileString(outside, "not an agent\n");
+      yield* fileSystem.chmod(outside, 0o644);
+      const source = `${cacheDir}/source`;
+      yield* fileSystem.makeDirectory(source);
+      yield* fileSystem.symlink(outside, `${source}/agent`);
+      const archivePath = `${cacheDir}/agent.tar.gz`;
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const tar = yield* spawner.spawn(
+        ChildProcess.make("tar", ["-czf", archivePath, "-C", source, "."]),
+      );
+      expect(yield* tar.exitCode).toBe(0);
+      const archive = yield* fileSystem.readFile(archivePath);
+      const resolver = yield* AcpRegistrySupport.makeAcpRegistryCatalog({
+        cacheDir,
+        toolsDir: `${cacheDir}/tools`,
+        registryUrl,
+      }).pipe(
+        Effect.provideService(
+          HttpClient.HttpClient,
+          HttpClient.make((request) =>
+            Effect.succeed(
+              HttpClientResponse.fromWeb(
+                request,
+                request.url === registryUrl
+                  ? new Response(makeRegistry(agent))
+                  : new Response(archive),
+              ),
+            ),
+          ),
+        ),
+      );
+      const error = yield* resolver.prepare({ agentId: agent.id }).pipe(Effect.flip);
+      expect(error.reason).toBe("archive_invalid");
+      expect((yield* fileSystem.stat(outside)).mode & 0o777).toBe(0o644);
     }).pipe(
       Effect.scoped,
       Effect.provide(

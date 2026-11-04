@@ -26,6 +26,45 @@ describe("t3code/require-disposable-render", () => {
       "});",
     ].join("\n"),
   );
+  browserTest.invalid(
+    "rejects an undisposed render result",
+    'import { render } from "../test/render"; async function test() { const screen = await render(null); }',
+  );
+  browserTest.invalid(
+    "rejects a renamed render helper without disposal",
+    'import { render as mount } from "../test/render.tsx"; async function test() { const screen = await mount(null); }',
+  );
+  browserTest.invalid(
+    "rejects an unused render result",
+    'import { render } from "../test/render"; async function test() { await render(null); }',
+  );
+  browserTest.invalid(
+    "rejects synchronous using for an async disposable render",
+    'import { render } from "../test/render"; async function test() { using screen = await render(null); }',
+  );
+  browserTest.valid(
+    "allows a render owned by an async disposable stack",
+    'import { render } from "../test/render"; async function test() { await using stack = new AsyncDisposableStack(); const screen = stack.use(await render(null)); }',
+  );
+  browserTest.valid(
+    "allows explicit disposal in finally",
+    'import { render } from "../test/render"; async function test() { const screen = await render(null); try { await act(() => screen.rerender(null)); } finally { await screen[Symbol.asyncDispose](); } }',
+  );
+  browserTest.valid(
+    "allows a helper that returns the render result to its caller",
+    [
+      'import { render } from "../test/render";',
+      "const direct = () => render(null);",
+      "function plain() { return render(null); }",
+      "async function named() { const screen = await render(null); return screen; }",
+      "async function extended() { const screen = await render(null); return Object.assign(screen, { text: () => '' }); }",
+      "async function spread() { const screen = await render(null); return { ...screen, extra: 1 }; }",
+    ].join("\n"),
+  );
+  browserTest.valid(
+    "ignores an unrelated render function",
+    'import { render } from "other-library"; async function test() { const screen = await render(null); }',
+  );
   browserTest.invalid("rejects react-dom/client", 'import { createRoot } from "react-dom/client";');
   browserTest.invalid("rejects act from react", 'import { act } from "react";');
   browserTest.invalid(

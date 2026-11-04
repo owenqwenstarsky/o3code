@@ -19,10 +19,18 @@ them directly and nothing is exposed to the internet.
 
 ## Set up Tailscale
 
-1. Merge [`deploy/tailscale-acl.hujson`](../../deploy/tailscale-acl.hujson) into
-   your tailnet policy. It lets members reach the instance and workspaces over
-   HTTPS, lets workspaces reach the instance, and keeps workspaces from
-   reaching each other.
+1. Apply [`deploy/tailscale-acl.hujson`](../../deploy/tailscale-acl.hujson) to
+   your tailnet policy. Grants and legacy ACLs are additive: remove or narrow
+   any existing allow-all rules and any other rules that let
+   `tag:o3-workspace` reach other workspaces. Adding these grants alone does
+   not isolate them. The intended access is:
+
+   | Source          | Destination             | Allowed traffic |
+   | --------------- | ----------------------- | --------------- |
+   | Tailnet members | Instance and workspaces | TCP 443         |
+   | Workspaces      | Instance                | TCP 443         |
+   | Workspaces      | Other workspaces        | None            |
+
 2. Create an **auth key** for the instance: one-off, pre-approved, tagged
    `tag:o3-instance`.
 3. Create an **OAuth client** with the `auth_keys` and `devices:core` write

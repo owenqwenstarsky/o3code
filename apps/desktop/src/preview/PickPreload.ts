@@ -14,6 +14,7 @@ import type {
   PreviewAnnotationSubmission,
 } from "@t3tools/contracts";
 
+import { trackAnnotationComment } from "./AnnotationComment.ts";
 import { createAnnotationIdSource } from "./AnnotationIds.ts";
 import { resolveAnnotationSubmission } from "./AnnotationKeyboard.ts";
 import { previewAnnotationStyles } from "./AnnotationStyles.generated.ts";
@@ -594,6 +595,7 @@ function startAnnotation(sendEnabled: boolean): void {
   comment.className =
     "min-h-8 max-h-24 min-w-0 flex-1 resize-none overflow-y-hidden border-0 border-b border-b-transparent bg-transparent px-0 py-1.5 font-sans text-sm leading-5 text-foreground outline-none ring-0 placeholder:text-muted-foreground focus:border-b-primary focus:outline-none focus:ring-0";
   composerRow.appendChild(comment);
+  const readComment = trackAnnotationComment(comment);
 
   const dragHandle = document.createElement("button");
   dragHandle.type = "button";
@@ -1380,7 +1382,8 @@ function startAnnotation(sendEnabled: boolean): void {
     refreshToolButtons();
   };
 
-  const submitAnnotation = (submission: PreviewAnnotationSubmission): void => {
+  const submitAnnotation = (event: Event, submission: PreviewAnnotationSubmission): void => {
+    if (!event.isTrusted) return;
     if (submission === "send" && !sendEnabled) return;
     if (pendingCapture || (selected.size === 0 && regions.length === 0 && strokes.length === 0))
       return;
@@ -1388,7 +1391,7 @@ function startAnnotation(sendEnabled: boolean): void {
     submit.disabled = true;
     submit.textContent = "Capturing…";
     // Snapshot the submitted comment before context lookup lets the user edit it.
-    const submittedComment = comment.value.trim();
+    const submittedComment = readComment();
     const submittedRegions = [...regions];
     const submittedStrokes = [...strokes];
     const submittedStyleChanges = Array.from(styleChanges.values(), (change) => ({ ...change }));
@@ -1443,7 +1446,7 @@ function startAnnotation(sendEnabled: boolean): void {
         teardown(true);
       });
   };
-  submit.addEventListener("click", () => submitAnnotation("attach"));
+  submit.addEventListener("click", (event) => submitAnnotation(event, "attach"));
   root.addEventListener("keydown", (event) => {
     const submission =
       event.target === comment ? resolveAnnotationSubmission(event, sendEnabled) : null;
@@ -1451,7 +1454,7 @@ function startAnnotation(sendEnabled: boolean): void {
     event.stopImmediatePropagation();
     if (!submission) return;
     event.preventDefault();
-    submitAnnotation(submission);
+    submitAnnotation(event, submission);
   });
 
   window.addEventListener("pointermove", onPointerMove, { capture: true, passive: false });

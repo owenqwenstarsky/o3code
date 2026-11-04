@@ -165,12 +165,27 @@ function readRemoteAddressFromSource(source: unknown): string | undefined {
   return normalizeIpAddress(candidate.socket?.remoteAddress ?? candidate.remoteAddress);
 }
 
+const isLoopbackAddress = (address: string | undefined) =>
+  address !== undefined && (address === "::1" || address.startsWith("127."));
+
+/** The address the nearest proxy appended, which is the only entry it vouches for. */
+function readLastForwardedFor(request: HttpServerRequest.HttpServerRequest): string | undefined {
+  const header = request.headers["x-forwarded-for"];
+  return normalizeIpAddress(header?.split(",").at(-1)?.trim());
+}
+
 export function deriveAuthClientMetadata(input: {
   readonly request: HttpServerRequest.HttpServerRequest;
   readonly presented?: AuthClientPresentationMetadata;
+  /** Set when a local reverse proxy (Tailscale Serve) fronts the server and appends X-Forwarded-For. */
+  readonly trustLoopbackProxy?: boolean;
 }): AuthClientMetadata {
   const userAgent = normalizeNonEmptyString(input.request.headers["user-agent"]);
-  const ipAddress = readRemoteAddressFromSource(input.request.source);
+  const peerAddress = readRemoteAddressFromSource(input.request.source);
+  const ipAddress =
+    input.trustLoopbackProxy === true && isLoopbackAddress(peerAddress)
+      ? (readLastForwardedFor(input.request) ?? peerAddress)
+      : peerAddress;
   const os = input.presented?.os ?? inferOs(userAgent);
   const browser = inferBrowser(userAgent);
   return {

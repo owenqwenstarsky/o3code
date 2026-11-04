@@ -549,7 +549,8 @@ export interface AcpRegistryCatalogOptions {
 
 const INSTALL_LOCK_RETRY_COUNT = 300;
 const INSTALL_LOCK_RETRY_DELAY = "100 millis";
-const INSTALL_LOCK_STALE_MS = 5 * 60 * 1_000;
+// Headers and body each have a 20-minute download deadline.
+const INSTALL_LOCK_STALE_MS = 60 * 60 * 1_000;
 const PREPARED_BINARY_RESERVATION_MS = 30 * 1_000;
 
 function isAlreadyExists(error: PlatformError.PlatformError): boolean {
@@ -1326,15 +1327,16 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
   const acquireInstallLock = Effect.fn("AcpRegistryCatalog.acquireInstallLock")(function* (
     lockPath: string,
   ) {
+    const owner = yield* crypto.randomUUIDv4();
     for (let attempt = 0; attempt < INSTALL_LOCK_RETRY_COUNT; attempt += 1) {
-      const acquired = yield* fileSystem.writeFileString(lockPath, "", { flag: "wx" }).pipe(
+      const acquired = yield* fileSystem.writeFileString(lockPath, owner, { flag: "wx" }).pipe(
         Effect.as(true),
         Effect.catchIf(
           (error) => isAlreadyExists(error),
           () => Effect.succeed(false),
         ),
       );
-      if (acquired) return;
+      if (acquired) return owner;
       const now = yield* Clock.currentTimeMillis;
       const lockInfo = yield* fileSystem.stat(lockPath).pipe(Effect.option);
       const mtime = Option.flatMap(lockInfo, (info) => info.mtime);
@@ -1350,7 +1352,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
     });
   });
 
-  const assertExecutableInRoot = Effect.fn("AcpRegistryCatalog.assertExecutableInRoot")(function* (
+  const resolveInRoot = Effect.fn("AcpRegistryCatalog.resolveInRoot")(function* (
     root: string,
     executablePath: string,
   ) {
@@ -1363,6 +1365,14 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
         detail: "ACP Registry archive command resolves outside its installation directory.",
       });
     }
+    return executableRealPath;
+  });
+
+  const assertExecutableInRoot = Effect.fn("AcpRegistryCatalog.assertExecutableInRoot")(function* (
+    root: string,
+    executablePath: string,
+  ) {
+    const executableRealPath = yield* resolveInRoot(root, executablePath);
     const info = yield* fileSystem.stat(executableRealPath);
     const hasExecutableMode = platform === "win32" || (info.mode & 0o111) !== 0;
     if (info.type !== "File" || !hasExecutableMode) {
@@ -1433,7 +1443,7 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
       ),
     );
     const lockPath = `${installRoot}.lock`;
-    yield* acquireInstallLock(lockPath).pipe(
+    const lockOwner = yield* acquireInstallLock(lockPath).pipe(
       Effect.mapError((cause) =>
         isAcpRegistryError(cause)
           ? cause
@@ -1571,14 +1581,23 @@ export const makeAcpRegistryCatalog = Effect.fn("AcpRegistryCatalog.make")(funct
           detail: `ACP Registry archive for ${agent.id} did not contain '${target.cmd}'.`,
         });
       }
-      if (platform !== "win32") yield* fileSystem.chmod(stagedExecutable, 0o755);
+      // Contain before chmod: a symlinked command must not change the mode of a file outside.
+      const stagedRealPath = yield* resolveInRoot(extractionRoot, stagedExecutable);
+      if (platform !== "win32") yield* fileSystem.chmod(stagedRealPath, 0o755);
       yield* assertExecutableInRoot(extractionRoot, stagedExecutable);
       yield* fileSystem.remove(installRoot, { recursive: true, force: true });
       yield* fileSystem.rename(extractionRoot, installRoot);
       return yield* assertExecutableInRoot(installRoot, executablePath);
     }).pipe(
       Effect.scoped,
-      Effect.ensuring(fileSystem.remove(lockPath, { force: true }).pipe(Effect.ignore)),
+      Effect.ensuring(
+        fileSystem.readFileString(lockPath).pipe(
+          Effect.flatMap((owner) =>
+            owner === lockOwner ? fileSystem.remove(lockPath, { force: true }) : Effect.void,
+          ),
+          Effect.ignore,
+        ),
+      ),
       Effect.mapError((cause) =>
         isAcpRegistryError(cause)
           ? cause

@@ -436,6 +436,7 @@ export function layerWithRegistry<Error>(
   const layerCheckpointCaptureServiceProvided = CheckpointCaptureService.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
+        ThreadCommandExecutor.layer,
         layerCheckpointServiceProvided,
         layerEventSinkProvided,
         IdAllocator.layer,
