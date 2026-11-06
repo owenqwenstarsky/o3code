@@ -18,8 +18,11 @@ import type { SourceControlProviderContext } from "@t3tools/source-control-core/
 
 const encodeApiBody = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
+const ForgejoCommand = Schema.Literals(["fj", "tea", "gt"]);
+export type ForgejoCommand = typeof ForgejoCommand.Type;
+
 export class ForgejoCliError extends Schema.TaggedError<ForgejoCliError>()("ForgejoCliError", {
-  command: Schema.Literals(["fj", "tea"]),
+  command: ForgejoCommand,
   cwd: Schema.String,
   detail: Schema.String,
   reason: Schema.optional(
@@ -109,7 +112,7 @@ export interface ForgejoRepositoryInput {
 }
 
 export interface ForgejoRepository {
-  readonly command?: "fj" | "tea";
+  readonly command?: ForgejoCommand;
   readonly login: string;
   readonly repository: string;
   readonly baseUrl: string;
@@ -125,7 +128,7 @@ export class ForgejoCli extends Context.Service<
   ForgejoCli,
   {
     readonly execute: (input: {
-      readonly command?: "fj" | "tea";
+      readonly command?: ForgejoCommand;
       readonly cwd: string;
       readonly args: ReadonlyArray<string>;
       readonly stdin?: string;
@@ -134,7 +137,7 @@ export class ForgejoCli extends Context.Service<
     }) => Effect.Effect<SourceControlHost.SourceControlProcessOutput, ForgejoCliError>;
     readonly listLogins?: (input: {
       readonly cwd: string;
-      readonly command: "fj" | "tea";
+      readonly command: ForgejoCommand;
       readonly remoteUrl?: string;
     }) => Effect.Effect<ReturnType<typeof parseForgejoLogins>, ForgejoCliError>;
     readonly getAccount?: (input: {
@@ -207,6 +210,109 @@ export function matchForgejoLogin(
     : new Set(matches.map((login) => login.url)).size === 1
       ? matches.find((login) => login.default === "true")
       : undefined;
+}
+
+/**
+ * The remote that names a request's server: its reference or repository URL, the project's
+ * remote, or the checkout's `origin` (or, with `host`, the one fetch remote on that host).
+ */
+export const findForgejoRemote = Effect.fn("ForgejoCli.findRemote")(function* (
+  process: SourceControlHost.SourceControlHost["Service"]["process"],
+  input: ForgejoRepositoryInput,
+  command: ForgejoCommand = "tea",
+) {
+  const referenceRemote = input.reference ? parseForgejoRemote(input.reference) : null;
+  let remoteUrl = [input.reference, input.repository, input.context?.remoteUrl].find(
+    (value) => value && parseForgejoRemote(value),
+  );
+  let remote =
+    referenceRemote ??
+    (input.repository ? parseForgejoRemote(input.repository) : null) ??
+    (input.context ? parseForgejoRemote(input.context.remoteUrl) : null);
+  if (!remote && (!input.repository || input.host)) {
+    const result = yield* process
+      .run({
+        operation: "ForgejoCli.remote",
+        command: "git",
+        args: input.host ? ["remote", "-v"] : ["remote", "get-url", "origin"],
+        cwd: input.cwd,
+        allowNonZeroExit: true,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new ForgejoCliError({
+              command,
+              cwd: input.cwd,
+              detail: "Could not resolve the repository remote.",
+              cause,
+            }),
+        ),
+      );
+    if (input.host) {
+      const matchingUrls = [
+        ...new Set(
+          result.stdout.split("\n").flatMap((line) => {
+            // Partial clones append the promisor filter, e.g. `(fetch) [blob:none]`.
+            const url = /^\S+\s+(https?:\/\/\S+)\s+\(fetch\)(?:\s+\[[^\]]+\])?$/.exec(
+              line.trim(),
+            )?.[1];
+            return url && parseForgejoRemote(url)?.host === input.host?.toLowerCase() ? [url] : [];
+          }),
+        ),
+      ];
+      const origins = [...new Set(matchingUrls.map((url) => new URL(url).origin))];
+      remoteUrl =
+        matchingUrls.length === 1 ? matchingUrls[0] : origins.length === 1 ? origins[0] : undefined;
+    } else {
+      remoteUrl = result.stdout.trim();
+    }
+    remote = remoteUrl ? parseForgejoRemote(remoteUrl) : null;
+  }
+  if (
+    input.host &&
+    !remote?.ssh &&
+    remote?.host !== input.host.toLowerCase() &&
+    remote?.hostname !== input.host.toLowerCase()
+  )
+    remote = {
+      host: input.host.toLowerCase(),
+      hostname: input.host.split(":")[0] ?? input.host,
+      ssh: false,
+      path: remote?.path ?? "",
+    };
+  return { referenceRemote, remoteUrl, remote };
+});
+
+/** The repository path below the login's server, without a mount, change request or `.git`. */
+export function relativeRepositoryPath(input: {
+  readonly input: ForgejoRepositoryInput;
+  readonly referenceRemote: ReturnType<typeof parseForgejoRemote>;
+  readonly remote: ReturnType<typeof parseForgejoRemote>;
+  readonly loginUrl: string;
+}) {
+  const path =
+    input.referenceRemote?.path ??
+    (input.input.repository && !parseForgejoRemote(input.input.repository)
+      ? input.input.repository
+      : input.remote?.path) ??
+    "";
+  const basePath = new URL(input.loginUrl).pathname.replace(/^\/+|\/+$/g, "");
+  const relativePath =
+    basePath && path.split("/").length > 2 && path.startsWith(`${basePath}/`)
+      ? path.slice(basePath.length + 1)
+      : path;
+  return relativePath.replace(/\/pulls\/\d+.*$/, "").replace(/\.git$/, "");
+}
+
+/** The API path for the resolved repository: identities keep a server mount, API routes do not. */
+export function apiPath(input: ForgejoApiInput, repository: string) {
+  const path = input.path.replace(/^\/+/, "");
+  if (!input.repository || input.repository === repository) return path;
+  const prefix = `repos/${input.repository.split("/").map(encodeURIComponent).join("/")}`;
+  return path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`)
+    ? `repos/${repository.split("/").map(encodeURIComponent).join("/")}${path.slice(prefix.length)}`
+    : path;
 }
 
 export const make = Effect.gen(function* () {
@@ -488,72 +594,7 @@ export const make = Effect.gen(function* () {
     input: ForgejoRepositoryInput,
     hostOnly = false,
   ) {
-    const referenceRemote = input.reference ? parseForgejoRemote(input.reference) : null;
-    let remoteUrl = [input.reference, input.repository, input.context?.remoteUrl].find(
-      (value) => value && parseForgejoRemote(value),
-    );
-    let remote =
-      referenceRemote ??
-      (input.repository ? parseForgejoRemote(input.repository) : null) ??
-      (input.context ? parseForgejoRemote(input.context.remoteUrl) : null);
-    if (!remote && (!input.repository || input.host)) {
-      const result = yield* process
-        .run({
-          operation: "ForgejoCli.remote",
-          command: "git",
-          args: input.host ? ["remote", "-v"] : ["remote", "get-url", "origin"],
-          cwd: input.cwd,
-          allowNonZeroExit: true,
-        })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new ForgejoCliError({
-                command: "tea",
-                cwd: input.cwd,
-                detail: "Could not resolve the Forgejo repository remote.",
-                cause,
-              }),
-          ),
-        );
-      if (input.host) {
-        const matchingUrls = [
-          ...new Set(
-            result.stdout.split("\n").flatMap((line) => {
-              // Partial clones append the promisor filter, e.g. `(fetch) [blob:none]`.
-              const url = /^\S+\s+(https?:\/\/\S+)\s+\(fetch\)(?:\s+\[[^\]]+\])?$/.exec(
-                line.trim(),
-              )?.[1];
-              return url && parseForgejoRemote(url)?.host === input.host?.toLowerCase()
-                ? [url]
-                : [];
-            }),
-          ),
-        ];
-        const origins = [...new Set(matchingUrls.map((url) => new URL(url).origin))];
-        remoteUrl =
-          matchingUrls.length === 1
-            ? matchingUrls[0]
-            : origins.length === 1
-              ? origins[0]
-              : undefined;
-      } else {
-        remoteUrl = result.stdout.trim();
-      }
-      remote = remoteUrl ? parseForgejoRemote(remoteUrl) : null;
-    }
-    if (
-      input.host &&
-      !remote?.ssh &&
-      remote?.host !== input.host.toLowerCase() &&
-      remote?.hostname !== input.host.toLowerCase()
-    )
-      remote = {
-        host: input.host.toLowerCase(),
-        hostname: input.host.split(":")[0] ?? input.host,
-        ssh: false,
-        path: remote?.path ?? "",
-      };
+    const { referenceRemote, remoteUrl, remote } = yield* findForgejoRemote(process, input);
     const schemeRemoteUrl = remote?.ssh ? input.context?.provider.baseUrl : remoteUrl;
     const fjLogins = yield* listLogins({
       cwd: input.cwd,
@@ -610,18 +651,12 @@ export const make = Effect.gen(function* () {
       });
     if (hostOnly)
       return { command, login: login.name, repository: "", baseUrl: login.url.replace(/\/+$/, "") };
-    const path =
-      referenceRemote?.path ??
-      (input.repository && !parseForgejoRemote(input.repository)
-        ? input.repository
-        : remote?.path) ??
-      "";
-    const basePath = new URL(login.url).pathname.replace(/^\/+|\/+$/g, "");
-    const relativePath =
-      basePath && path.split("/").length > 2 && path.startsWith(`${basePath}/`)
-        ? path.slice(basePath.length + 1)
-        : path;
-    const repositoryPath = relativePath.replace(/\/pulls\/\d+.*$/, "").replace(/\.git$/, "");
+    const repositoryPath = relativeRepositoryPath({
+      input,
+      referenceRemote,
+      remote,
+      loginUrl: login.url,
+    });
     if (command === "fj" && !repositoryPath.includes("/")) {
       login = { ...login, user: yield* getAccount({ cwd: input.cwd, baseUrl: login.url }) };
     }
@@ -656,14 +691,7 @@ export const make = Effect.gen(function* () {
                 }),
             ),
           );
-    let path = input.path.replace(/^\/+/, "");
-    if (input.repository && input.repository !== repository.repository) {
-      // Repository identities retain the server mount path; API routes do not.
-      const prefix = `repos/${input.repository.split("/").map(encodeURIComponent).join("/")}`;
-      if (path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`)) {
-        path = `repos/${repository.repository.split("/").map(encodeURIComponent).join("/")}${path.slice(prefix.length)}`;
-      }
-    }
+    const path = apiPath(input, repository.repository);
     if (repository.command === "fj") {
       const token = (yield* readKeys(input.cwd)).hosts[repository.login]?.token;
       if (!token)

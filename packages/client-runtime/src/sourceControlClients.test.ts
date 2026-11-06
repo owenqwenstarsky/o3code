@@ -243,7 +243,7 @@ describe("sourceControlClients.recognizeRemote", () => {
   const kindOfRemote = (url: string) => sourceControlClients.recognizeRemote(url)?.kind ?? null;
 
   it("asks hosts in a fixed order when one hostname carries several hosts' labels", () => {
-    expect(kindOfRemote("https://gitea.github.example/o/r")).toBe("forgejo");
+    expect(kindOfRemote("https://gitea.github.example/o/r")).toBe("gitea");
     expect(kindOfRemote("https://forgejo.gitlab.example/o/r")).toBe("forgejo");
     expect(kindOfRemote("https://gitlab.github.example/o/r")).toBe("github");
     expect(kindOfRemote("https://bitbucket.gitlab.example/o/r")).toBe("gitlab");
@@ -357,6 +357,7 @@ describe("sourceControlClients.findByPublicDomain", () => {
     expect(kindOf("gist.github.com")).toBe("github");
     expect(kindOf("GitLab.com")).toBe("gitlab");
     expect(kindOf("codeberg.org")).toBe("forgejo");
+    expect(kindOf("gitea.com")).toBe("gitea");
     expect(kindOf("git.cafe")).toBe("gitcafe");
     expect(kindOf("notgithub.com")).toBeUndefined();
     expect(kindOf("github.com.example")).toBeUndefined();

@@ -56,6 +56,7 @@
     "@t3tools/source-control-definitions": "workspace:*",
     "@t3tools/source-control-forgejo": "workspace:*",
     "@t3tools/source-control-gitcafe": "workspace:*",
+    "@t3tools/source-control-gitea": "workspace:*",
     "@t3tools/source-control-github": "workspace:*",
     "@t3tools/source-control-gitlab": "workspace:*",
     "character-entities": "2.0.2",

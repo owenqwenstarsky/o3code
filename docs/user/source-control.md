@@ -43,16 +43,32 @@ over that choice; a host turned off stays off either way.
 For GitHub Enterprise, sign in with `gh auth login --hostname YOUR_HOST`. O3 Code treats a
 custom server name as GitHub once it has a credential for that host.
 
-### Forgejo and Gitea
+### Gitea
 
-Install [Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli) or
-[Gitea CLI (`tea`)](https://gitea.com/gitea/tea) 0.16 or later on your O3 Code server.
+For Gitea 28 or later, install [Gitea CLI (`gt`)](https://gitea.com/gitea/cli) 1.0 or later
+on your O3 Code server, for example with `brew install gitea-cli`, and sign in to each server:
+
+```bash
+gt auth login --host https://your-server
+```
+
+gitea.com and servers with `gitea` in their hostname always use this integration, so they need
+Gitea 28 or later. Any other server uses it once `gt` has an account for it. With several accounts on one server, O3 Code uses the
+one `gt auth switch` made active. A `GITEA_TOKEN` in the server's environment also works,
+with `GITEA_CLI_HOST` naming its server. Git push and clone still need Git credentials or an
+SSH key for that server; `gt auth setup-git` configures HTTPS credentials.
+
+### Forgejo / Gitea (legacy)
+
+Forgejo servers, including Codeberg, and Gitea before 28 use this integration. Install
+[Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli) or
+[`tea`](https://gitea.com/gitea/tea) 0.16 or later on your O3 Code server.
 Sign in with `fj --host https://your-server auth add-token` or `tea login add`.
-Repeat for each server you use, including Codeberg.
+Repeat for each server you use.
 
 O3 Code prefers a matching `fj` login and falls back to `tea` when `fj` is unavailable
 or has no login for that server. Once an account is selected, failed actions stay on that
-account. Settings shows the detected CLI. Forgejo and Gitea share one integration entry.
+account. Settings shows the detected CLI.
 Servers hosted under a URL subpath, such as `https://example.com/forgejo`, use `tea` because
 fj 0.6 does not preserve the subpath when checking its account.
 

@@ -1117,7 +1117,7 @@ it.effect("discovers Forgejo accounts and retains the server port", () =>
     });
     assert.deepStrictEqual(refined, {
       kind: SourceControlProviderKind.make("forgejo"),
-      name: "Forgejo / Gitea",
+      name: "Forgejo / Gitea (legacy)",
       baseUrl: "http://forgejo.local:3000",
     });
   }),

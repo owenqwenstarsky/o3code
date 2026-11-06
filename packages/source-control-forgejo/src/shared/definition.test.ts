@@ -105,8 +105,8 @@ describe("Forgejo change request URLs", () => {
 });
 
 describe("Forgejo remotes", () => {
-  it("recognises Codeberg and Forgejo or Gitea hosts, keeping an HTTP remote's origin", () => {
-    for (const host of ["codeberg.org", "forgejo.example.test", "gitea.example.test"]) {
+  it("recognises Codeberg and Forgejo hosts, keeping an HTTP remote's origin", () => {
+    for (const host of ["codeberg.org", "forgejo.example.test"]) {
       expect(recognizeRemoteWith(definition, `http://${host}:3000/team/repo.git`)).toEqual({
         kind: "forgejo",
         name: "Forgejo",
@@ -117,6 +117,11 @@ describe("Forgejo remotes", () => {
       recognizeRemoteWith(definition, "ssh://git@forgejo.example.test:2222/team/repo.git")?.baseUrl,
     ).toBe("https://forgejo.example.test");
     expect(recognizeRemoteWith(definition, "https://git.example.test/team/repo")).toBeNull();
+    // Gitea hosts belong to the Gitea integration, links included.
+    expect(recognizeRemoteWith(definition, "https://gitea.example.test/team/repo")).toBeNull();
+    expect(
+      definition.parseChangeRequestUrl(new URL("https://gitea.com/team/repo/pulls/7")),
+    ).toBeNull();
   });
 });
 

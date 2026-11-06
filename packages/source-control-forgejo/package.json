@@ -7,9 +7,29 @@
       "types": "./src/shared/definition.ts",
       "import": "./src/shared/definition.ts"
     },
+    "./shared/giteaFamilyDefinition": {
+      "types": "./src/shared/giteaFamilyDefinition.ts",
+      "import": "./src/shared/giteaFamilyDefinition.ts"
+    },
     "./server/driver": {
       "types": "./src/server/driver.ts",
       "import": "./src/server/driver.ts"
+    },
+    "./server/ForgejoCli": {
+      "types": "./src/server/ForgejoCli.ts",
+      "import": "./src/server/ForgejoCli.ts"
+    },
+    "./server/ForgejoSourceControlProvider": {
+      "types": "./src/server/ForgejoSourceControlProvider.ts",
+      "import": "./src/server/ForgejoSourceControlProvider.ts"
+    },
+    "./server/ForgejoPullRequestProvider": {
+      "types": "./src/server/ForgejoPullRequestProvider.ts",
+      "import": "./src/server/ForgejoPullRequestProvider.ts"
+    },
+    "./server/flavor": {
+      "types": "./src/server/flavor.ts",
+      "import": "./src/server/flavor.ts"
     }
   },
   "scripts": {
