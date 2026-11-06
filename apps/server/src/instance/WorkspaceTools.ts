@@ -65,6 +65,13 @@ export const WORKSPACE_TOOLS: ReadonlyArray<InstanceTool> = [
     description: "The Go toolchain.",
     category: "language",
   },
+  {
+    id: "gitea-cli",
+    label: "Gitea CLI",
+    description:
+      "Gitea's `gt` CLI for Gitea 28+. Sign in with `gt auth login --host <server-url> --with-token --credential-store file`.",
+    category: "cli",
+  },
 ];
 
 export const DEFAULT_TOOL_IDS: ReadonlyArray<string> = ["claude", "codex"];
