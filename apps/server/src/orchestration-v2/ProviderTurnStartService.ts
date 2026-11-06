@@ -282,7 +282,7 @@ export const layer: Layer.Layer<
               }),
             )
             .pipe(Effect.catchCause(() => Effect.succeed(false))),
-        loadRunInterruptReason: () =>
+        loadRunInterruptRequest: () =>
           projectionStore
             .getThreadRecords(input.threadId, ["turnItems"], {
               turnItemTypes: ["run_interrupt_request"],
@@ -291,7 +291,7 @@ export const layer: Layer.Layer<
             .pipe(
               Effect.map(({ turnItems }) => {
                 const request = turnItems.find((item) => item.type === "run_interrupt_request");
-                return request?.type === "run_interrupt_request" ? request.message : undefined;
+                return request?.type === "run_interrupt_request" ? request : undefined;
               }),
               // @effect-diagnostics-next-line effectSucceedWithVoid:off - This optional result requires undefined, not the wider void type.
               Effect.catchCause(() => Effect.succeed(undefined)),
@@ -1664,7 +1664,7 @@ export const layer: Layer.Layer<
         shouldStartProviderTurn: runControls.shouldStartProviderTurn,
         shouldFinalizeRun: runControls.shouldFinalizeRun,
         hasUnpairedRunInterruptRequest: runControls.hasUnpairedRunInterruptRequest,
-        loadRunInterruptReason: runControls.loadRunInterruptReason,
+        loadRunInterruptRequest: runControls.loadRunInterruptRequest,
         message: {
           messageId: message.id,
           text: userText,

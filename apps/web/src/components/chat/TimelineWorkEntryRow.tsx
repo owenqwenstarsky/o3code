@@ -1,3 +1,5 @@
+import { useAtomValue } from "@effect/atom-react";
+import { presenceEnvironment } from "../../state/presence";
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
 import { WorkLogDetails, WorkLogRow } from "./WorkLog";
 import {
@@ -9,6 +11,7 @@ import {
 import {
   ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
   type EnvironmentId,
+  type OrchestrationV2TurnItem,
   ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -170,6 +173,26 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEn
     />
   );
 });
+
+/** Who answered an approval or question, when it was another shared-workspace member. */
+function RequestResponder(props: {
+  item: OrchestrationV2TurnItem | undefined;
+  environmentId: EnvironmentId;
+}) {
+  const viewerUserId = useAtomValue(presenceEnvironment.viewerUserId(props.environmentId));
+  const respondedBy =
+    props.item?.type === "approval_request" || props.item?.type === "user_input_request"
+      ? props.item.respondedBy
+      : undefined;
+  if (respondedBy === undefined || viewerUserId === null || respondedBy.userId === viewerUserId) {
+    return null;
+  }
+  return (
+    <span className="shrink-0 text-muted-foreground text-xs" data-request-responder>
+      by {respondedBy.name}
+    </span>
+  );
+}
 
 function WorkEntryLogRow(props: WorkEntryRowProps) {
   const { workEntry, workspaceRoot, displayLabel } = props;
@@ -452,6 +475,10 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
                 {answerPreview}
               </span>
             ) : null}
+            <RequestResponder
+              item={workEntry.projectedItem?.item}
+              environmentId={ctx.activeThreadEnvironmentId}
+            />
           </p>
         </div>
       }

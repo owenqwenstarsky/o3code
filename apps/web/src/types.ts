@@ -81,6 +81,8 @@ export interface ChatMessage {
   readonly streaming: boolean;
   readonly createdBy?: OrchestrationV2Actor;
   readonly creationSource?: OrchestrationV2CreationSource;
+  /** The shared-workspace member who sent it. */
+  readonly author?: import("@t3tools/contracts").OrchestrationV2Member;
   readonly scheduledTaskId?: ScheduledTaskId;
   readonly senderThreadId?: ThreadId;
   readonly idleCompaction?: import("@t3tools/contracts").OrchestrationV2IdleCompaction;

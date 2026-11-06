@@ -9,6 +9,9 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
+import { useAtomValue } from "@effect/atom-react";
+import { presenceEnvironment } from "../../state/presence";
+import { MemberAvatar } from "../MemberAvatar";
 import { Link } from "@tanstack/react-router";
 import { useQuietThreadShell } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
@@ -433,7 +436,11 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   const unknownAttachments = (row.message.attachments ?? []).filter(
     (attachment) => !isImageAttachment(attachment) && !isFileAttachment(attachment),
   );
-  const userMessage = resolveUserMessagePresentation(row.message);
+  const viewerUserId = useAtomValue(
+    presenceEnvironment.viewerUserId(ctx.activeThreadEnvironmentId),
+  );
+  const userMessage = resolveUserMessagePresentation(row.message, viewerUserId);
+  const authorLabel = userMessage.author?.name ?? "You";
   // Messages from other agents fold to one line so the user's own messages stay easy to find.
   const folded = userMessage.attribution === "agent";
   const [expanded, setExpanded] = useState(false);
@@ -819,7 +826,17 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           Sent by O3 Code
         </p>
       ) : null}
-      {/* The row's heading already names the guest for screen readers. */}
+      {/* The row's heading already names the member and the guest for screen readers. */}
+      {userMessage.author !== undefined && !row.groupedWithPrevious ? (
+        <p
+          aria-hidden
+          className="me-1 flex items-center gap-1.5 text-2xs text-muted-foreground"
+          data-user-message-attribution="member"
+        >
+          <MemberAvatar member={userMessage.author} size="xs" />
+          {userMessage.author.name}
+        </p>
+      ) : null}
       {userMessage.guestName !== undefined ? (
         <div aria-hidden>
           <GuestMessageName name={userMessage.guestName} />
@@ -833,7 +850,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       {mediaAboveText ? (
         <div className="flex max-w-[80%] justify-end">
           {/* The heading leads the media so screen readers reach it before the images. */}
-          <MessageAuthorHeading>You</MessageAuthorHeading>
+          <MessageAuthorHeading>{authorLabel}</MessageAuthorHeading>
           {mediaBlock}
         </div>
       ) : null}
@@ -856,7 +873,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
             {folded
               ? senderLabel
               : userMessage.guestName === undefined
-                ? "You"
+                ? authorLabel
                 : `${userMessage.guestName} (guest)`}
           </MessageAuthorHeading>
         )}

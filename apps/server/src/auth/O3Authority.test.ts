@@ -4,6 +4,7 @@ import { expect, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
@@ -19,6 +20,7 @@ interface FakeInstance {
   calls: number;
   authorization: string | undefined;
   expiresAt?: string;
+  name?: string;
 }
 
 const layerFakeInstance = (instance: FakeInstance) =>
@@ -40,7 +42,7 @@ const layerFakeInstance = (instance: FakeInstance) =>
                 // The same user's other workspace.
                 workspaceId: instance.answer === "other-workspace" ? "ws-2" : "ws-1",
                 email: "user@acme.test",
-                name: "User",
+                name: instance.name ?? "User",
                 role: "member",
                 sessionId: "instance-session",
                 expiresAt: instance.expiresAt ?? "2099-01-01T00:00:00.000Z",
@@ -99,6 +101,22 @@ it.effect(
       expect(instance.calls).toBe(1);
       expect(instance.authorization).toBe("Bearer ws-1:workspace-secret");
       expect(yield* activeSessionIds).toEqual([first.sessionId]);
+      expect(yield* authority.memberOf("o3:user-1")).toEqual(
+        Option.some({ userId: "user-1", name: "User" }),
+      );
+      expect(yield* authority.memberOf("o3:someone-else")).toEqual(Option.none());
+
+      // The recheck picks up a rename; a blank name falls back to the email's local part.
+      instance.name = "Renamed";
+      yield* TestClock.adjust("31 seconds");
+      expect(yield* authority.memberOf("o3:user-1")).toEqual(
+        Option.some({ userId: "user-1", name: "Renamed" }),
+      );
+      instance.name = " ";
+      yield* TestClock.adjust("31 seconds");
+      expect(yield* authority.memberOf("o3:user-1")).toEqual(
+        Option.some({ userId: "user-1", name: "user" }),
+      );
 
       // A live socket makes no requests; the periodic recheck notices the revocation.
       instance.answer = "inactive";

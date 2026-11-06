@@ -2145,10 +2145,12 @@ export function deriveMessagesTimelineRows(input: {
     if (timelineRowIsWorkLog(row) && timelineRowIsWorkLog(result[index + 1])) {
       return { ...row, continuesWorkLog: true };
     }
-    if (!timelineRowIsOwnUserMessage(row)) return row;
+    if (!timelineRowIsPersonUserMessage(row)) return row;
     const previous = result[index - 1];
-    const groupedWithNext = timelineRowIsOwnUserMessage(result[index + 1]);
-    const groupedWithPrevious = timelineRowIsOwnUserMessage(previous);
+    const next = result[index + 1];
+    const groupedWithNext = timelineRowIsPersonUserMessage(next) && sameSender(row, next);
+    const groupedWithPrevious =
+      timelineRowIsPersonUserMessage(previous) && sameSender(row, previous);
     const continuesSteer =
       groupedWithPrevious && messageIsSteer(row.message) && messageIsSteer(previous.message);
     if (!groupedWithNext && !groupedWithPrevious) return row;
@@ -2156,7 +2158,8 @@ export function deriveMessagesTimelineRows(input: {
   });
 }
 
-function timelineRowIsOwnUserMessage(
+/** A message a person typed: yours, or another member's on a shared workspace. */
+function timelineRowIsPersonUserMessage(
   row: MessagesTimelineRow | undefined,
 ): row is Extract<MessagesTimelineRow, { kind: "message" }> {
   return (
@@ -2164,6 +2167,13 @@ function timelineRowIsOwnUserMessage(
     row.message.role === "user" &&
     resolveUserMessagePresentation(row.message).attribution === null
   );
+}
+
+function sameSender(
+  row: Extract<MessagesTimelineRow, { kind: "message" }>,
+  other: Extract<MessagesTimelineRow, { kind: "message" }>,
+): boolean {
+  return row.message.author?.userId === other.message.author?.userId;
 }
 
 function messageIsSteer(message: ChatMessage): boolean {

@@ -38,6 +38,7 @@ import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
 import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { PresenceSnapshot, PresenceUpdateInput } from "./presence.ts";
 import {
   ProviderAuthCancelInput,
   ProviderAuthCompleteInput,
@@ -595,6 +596,8 @@ export const WS_METHODS = {
   subscribeWorktreeSetup: "subscribeWorktreeSetup",
   worktreeSetupCancel: "worktreeSetup.cancel",
   subscribeTerminalMetadata: "subscribeTerminalMetadata",
+  presenceUpdate: "presence.update",
+  subscribePresence: "subscribePresence",
   subscribePreviewEvents: "subscribePreviewEvents",
   subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
   subscribeDeviceState: "subscribeDeviceState",
@@ -1831,6 +1834,18 @@ const WsOrchestrationV2SubscribeCommandOutputRpc = Rpc.make(
   },
 );
 
+const WsPresenceUpdateRpc = Rpc.make(WS_METHODS.presenceUpdate, {
+  payload: PresenceUpdateInput,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsSubscribePresenceRpc = Rpc.make(WS_METHODS.subscribePresence, {
+  payload: Schema.Struct({}),
+  success: PresenceSnapshot,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 const WsSubscribeTerminalMetadataRpc = Rpc.make(WS_METHODS.subscribeTerminalMetadata, {
   payload: Schema.Struct({}),
   success: TerminalMetadataStreamEvent,
@@ -2110,6 +2125,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalClearRpc,
   WsTerminalCloseRpc,
   WsSubscribeTerminalMetadataRpc,
+  WsPresenceUpdateRpc,
+  WsSubscribePresenceRpc,
   WsPreviewOpenRpc,
   WsPreviewResizeRpc,
   WsPreviewAdjustRpc,

@@ -8,6 +8,7 @@ import {
   type MessageId,
   type ModelSelection,
   type OrchestrationV2Actor,
+  type OrchestrationV2Member,
   type OrchestrationV2CreationSource,
   type OrchestrationV2DelegatedFrom,
   type OrchestrationV2LinkOrigin,
@@ -99,6 +100,8 @@ export interface ThreadLaunchInput {
   };
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
+  /** The shared-workspace member launching, stamped by the server from their session. */
+  readonly author?: OrchestrationV2Member;
   /** The linked environment this launch is for, if one asked for it. */
   readonly linkOrigin?: OrchestrationV2LinkOrigin;
   /** The parent there, when that environment's agent delegated this as a task. */
@@ -922,6 +925,7 @@ const make = Effect.gen(function* () {
                   : { delegatedFrom: input.delegatedFrom }),
                 createdBy: input.createdBy,
                 creationSource: input.creationSource,
+                ...(input.author === undefined ? {} : { author: input.author }),
               });
         const claimed = yield* claimDispatch.pipe(
           Effect.mapError(
@@ -970,6 +974,7 @@ const make = Effect.gen(function* () {
               dispatchMode: { type: "defer_start", workspaceStrategy },
               createdBy: input.createdBy,
               creationSource: input.creationSource,
+              ...(input.author === undefined ? {} : { author: input.author }),
             })
             .pipe(
               // An agent's launch can land on a thread that a replay, or a concurrent

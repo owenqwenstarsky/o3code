@@ -4,6 +4,10 @@ import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
 import { ScrollToEndButton, WorkspaceFileDropOverlay } from "./chat/TimelineOverlays";
 import { usePasteToFocusComposer } from "./chat/usePasteToFocusComposer";
+import { usePresencePublisher } from "./chat/usePresencePublisher";
+import { presenceEnvironment } from "../state/presence";
+import { otherMemberTurnOwner } from "@t3tools/client-runtime/state/presence";
+import { MemberAvatar } from "./MemberAvatar";
 import { announcedRun, isDetailBehindShell } from "./chat/threadActivityAnnouncement";
 import {
   deriveAvailableRevertTurnCounts,
@@ -1557,6 +1561,24 @@ export default function ChatView(props: ChatViewProps) {
   const timelineMessages = timelineEntries.flatMap((entry) =>
     entry.kind === "message" ? [entry.message] : [],
   );
+  usePresencePublisher(environmentId, isServerThread ? threadId : null);
+  const viewerUserId = useAtomValue(presenceEnvironment.viewerUserId(environmentId));
+  const activeTurnOwner = otherMemberTurnOwner({
+    runs: serverProjection?.runs ?? [],
+    messages: serverProjection?.messages ?? [],
+    activeRunId: activeRuntime?.activeRunId ?? null,
+    viewerUserId,
+  });
+  const composerHasDraftText = useComposerDraftStore(
+    (store) => (store.getComposerDraft(composerDraftTarget)?.prompt.trim().length ?? 0) > 0,
+  );
+  // Up-arrow recalls only what you typed, not another member's prompts.
+  const promptHistoryMessages =
+    viewerUserId === null
+      ? timelineMessages
+      : timelineMessages.filter(
+          (message) => message.author === undefined || message.author.userId === viewerUserId,
+        );
   const timelineEmpty = timelineEntries.length === 0 && !hasStreamedTimelineRows;
   const displayedTimelineKey = activeThreadKey ?? routeThreadKey;
   const displayedThreadRef = parseScopedThreadKey(displayedTimelineKey);
@@ -2612,6 +2634,19 @@ export default function ChatView(props: ChatViewProps) {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
+    const turnOwnerItems: ComposerBannerStackItem[] =
+      // A send while an approval is shown declines it and steers, so it does not queue.
+      activeTurnOwner !== null && composerHasDraftText && pendingApprovals.length === 0
+        ? [
+            {
+              id: "member-turn-queue",
+              variant: "info",
+              group: "attention",
+              icon: <MemberAvatar member={activeTurnOwner} size="xs" />,
+              title: `${activeTurnOwner.name}'s turn is running. Your message will queue behind it.`,
+            },
+          ]
+        : [];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
@@ -2620,6 +2655,7 @@ export default function ChatView(props: ChatViewProps) {
         ...usageLimitsItems,
         ...projectCloneItems,
         ...systemComposerBannerItems,
+        ...turnOwnerItems,
       ];
     }
     return [
@@ -2629,6 +2665,7 @@ export default function ChatView(props: ChatViewProps) {
       ...usageLimitsItems,
       ...projectCloneItems,
       ...systemComposerBannerItems,
+      ...turnOwnerItems,
       branchMismatchBannerItem({
         mismatchKey: activeBranchMismatchKey,
         mismatch: localCheckoutBranchMismatch,
@@ -3438,6 +3475,7 @@ export default function ChatView(props: ChatViewProps) {
                 footer={timelineFooter}
                 listRef={legendListRef}
                 runs={serverProjection?.runs ?? []}
+                activeTurnOwner={activeTurnOwner}
                 latestRun={activeActivityRun}
                 announcedRun={announcedRun(activeActivityRun, serverProjection?.runs ?? [])}
                 detailBehindShell={isDetailBehindShell(
@@ -3591,7 +3629,8 @@ export default function ChatView(props: ChatViewProps) {
                               activeThreadId={activeThreadId}
                               activeThread={activeThread}
                               activeThreadShell={activeThreadShell}
-                              promptHistoryMessages={timelineMessages}
+                              promptHistoryMessages={promptHistoryMessages}
+                              memberTurnRunning={activeTurnOwner !== null}
                               forceExpandedOnMobile={
                                 forceExpandedMobileComposer && isDraftHeroState
                               }

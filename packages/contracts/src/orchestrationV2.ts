@@ -100,10 +100,22 @@ export type OrchestrationV2CreationSource = typeof OrchestrationV2CreationSource
 export const OrchestrationV2ThreadHistoryOrigin = Schema.Literals(["native", "v1_import"]);
 export type OrchestrationV2ThreadHistoryOrigin = typeof OrchestrationV2ThreadHistoryOrigin.Type;
 
+/** A workspace member on a shared O3 workspace. The name is a snapshot taken when they acted. */
+export const OrchestrationV2Member = Schema.Struct({
+  userId: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+});
+export type OrchestrationV2Member = typeof OrchestrationV2Member.Type;
+
 const OrchestrationV2CreationFields = {
   createdBy: OrchestrationV2Actor,
   creationSource: OrchestrationV2CreationSource,
+  /** The member who did this on a shared workspace. Only the server sets it; never sent to providers. */
+  author: Schema.optional(OrchestrationV2Member),
 } as const;
+
+/** The member behind a control command on a shared workspace. Only the server sets it. */
+const OrchestrationV2ActorField = { actor: Schema.optional(OrchestrationV2Member) } as const;
 
 /**
  * The linked environment whose agent started this work here: the MCP client
@@ -478,6 +490,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   unsettledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  settledBy: Schema.optional(Schema.NullOr(OrchestrationV2Member)),
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
@@ -667,6 +680,12 @@ export type OrchestrationV2ThreadLaunchWorkspaceStrategy =
   typeof OrchestrationV2ThreadLaunchWorkspaceStrategy.Type;
 
 export const ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE = "workspace_preparation_failed";
+
+/**
+ * Clients send Stop without a reason; server callers acting for an agent
+ * always set one, so a missing reason means a person stopped the run.
+ */
+export const ORCHESTRATION_V2_USER_STOP_REASON = "Stopped by user";
 
 export const OrchestrationV2Run = Schema.Struct({
   id: RunId,
@@ -1634,6 +1653,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("user_input_request"),
+    respondedBy: Schema.optional(OrchestrationV2Member),
     requestId: RuntimeRequestId,
     questions: Schema.Array(OrchestrationV2UserInputQuestion),
     questionAnswer: Schema.optional(UserInputAttachmentAnswerPayload),
@@ -1677,6 +1697,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("approval_request"),
+    respondedBy: Schema.optional(OrchestrationV2Member),
     requestId: RuntimeRequestId,
     requestKind: ProviderRequestKind,
     prompt: Schema.optional(Schema.String),
@@ -1698,6 +1719,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("run_interrupt_request"),
+    requestedBy: Schema.optional(OrchestrationV2Member),
     message: Schema.String,
     /** Set when the provider did not confirm the stop in time; clients then offer Force stop. */
     unresponsiveAt: Schema.optionalKey(Schema.DateTimeUtc),
@@ -1706,6 +1728,7 @@ export const OrchestrationV2TurnItem = Schema.Union([
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("run_interrupt_result"),
     message: Schema.String,
+    requestedBy: Schema.optional(OrchestrationV2Member),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2114,6 +2137,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   settledOverride: Schema.NullOr(Schema.Literals(["settled", "active"])),
   settledAt: Schema.NullOr(Schema.DateTimeUtc),
   unsettledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  settledBy: Schema.optional(Schema.NullOr(OrchestrationV2Member)),
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
@@ -2261,6 +2285,7 @@ export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   unsettledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  settledBy: Schema.optional(Schema.NullOr(OrchestrationV2Member)),
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
@@ -2463,6 +2488,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("user_input_request"),
+    respondedBy: Schema.optional(OrchestrationV2Member),
     requestId: RuntimeRequestId,
     questions: Schema.Array(OrchestrationV2UserInputQuestion),
     questionAnswer: Schema.optional(UserInputAttachmentAnswerPayload),
@@ -2506,6 +2532,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("approval_request"),
+    respondedBy: Schema.optional(OrchestrationV2Member),
     requestId: RuntimeRequestId,
     requestKind: ProviderRequestKind,
     prompt: Schema.optional(Schema.String),
@@ -2524,6 +2551,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("run_interrupt_request"),
+    requestedBy: Schema.optional(OrchestrationV2Member),
     message: Schema.String,
     unresponsiveAt: Schema.optionalKey(Schema.DateTimeUtcFromString),
   }),
@@ -2531,6 +2559,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("run_interrupt_result"),
     message: Schema.String,
+    requestedBy: Schema.optional(OrchestrationV2Member),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
@@ -2697,6 +2726,7 @@ export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFiel
   archivedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   settledAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   unsettledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  settledBy: Schema.optional(Schema.NullOr(OrchestrationV2Member)),
   snoozedUntil: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
@@ -2877,6 +2907,7 @@ export type OrchestrationV2DomainEventJson = typeof OrchestrationV2DomainEventJs
 export const OrchestrationV2Command = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("thread.stop"),
+    ...OrchestrationV2ActorField,
     commandId: CommandId,
     threadId: ThreadId,
     reason: Schema.optional(Schema.String),
@@ -2943,6 +2974,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("thread.settle"),
+    ...OrchestrationV2ActorField,
     commandId: CommandId,
     threadId: ThreadId,
     settledAt: Schema.optional(Schema.DateTimeUtc),
@@ -3200,6 +3232,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("run.interrupt"),
+    ...OrchestrationV2ActorField,
     commandId: CommandId,
     threadId: ThreadId,
     runId: RunId,
@@ -3249,6 +3282,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("runtime-request.respond"),
+    ...OrchestrationV2ActorField,
     commandId: CommandId,
     threadId: ThreadId,
     requestId: RuntimeRequestId,

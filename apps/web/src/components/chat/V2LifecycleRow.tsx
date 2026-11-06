@@ -8,6 +8,7 @@ import { buildThreadRouteParams } from "../../threadRoutes";
 import { useNavigate } from "@tanstack/react-router";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
 import { useAtomValue } from "@effect/atom-react";
+import { presenceEnvironment } from "../../state/presence";
 import { scopeThreadRef, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { environmentThreadDetails } from "../../state/threads";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
@@ -21,6 +22,7 @@ import {
 } from "@t3tools/client-runtime/handoff";
 import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
 import {
+  ORCHESTRATION_V2_USER_STOP_REASON,
   ProviderDriverKind,
   type OrchestrationV2Notification,
   type OrchestrationV2TurnItem,
@@ -62,6 +64,28 @@ import { O3Wordmark } from "../O3Wordmark";
 
 export type { HandoffTimelineRun } from "@t3tools/client-runtime/handoff";
 
+/** On a shared workspace, a stop by another member says who stopped it. */
+function RunInterruptedDivider(props: {
+  item: Extract<OrchestrationV2TurnItem, { readonly type: "run_interrupt_result" }>;
+  environmentId: EnvironmentId;
+}) {
+  const viewerUserId = useAtomValue(presenceEnvironment.viewerUserId(props.environmentId));
+  const stopper = props.item.requestedBy;
+  const named = stopper !== undefined && viewerUserId !== null && stopper.userId !== viewerUserId;
+  // The generic reason only repeats "stopped by a person" once the label names them.
+  const detail =
+    named && props.item.message === ORCHESTRATION_V2_USER_STOP_REASON
+      ? undefined
+      : props.item.message;
+  return (
+    <TimelineSystemDivider
+      label={named ? `Stopped by ${stopper.name}` : "Run interrupted"}
+      {...(detail === undefined ? {} : { detail })}
+      icon={CircleStopIcon}
+    />
+  );
+}
+
 export function V2LifecycleRow(props: {
   readonly item: OrchestrationV2TurnItem;
   readonly environmentId: EnvironmentId;
@@ -71,9 +95,7 @@ export function V2LifecycleRow(props: {
 }) {
   const { item } = props;
   if (item.type === "run_interrupt_result") {
-    return (
-      <TimelineSystemDivider label="Run interrupted" detail={item.message} icon={CircleStopIcon} />
-    );
+    return <RunInterruptedDivider item={item} environmentId={props.environmentId} />;
   }
   if (item.type === "handoff") {
     return (

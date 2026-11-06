@@ -111,6 +111,8 @@ const watch = (threadId: ThreadId, number: number) =>
     });
   });
 
+const member = { userId: "user-alex", name: "Alex" };
+
 const send = (threadId: ThreadId, text: string, type: "start_immediately" | "queue_after_active") =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -124,6 +126,7 @@ const send = (threadId: ThreadId, text: string, type: "start_immediately" | "que
       dispatchMode: { type },
       createdBy: "user",
       creationSource: "web",
+      author: member,
     });
   });
 
@@ -562,13 +565,14 @@ it.effect.each(["run.interrupt", "thread.stop"] as const)(
       const stopCommandId = CommandId.make("stop-parent");
       yield* orchestrator.dispatch(
         type === "thread.stop"
-          ? { type, commandId: stopCommandId, threadId: parentThreadId }
+          ? { type, commandId: stopCommandId, threadId: parentThreadId, actor: member }
           : {
               type,
               commandId: stopCommandId,
               threadId: parentThreadId,
               runId: secondRun.id,
               holdQueue: true,
+              actor: member,
             },
       );
 
@@ -578,6 +582,22 @@ it.effect.each(["run.interrupt", "thread.stop"] as const)(
       });
       const parent = yield* orchestrator.getThreadProjection(parentThreadId);
       assert.equal(parent.subagents[0]?.completionDelivery?.state, "disposed");
+      // The request and its result both say who stopped the run.
+      assert.deepEqual(
+        parent.turnItems.flatMap((item) =>
+          item.type === "run_interrupt_request" || item.type === "run_interrupt_result"
+            ? [[item.type, item.requestedBy]]
+            : [],
+        ),
+        [
+          ["run_interrupt_request", member],
+          ["run_interrupt_result", member],
+        ],
+      );
+      assert.deepEqual(
+        parent.messages.map((message) => message.author),
+        [member, member],
+      );
       const effects = yield* sql<{ readonly effect_type: string }>`
       SELECT effect_type FROM orchestration_v2_effect_outbox WHERE command_id = ${stopCommandId}
     `;
@@ -592,6 +612,12 @@ it.effect.each(["run.interrupt", "thread.stop"] as const)(
         watched: [],
       });
       assert.deepEqual((yield* threadState(grandchildThreadId)).runs, ["interrupted"]);
+      const child = yield* orchestrator.getThreadProjection(childThreadId);
+      // The queued message keeps who sent it; the agent's task prompt has no author.
+      assert.deepEqual(
+        child.messages.map((message) => message.author?.name ?? null),
+        [null, "Alex"],
+      );
 
       yield* threads.stopDelegatedTasks({ threadId: parentThreadId, commandId: stopCommandId });
       assert.deepEqual((yield* threadState(childThreadId)).runs, ["interrupted", "queued:held"]);

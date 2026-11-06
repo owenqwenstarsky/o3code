@@ -116,6 +116,7 @@ import type { ThreadSyncPhase } from "../../threadSync";
 import { ComposerBanner } from "./ComposerBanner";
 import { ComposerSurface } from "./ComposerSurface";
 import { ComposerBannerStack, type ComposerBannerStackItem } from "./ComposerBannerStack";
+import { ComposerTypingIndicator } from "./ComposerTypingIndicator";
 import {
   attachmentsToReleaseOnUploadCapabilityLoss,
   composerOtherFilesForPresentation,
@@ -378,6 +379,8 @@ export interface ChatComposerProps {
   isPreparingWorktree: boolean;
   isCompacting: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
+  /** Another shared-workspace member's turn is running, so follow-ups queue unless asked to steer. */
+  memberTurnRunning?: boolean;
   resumeCompactionTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
@@ -595,6 +598,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onFileOpen,
     editingQueuedAttachments,
     onRemoveEditingQueuedAttachment,
+    memberTurnRunning = false,
   } = props;
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const composerDraftTargetKey = composerTargetKey(composerDraftTarget);
@@ -1167,7 +1171,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     (approval) => !heldRequestIds.has(approval.requestId),
   )
     ? "steer"
-    : settings.followUpBehavior;
+    : memberTurnRunning
+      ? "queue"
+      : settings.followUpBehavior;
   const composerSuggestionsVisible = composerMenuOpen;
   const composerSuggestionListVisible = composerSuggestionsVisible && composerMenuItems.length > 0;
   const activePendingUserInput = pendingUserInputs[0] ?? null;
@@ -3111,6 +3117,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       data-chat-composer-form="true"
       {...threadContextDropTargetProps()}
     >
+      <ComposerTypingIndicator environmentId={environmentId} threadId={activeThreadId} />
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
           <ComposerBannerStack items={shelfItems} />
