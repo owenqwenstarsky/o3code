@@ -1,4 +1,4 @@
-import { resolvePullRequestAuthorFilter, SourceControlProviderKind } from "@t3tools/contracts";
+import { resolvePullRequestAuthorFilter } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Result from "effect/Result";
@@ -35,6 +35,7 @@ import {
 } from "./forgejoPullRequestJson.ts";
 import { ForgejoBranchStatusChecks, markRequiredForgejoChecks } from "./forgejoRequiredChecks.ts";
 import { definition } from "../shared/definition.ts";
+import { forgejoFlavor, type GiteaFamilyFlavor } from "./flavor.ts";
 
 const isForgejoCliError = Schema.is(ForgejoCli.ForgejoCliError);
 
@@ -63,13 +64,6 @@ const ForgejoUserSearch = Schema.Struct({
   data: Schema.optional(Schema.NullOr(Schema.Array(ForgejoUser))),
 });
 
-const UNAVAILABLE_REQUIREMENT = {
-  missing:
-    "Install Forgejo CLI (`fj` 0.6 or later) from https://codeberg.org/forgejo-contrib/forgejo-cli or Gitea CLI (`tea` 0.16 or later) from https://gitea.com/gitea/tea to browse Forgejo pull requests.",
-  unauthenticated:
-    "Authenticate your Forgejo or Gitea server with `fj --host <server-url> auth add-token` on the O3 Code server. If fj is missing or unconfigured for that server, use `tea login add`. A configured fj account must be repaired with fj.",
-};
-
 const repoPath = (input: ProviderRepositoryRef) =>
   `repos/${input.repository.split("/").map(encodeURIComponent).join("/")}`;
 const pullPath = (input: ProviderRepositoryRef & { readonly number: number }) =>
@@ -80,11 +74,13 @@ const issuePath = (input: ProviderRepositoryRef & { readonly number: number }) =
 const reviewCommentId = (review: typeof ForgejoReview.Type) =>
   /#issuecomment-([1-9]\d*)$/.exec(review.html_url ?? "")?.[1];
 
-export const make = Effect.gen(function* () {
+export const makeFor = Effect.fn("ForgejoPullRequestProvider.makeFor")(function* (
+  flavor: GiteaFamilyFlavor,
+) {
   const cli = yield* ForgejoCli.ForgejoCli;
   const failure = (operation: string, detail: string, cause?: unknown) =>
     new PullRequestProviderError({
-      provider: SourceControlProviderKind.make("forgejo"),
+      provider: flavor.kind,
       operation,
       reason: "failed",
       detail,
@@ -95,7 +91,7 @@ export const make = Effect.gen(function* () {
       Effect.mapError(
         (error) =>
           new PullRequestProviderError({
-            provider: SourceControlProviderKind.make("forgejo"),
+            provider: flavor.kind,
             operation: input.path,
             detail: error.detail,
             cause: error,
@@ -119,10 +115,14 @@ export const make = Effect.gen(function* () {
   ) {
     const result = yield* request(input);
     if (result.stdoutTruncated)
-      return yield* failure(input.path, "Forgejo response exceeded the output limit.");
+      return yield* failure(input.path, `${flavor.label} response exceeded the output limit.`);
     const decoded = decodeJsonResult(schema)(result.stdout);
     if (Result.isFailure(decoded))
-      return yield* failure(input.path, "Forgejo returned an invalid response.", decoded.failure);
+      return yield* failure(
+        input.path,
+        `${flavor.label} returned an invalid response.`,
+        decoded.failure,
+      );
     const links = /^link:\s*(.*)$/im.exec(result.stderr)?.[1];
     return { value: decoded.success, next: links !== undefined && /rel="?next"?/i.test(links) };
   });
@@ -144,10 +144,14 @@ export const make = Effect.gen(function* () {
       path: `${input.path}${input.path.includes("?") ? "&" : "?"}limit=50&page=${index}`,
     });
     if (result.stdoutTruncated)
-      return yield* failure(input.path, "Forgejo response exceeded the output limit.");
+      return yield* failure(input.path, `${flavor.label} response exceeded the output limit.`);
     const decoded = decodeJsonResult(Schema.NullOr(Schema.Array(schema)))(result.stdout);
     if (Result.isFailure(decoded))
-      return yield* failure(input.path, "Forgejo returned an invalid response.", decoded.failure);
+      return yield* failure(
+        input.path,
+        `${flavor.label} returned an invalid response.`,
+        decoded.failure,
+      );
     const rows = decoded.success ?? [];
     const links = /^link:\s*(.*)$/im.exec(result.stderr)?.[1];
     return {
@@ -262,11 +266,13 @@ export const make = Effect.gen(function* () {
     return markRequiredForgejoChecks(forgejoChecks(statuses.items, pr.html_url), policy);
   });
   const unsupported = (operation: string) =>
-    Effect.fail(failure(operation, `Forgejo does not expose ${operation} through its API.`));
+    Effect.fail(
+      failure(operation, `${flavor.label} does not expose ${operation} through its API.`),
+    );
   const provider: PullRequestProviderApi = {
-    kind: SourceControlProviderKind.make("forgejo"),
+    kind: flavor.kind,
     capabilities: CAPABILITIES,
-    unavailableRequirement: UNAVAILABLE_REQUIREMENT,
+    unavailableRequirement: flavor.unavailableRequirement,
     readsPublicHostWithoutCheckout: true,
     getViewer,
     listChangeRequests: Effect.fn("ForgejoPullRequestProvider.listChangeRequests")(
@@ -421,7 +427,10 @@ export const make = Effect.gen(function* () {
             (reactionId === undefined
               ? Effect.succeed([])
               : readArray(
-                  { ...input, path: `${repoPath(input)}/issues/comments/${reactionId}/reactions` },
+                  {
+                    ...input,
+                    path: `${repoPath(input)}/issues/comments/${reactionId}/reactions`,
+                  },
                   ForgejoReaction,
                 )
             ).pipe(
@@ -448,7 +457,10 @@ export const make = Effect.gen(function* () {
     getFileRevisions: Effect.fn("ForgejoPullRequestProvider.getFileRevisions")(function* (input) {
       const result = yield* request({ ...input, path: `${pullPath(input)}.diff` });
       if (result.stdoutTruncated) {
-        return yield* failure("getFileRevisions", "Forgejo diff exceeded the output limit.");
+        return yield* failure(
+          "getFileRevisions",
+          `${flavor.label} diff exceeded the output limit.`,
+        );
       }
       const revisions = new Map(parseDiffFileRevisions(result.stdout));
       for (const path of input.paths) {
@@ -723,7 +735,7 @@ export const make = Effect.gen(function* () {
       let commentId = input.subjectId;
       if (commentId?.startsWith("review:")) {
         const reviewId = /^review:([1-9]\d*)$/.exec(commentId)?.[1];
-        if (!reviewId) return yield* failure("setReaction", "Invalid Forgejo review ID.");
+        if (!reviewId) return yield* failure("setReaction", `Invalid ${flavor.label} review ID.`);
         const review = yield* read(
           { ...input, path: `${pullPath(input)}/reviews/${reviewId}` },
           ForgejoReview,
@@ -732,11 +744,11 @@ export const make = Effect.gen(function* () {
         if (!commentId)
           return yield* failure(
             "setReaction",
-            "Forgejo did not return a comment ID for this review.",
+            `${flavor.label} did not return a comment ID for this review.`,
           );
       }
       if (commentId && !/^[1-9]\d*$/.test(commentId))
-        return yield* failure("setReaction", "Invalid Forgejo comment ID.");
+        return yield* failure("setReaction", `Invalid ${flavor.label} comment ID.`);
       yield* write({
         ...input,
         path: commentId
@@ -751,3 +763,5 @@ export const make = Effect.gen(function* () {
   };
   return provider;
 });
+
+export const make = makeFor(forgejoFlavor);

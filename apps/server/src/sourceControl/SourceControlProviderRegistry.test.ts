@@ -44,6 +44,7 @@ const linkSubject = (host: string) => () =>
 const PROVIDERS = [
   fakeSourceControlProvider("github", { resolveLink: linkSubject("github") }),
   fakeSourceControlProvider("gitlab", { resolveLink: linkSubject("gitlab") }),
+  fakeSourceControlProvider("gitea"),
   fakeSourceControlProvider("forgejo"),
   fakeSourceControlProvider("bitbucket"),
   fakeSourceControlProvider("azure-devops"),
@@ -233,6 +234,20 @@ it.effect("falls back to a non-origin remote when origin is not configured", () 
     const provider = yield* registry.resolve({ cwd: "/repo" });
 
     assert.strictEqual(provider.kind, "azure-devops");
+  }),
+);
+
+it.effect("routes Gitea hosts to Gitea and Forgejo hosts to the legacy integration", () =>
+  Effect.gen(function* () {
+    for (const [url, expected] of [
+      ["https://gitea.com/team/project.git", "gitea"],
+      ["git@git.gitea.example.test:team/project.git", "gitea"],
+      ["https://codeberg.org/team/project.git", "forgejo"],
+      ["https://forgejo.example.test/team/project.git", "forgejo"],
+    ] as const) {
+      const registry = yield* makeRegistry({ remotes: [{ name: "origin", url }] });
+      assert.strictEqual((yield* registry.resolve({ cwd: "/repo" })).kind, kind(expected), url);
+    }
   }),
 );
 

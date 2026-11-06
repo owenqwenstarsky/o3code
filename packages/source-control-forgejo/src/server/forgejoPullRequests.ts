@@ -25,9 +25,12 @@ export const ForgejoPullRequestSchema = Schema.Struct({
   merged_at: Schema.optional(Schema.NullOr(Schema.String)),
   updated_at: Schema.optional(Schema.OptionFromNullOr(Schema.DateTimeUtcFromString)),
 });
-export function toForgejoChangeRequest(raw: typeof ForgejoPullRequestSchema.Type): ChangeRequest {
+export function toForgejoChangeRequest(
+  raw: typeof ForgejoPullRequestSchema.Type,
+  provider = SourceControlProviderKind.make("forgejo"),
+): ChangeRequest {
   return {
-    provider: SourceControlProviderKind.make("forgejo"),
+    provider,
     number: raw.number,
     title: raw.title,
     url: raw.html_url,
