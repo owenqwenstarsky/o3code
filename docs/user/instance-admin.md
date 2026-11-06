@@ -98,6 +98,15 @@ who's on it. Someone you remove loses access within about 30 seconds. A
 workspace left with nobody active on it stops but keeps its files; adding
 someone starts it again.
 
+On a shared workspace the apps show who is around. Avatars on a thread in the
+sidebar show who has it open, and the composer says who is typing. Messages
+show who sent them, and settles, stops, and answered approvals show who did
+them. Agents never see these names. When another member's turn is running, a
+message you send queues behind it instead of redirecting their agent. Use the
+opposite send shortcut from [Send while the agent is
+working](composer.md#send-while-the-agent-is-working) to steer their turn
+anyway.
+
 A user's first workspace is their default, the one their apps open first. Use
 **Make default** on their page to change it. The apps list every workspace
 they're on, and they can restart each one from **Settings → Account**.

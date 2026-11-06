@@ -181,6 +181,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.terminalClear]: AuthTerminalOperateScope,
   [WS_METHODS.terminalClose]: AuthTerminalOperateScope,
   [WS_METHODS.subscribeTerminalMetadata]: AuthTerminalReadScope,
+  [WS_METHODS.presenceUpdate]: AuthOrchestrationReadScope,
+  [WS_METHODS.subscribePresence]: AuthOrchestrationReadScope,
   [WS_METHODS.previewOpen]: AuthPreviewOperateScope,
   [WS_METHODS.previewResize]: AuthPreviewOperateScope,
   [WS_METHODS.previewAdjust]: AuthPreviewOperateScope,

@@ -118,6 +118,32 @@ it("resolves automatic message delivery from authoritative provider capabilities
   );
 });
 
+it.each([
+  ["another member's turn queues", "auto", { userId: "sam", name: "Sam" }, "queue"],
+  ["your own turn steers", "auto", { userId: "alex", name: "Alex" }, "steer"],
+  ["an explicit steer still steers", "steer", { userId: "sam", name: "Sam" }, "steer"],
+  ["an unattributed message steers", "auto", undefined, "steer"],
+] as const)("on a shared workspace, %s", (_name, intent, author, expected) => {
+  const projection = dispatchProjection(baseCapabilities);
+  assert.deepEqual(
+    CommandPolicy.resolveMessageDispatchIntent(
+      {
+        ...projection,
+        messages: projection.messages.map((message) => ({
+          ...message,
+          author: { userId: "alex", name: "Alex" },
+        })),
+      },
+      { type: "start_immediately" },
+      intent,
+      author,
+    ),
+    expected === "queue"
+      ? { type: "queue_after_active" }
+      : { type: "steer_active", targetRunId: activeRunId },
+  );
+});
+
 it.each(["preparing", "starting"] as const)(
   "queues an automatic message while the handoff run is %s",
   (status) => {

@@ -1,7 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Effect's Crypto has no synchronous sha256 for cache keys.
 import * as NodeCrypto from "node:crypto";
 
-import { AuthStandardClientScopes, type AuthSessionId } from "@t3tools/contracts";
+import {
+  AuthStandardClientScopes,
+  type AuthSessionId,
+  type OrchestrationV2Member,
+} from "@t3tools/contracts";
 import {
   INSTANCE_API_PREFIX,
   INSTANCE_WORKSPACE_TOKEN_PREFIX,
@@ -62,6 +66,8 @@ export class O3Authority extends Context.Service<
   {
     readonly enabled: boolean;
     readonly authenticate: (token: string) => Effect.Effect<O3AuthoritySession, O3AuthorityError>;
+    /** The workspace member behind a session subject, as the instance last named them. */
+    readonly memberOf: (subject: string) => Effect.Effect<Option.Option<OrchestrationV2Member>>;
   }
 >()("t3/auth/O3Authority") {}
 
@@ -69,6 +75,15 @@ export const isWorkspaceToken = (token: string) =>
   token.startsWith(INSTANCE_WORKSPACE_TOKEN_PREFIX);
 
 const decodeIntrospection = Schema.decodeUnknownEffect(InstanceIntrospectResult);
+
+const SUBJECT_PREFIX = "o3:";
+
+/** The instance user behind a workspace session subject, if it is one. */
+export const userIdOfSubject = (subject: string): string | undefined =>
+  subject.startsWith(SUBJECT_PREFIX) ? subject.slice(SUBJECT_PREFIX.length) : undefined;
+
+const memberName = (name: string, email: string, userId: string) =>
+  name.trim() || email.split("@")[0]?.trim() || userId;
 
 const tokenKey = (token: string) =>
   NodeCrypto.createHash("sha256").update(token).digest("base64url");
@@ -95,6 +110,9 @@ export const make = Effect.gen(function* () {
           detail: "This environment is not managed by an O3 instance.",
         });
       }),
+      memberOf: Effect.fn("O3Authority.memberOf")(() =>
+        Effect.succeed(Option.none<OrchestrationV2Member>()),
+      ),
     });
   }
   const introspectUrl = `${config.instanceUrl.value.replace(/\/+$/, "")}${INSTANCE_API_PREFIX}/internal/introspect`;
@@ -102,6 +120,7 @@ export const make = Effect.gen(function* () {
   const http = yield* HttpClient.HttpClient;
   const credential = `${workspaceId}:${Redacted.value(config.secret.value)}`;
   const cache = yield* Ref.make(new Map<string, CachedSession>());
+  const members = yield* Ref.make(new Map<string, OrchestrationV2Member>());
   const validation = yield* KeyedLock.make<string>();
 
   const introspect = (token: string) =>
@@ -173,6 +192,11 @@ export const make = Effect.gen(function* () {
           detail: "The instance no longer accepts this workspace token.",
         });
       }
+      const member = {
+        userId: introspection.userId,
+        name: memberName(introspection.name, introspection.email, introspection.userId),
+      };
+      yield* Ref.update(members, (current) => new Map(current).set(member.userId, member));
       if (cached) {
         const refreshed = { ...cached, checkedAtMs: now, lastSuccessMs: now };
         yield* remember(key, refreshed);
@@ -181,7 +205,7 @@ export const make = Effect.gen(function* () {
       const expiresAt = DateTime.makeUnsafe(introspection.expiresAt);
       const issued = yield* sessions
         .issue({
-          subject: `o3:${introspection.userId}`,
+          subject: `${SUBJECT_PREFIX}${introspection.userId}`,
           method: "bearer-access-token",
           scopes: AuthStandardClientScopes,
           ttl: Duration.millis(Math.max(1_000, expiresAt.epochMilliseconds - now)),
@@ -198,7 +222,7 @@ export const make = Effect.gen(function* () {
       const entry: CachedSession = {
         token,
         sessionId: issued.sessionId,
-        subject: `o3:${introspection.userId}`,
+        subject: `${SUBJECT_PREFIX}${introspection.userId}`,
         expiresAt: issued.expiresAt,
         checkedAtMs: now,
         lastSuccessMs: now,
@@ -226,6 +250,12 @@ export const make = Effect.gen(function* () {
     authenticate: Effect.fn("O3Authority.authenticate")(function* (token: string) {
       const entry = yield* validate(token);
       return { sessionId: entry.sessionId, subject: entry.subject, expiresAt: entry.expiresAt };
+    }),
+    memberOf: Effect.fn("O3Authority.memberOf")(function* (subject: string) {
+      const userId = userIdOfSubject(subject);
+      if (userId === undefined) return Option.none<OrchestrationV2Member>();
+      const current = yield* Ref.get(members);
+      return Option.fromNullishOr(current.get(userId));
     }),
   });
 });

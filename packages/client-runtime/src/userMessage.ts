@@ -6,6 +6,7 @@ import {
   type OrchestrationV2Actor,
   type OrchestrationV2CreationSource,
   type OrchestrationV2IdleCompaction,
+  type OrchestrationV2Member,
   type OrchestrationV2UserMessageInputIntent,
   ScheduledTaskId,
 } from "@t3tools/contracts";
@@ -58,20 +59,30 @@ export function resolveUserMessageFileCards(message: {
   return remaining.trim() === "" ? files : null;
 }
 
-export function resolveUserMessagePresentation(message: {
-  readonly id?: string;
-  readonly role: string;
+/**
+ * `viewerUserId` is which shared-workspace member is looking; another member's message is
+ * attributed to them. Without one (a server with no members), every user message is your own.
+ */
+export function resolveUserMessagePresentation(
+  message: {
+    readonly id?: string;
+    readonly role: string;
+    readonly text: string;
+    readonly createdBy?: OrchestrationV2Actor;
+    readonly creationSource?: OrchestrationV2CreationSource;
+    readonly author?: OrchestrationV2Member | undefined;
+    readonly scheduledTaskId?: ScheduledTaskId | undefined;
+    readonly context?: { readonly guest?: GuestMessageAttribution | undefined } | undefined;
+  },
+  viewerUserId?: string | null,
+): {
   readonly text: string;
-  readonly createdBy?: OrchestrationV2Actor;
-  readonly creationSource?: OrchestrationV2CreationSource;
-  readonly scheduledTaskId?: ScheduledTaskId | undefined;
-  readonly context?: { readonly guest?: GuestMessageAttribution | undefined } | undefined;
-}): {
-  readonly text: string;
-  readonly attribution: "automation" | "agent" | "t3code" | "guest" | null;
+  readonly attribution: "automation" | "agent" | "t3code" | "guest" | "member" | null;
   readonly scheduledTaskId: ScheduledTaskId | undefined;
   /** Set when `attribution` is "guest". */
   readonly guestName?: string;
+  /** Set when `attribution` is "member". */
+  readonly author?: OrchestrationV2Member;
 } {
   if (message.role !== "user") {
     return { text: message.text, attribution: null, scheduledTaskId: undefined };
@@ -104,36 +115,44 @@ export function resolveUserMessagePresentation(message: {
       scheduledTaskId: legacyTaskId === undefined ? undefined : ScheduledTaskId.make(legacyTaskId),
     };
   }
-  return {
-    // The agent needs words to start a turn; people sent only the attachments.
-    text: isAttachmentOnlyBootstrapPrompt(message.text) ? "" : message.text,
-    attribution:
-      message.createdBy !== "agent"
-        ? null
-        : message.creationSource === "server"
-          ? "t3code"
-          : "agent",
-    scheduledTaskId: undefined,
-  };
+  // The agent needs words to start a turn; people sent only the attachments.
+  const text = isAttachmentOnlyBootstrapPrompt(message.text) ? "" : message.text;
+  if (message.createdBy === "agent") {
+    return {
+      text,
+      attribution: message.creationSource === "server" ? "t3code" : "agent",
+      scheduledTaskId: undefined,
+    };
+  }
+  const author = message.author;
+  if (author !== undefined && viewerUserId != null && author.userId !== viewerUserId) {
+    return { text, attribution: "member", scheduledTaskId: undefined, author };
+  }
+  return { text, attribution: null, scheduledTaskId: undefined };
 }
 
 type GroupableUserMessage = Parameters<typeof resolveUserMessagePresentation>[0] & {
   readonly inputIntent?: OrchestrationV2UserMessageInputIntent;
 };
 
+/** Messages a person typed group with their neighbours from the same person. */
 export function resolveUserMessageGrouping(
   message: GroupableUserMessage | undefined,
   previous: GroupableUserMessage | undefined,
   next: GroupableUserMessage | undefined,
 ) {
-  const isOwnMessage = (value: GroupableUserMessage | undefined) =>
+  const isPersonMessage = (value: GroupableUserMessage | undefined) =>
     value?.role === "user" && resolveUserMessagePresentation(value).attribution === null;
+  const groups = (other: GroupableUserMessage | undefined) =>
+    isPersonMessage(message) &&
+    isPersonMessage(other) &&
+    message?.author?.userId === other?.author?.userId;
   const isSteer = (value: GroupableUserMessage | undefined) =>
     value?.inputIntent === "steer" || value?.inputIntent === "promoted_queued_to_steer";
-  const groupedWithPrevious = isOwnMessage(message) && isOwnMessage(previous);
+  const groupedWithPrevious = groups(previous);
   return {
     groupedWithPrevious,
-    groupedWithNext: isOwnMessage(message) && isOwnMessage(next),
+    groupedWithNext: groups(next),
     continuesSteer: groupedWithPrevious && isSteer(message) && isSteer(previous),
   };
 }

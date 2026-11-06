@@ -25,6 +25,7 @@ import {
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2CreationSource,
+  type OrchestrationV2Member,
   type OrchestrationV2Run,
   type OrchestrationV2ThreadShellSnapshot,
   type OrchestrationV2ThreadProjection,
@@ -72,23 +73,41 @@ export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 export interface ThreadManagementProvenance {
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
+  /** The shared-workspace member behind the request, when there is one. */
+  readonly member?: OrchestrationV2Member | undefined;
 }
 
+/** Stamps who sent a client command. Author and actor come only from the server, never the client. */
 export function withCreationProvenance(
   command: OrchestrationV2Command,
-  provenance: ThreadManagementProvenance,
+  { member, ...provenance }: ThreadManagementProvenance,
 ): OrchestrationV2Command {
+  const author = member ? { author: member } : {};
   switch (command.type) {
     case "thread.create": {
       // Only the server stamps a link's origin, so a client cannot set one.
-      const { linkOrigin: _linkOrigin, delegatedFrom: _delegatedFrom, ...rest } = command;
-      return { ...rest, ...provenance };
+      const {
+        linkOrigin: _linkOrigin,
+        delegatedFrom: _delegatedFrom,
+        author: _author,
+        ...rest
+      } = command;
+      return { ...rest, ...provenance, ...author };
     }
     case "message.dispatch":
     case "thread.fork":
     case "thread.merge_back":
-    case "delegated_task.request":
-      return { ...command, ...provenance };
+    case "delegated_task.request": {
+      const { author: _author, ...rest } = command;
+      return { ...rest, ...provenance, ...author } as OrchestrationV2Command;
+    }
+    case "thread.settle":
+    case "thread.stop":
+    case "run.interrupt":
+    case "runtime-request.respond": {
+      const { actor: _actor, ...rest } = command;
+      return { ...rest, ...(member ? { actor: member } : {}) } as OrchestrationV2Command;
+    }
     default:
       return command;
   }

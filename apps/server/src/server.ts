@@ -109,6 +109,7 @@ import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as VcsProjectConfig from "./vcs/VcsProjectConfig.ts";
 import * as VcsProcess from "./vcs/VcsProcess.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
+import * as WorkspacePresence from "./presence/WorkspacePresence.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
@@ -385,6 +386,7 @@ const layerVcs = Layer.empty.pipe(
     SourceControlSignIn.layer.pipe(Layer.provide(layerSourceControlProviderRegistry)),
   ),
   Layer.provideMerge(layerProjectCloneTracker),
+  Layer.provideMerge(WorkspacePresence.layer),
   Layer.provideMerge(
     VcsStatusBroadcaster.layer.pipe(
       Layer.provide(layerGitWorkflow),

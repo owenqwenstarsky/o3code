@@ -153,6 +153,7 @@ it.effect(
         requestId: RuntimeRequestId.make("child"),
         decision: "decline",
         feedback,
+        actor: { userId: "user-alex", name: "Alex" },
       });
       const projection = yield* projections.getThreadProjection(threadId);
       assert.equal(
@@ -164,6 +165,7 @@ it.effect(
         "pending",
       );
       assert.equal(projection.messages.at(-1)?.text, feedback);
+      assert.equal(projection.messages.at(-1)?.author?.name, "Alex");
       const feedbackMessageId = MessageId.make("approval-feedback:child");
       assert.ok(
         projection.visibleTurnItems.some(
@@ -1411,6 +1413,8 @@ it.effect("replays a thread.create receipt without changing the thread", () =>
   }).pipe(Effect.provide(layerTest)),
 );
 
+const alex = { userId: "user-alex", name: "Alex" };
+
 it.effect("explicit settle clears snooze atomically and stays idempotent after re-snoozing", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;
@@ -1447,10 +1451,11 @@ it.effect("explicit settle clears snooze atomically and stays idempotent after r
       });
       yield* TestClock.adjust("1 second");
       const commandId = CommandId.make(`settle-snoozed-${round}`);
-      yield* orchestrator.dispatch({ type: "thread.settle", commandId, threadId });
+      yield* orchestrator.dispatch({ type: "thread.settle", commandId, threadId, actor: alex });
       const expected = {
         settledOverride: "settled",
         settledAt,
+        settledBy: alex,
         snoozedUntil: null,
         snoozedAt: null,
         updatedAt: yield* DateTime.now,
@@ -1468,6 +1473,8 @@ it.effect("explicit settle clears snooze atomically and stays idempotent after r
         type: "thread.settle",
         commandId: CommandId.make(`settle-again-${round}`),
         threadId,
+        // Settling an already settled thread keeps who settled it first.
+        actor: { userId: "user-sam", name: "Sam" },
       });
       assert.deepEqual(yield* projections.getThreadShell(threadId), settled);
     }
@@ -1480,6 +1487,7 @@ it.effect("explicit settle clears snooze atomically and stays idempotent after r
     const active = {
       settledOverride: "active",
       settledAt: null,
+      settledBy: null,
       snoozedUntil: null,
       snoozedAt: null,
     } as const;

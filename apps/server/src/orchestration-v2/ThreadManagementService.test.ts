@@ -62,6 +62,8 @@ it("stamps authoritative provenance on commands that create threads or messages"
       threadId: ThreadId.make("thread:elsewhere"),
       title: "Somewhere else",
     },
+    // Nor can it claim to be another member.
+    author: { userId: "forged", name: "Forged" },
   };
 
   const stamped = ThreadManagementService.withCreationProvenance(command, {
@@ -74,6 +76,36 @@ it("stamps authoritative provenance on commands that create threads or messages"
   });
   expect(stamped).not.toHaveProperty("linkOrigin");
   expect(stamped).not.toHaveProperty("delegatedFrom");
+  expect(stamped).not.toHaveProperty("author");
+
+  const member = { userId: "user-1", name: "Alex" };
+  expect(
+    ThreadManagementService.withCreationProvenance(command, {
+      createdBy: "user",
+      creationSource: "web",
+      member,
+    }),
+  ).toMatchObject({ author: member });
+
+  const settle: OrchestrationV2Command = {
+    type: "thread.settle",
+    commandId: CommandId.make("command:thread-management:settle"),
+    threadId: ThreadId.make("thread:thread-management:create"),
+    actor: { userId: "forged", name: "Forged" },
+  };
+  expect(
+    ThreadManagementService.withCreationProvenance(settle, {
+      createdBy: "user",
+      creationSource: "web",
+    }),
+  ).not.toHaveProperty("actor");
+  expect(
+    ThreadManagementService.withCreationProvenance(settle, {
+      createdBy: "user",
+      creationSource: "web",
+      member,
+    }),
+  ).toMatchObject({ actor: member });
 });
 
 const layerReceiptsTest = CommandReceiptStore.layer.pipe(

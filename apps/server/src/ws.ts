@@ -226,6 +226,8 @@ import * as DefectReporter from "./observability/DefectReporter.ts";
 import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as O3Authority from "./auth/O3Authority.ts";
+import * as WorkspacePresence from "./presence/WorkspacePresence.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
 import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
 import { RpcInstrumentation, rpcInstrumentationLayer } from "./observability/RpcInstrumentation.ts";
@@ -1206,6 +1208,11 @@ export const layerWsRpc = (
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+      const o3Authority = yield* O3Authority.O3Authority;
+      // Looked up per request so a rename on the instance reaches new messages.
+      const currentMember = o3Authority
+        .memberOf(currentSession.subject)
+        .pipe(Effect.map(Option.getOrUndefined));
       const intakeContext = yield* Effect.context<
         | ThreadManagementService.ThreadManagementService
         | ThreadLaunchService.ThreadLaunchService
@@ -1322,6 +1329,9 @@ export const layerWsRpc = (
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
       const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
+      const workspacePresence = yield* WorkspacePresence.WorkspacePresence;
+      const presenceKey = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+      yield* Effect.addFinalizer(() => workspacePresence.remove(presenceKey));
       const rpcClientIds = yield* Ref.make(new Set<RpcClientId>());
       yield* Effect.addFinalizer(() =>
         Ref.get(rpcClientIds).pipe(
@@ -1858,7 +1868,8 @@ export const layerWsRpc = (
               ? { "orchestration_v2.source_thread_id": command.sourceThreadId }
               : {}),
           }).pipe(
-            Effect.andThen(
+            Effect.andThen(currentMember),
+            Effect.flatMap((member) =>
               startup
                 .enqueueCommand(
                   (command.type === "prepared-run.retry"
@@ -1868,6 +1879,7 @@ export const layerWsRpc = (
                           createdBy: "user",
                           creationSource:
                             "creationSource" in command ? command.creationSource : "web",
+                          member,
                         }),
                       )
                   ).pipe(Effect.provide(intakeContext)),
@@ -2009,10 +2021,12 @@ export const layerWsRpc = (
             "orchestration_v2.command_id": input.commandId,
             "orchestration_v2.project_id": input.projectId,
           }).pipe(
-            Effect.andThen(
+            Effect.andThen(currentMember),
+            Effect.flatMap((member) =>
               startup
                 .enqueueCommand(
                   ThreadMessageIntake.launchThread({
+                    ...(member === undefined ? {} : { author: member }),
                     commandId: input.commandId,
                     ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
                     ...(input.reuseExistingThread === undefined
@@ -2974,6 +2988,12 @@ export const layerWsRpc = (
             (listener, registerCleanup) =>
               terminalManager.resyncStream(input, listener, registerCleanup),
           ),
+        [WS_METHODS.presenceUpdate]: (input) =>
+          o3Authority
+            .memberOf(currentSession.subject)
+            .pipe(Effect.flatMap((member) => workspacePresence.update(presenceKey, member, input))),
+        [WS_METHODS.subscribePresence]: (_input) =>
+          workspacePresence.stream(O3Authority.userIdOfSubject(currentSession.subject)),
         [WS_METHODS.subscribeTerminalMetadata]: (_input) =>
           Stream.callback<TerminalMetadataStreamEvent>((queue) =>
             Effect.acquireRelease(

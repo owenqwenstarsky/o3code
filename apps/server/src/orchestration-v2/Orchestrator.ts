@@ -440,6 +440,19 @@ export class OrchestratorV2 extends Context.Service<OrchestratorV2, Orchestrator
 ) {}
 
 /** Run ordinals can skip values: a queued run moves past newer runs when it starts. */
+/** Who created a message, carried unchanged as it moves through queue, steer, restart and fork. */
+function creationFieldsOf(source: {
+  readonly createdBy: OrchestrationV2ConversationMessage["createdBy"];
+  readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
+  readonly author?: OrchestrationV2ConversationMessage["author"];
+}) {
+  return {
+    createdBy: source.createdBy,
+    creationSource: source.creationSource,
+    ...(source.author === undefined ? {} : { author: source.author }),
+  };
+}
+
 function nextRunOrdinal(projection: Pick<OrchestrationV2ThreadProjection, "runs">): number {
   return projection.runs.reduce((max, run) => Math.max(max, run.ordinal), 0) + 1;
 }
@@ -1987,8 +2000,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           text: queuedMessage.text,
           attachments: queuedMessage.attachments,
           ...(queuedMessage.context ? { context: queuedMessage.context } : {}),
-          createdBy: queuedMessage.createdBy,
-          creationSource: queuedMessage.creationSource,
+          ...creationFieldsOf(queuedMessage),
           ...(queuedMessage.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: queuedMessage.scheduledTaskId }),
@@ -2670,8 +2682,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
     const thread: OrchestrationV2AppThread = {
-      createdBy: command.createdBy,
-      creationSource: command.creationSource,
+      ...creationFieldsOf(command),
       id: command.threadId,
       projectId: command.projectId,
       title: command.title,
@@ -3408,6 +3419,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...thread,
             settledOverride: "settled",
             settledAt: alreadySettled ? thread.settledAt : (command.settledAt ?? now),
+            // Auto-settle carries no actor, so it reads as settled automatically.
+            settledBy: alreadySettled ? (thread.settledBy ?? null) : (command.actor ?? null),
             pullRequests: thread.pullRequests?.map((link) => withPullRequestWatch(link, undefined)),
             unsettledAt: null,
             pinnedAt: null,
@@ -3427,6 +3440,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...thread,
             settledOverride: "active",
             settledAt: null,
+            settledBy: null,
             unsettledAt: alreadyPinnedActive ? (thread.unsettledAt ?? null) : now,
             updatedAt: alreadyPinnedActive ? thread.updatedAt : now,
           };
@@ -4340,8 +4354,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         targetThreadId: command.targetThreadId,
         ...(command.title === undefined ? {} : { title: command.title }),
         ...(command.sideChat ? { sideChat: true } : {}),
-        createdBy: command.createdBy,
-        creationSource: command.creationSource,
+        ...creationFieldsOf(command),
         createdAt: now,
       })
       .pipe(mapDispatchError(command));
@@ -4559,6 +4572,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly context?: import("@t3tools/contracts").OrchestrationMessageContext | undefined;
     readonly createdBy: OrchestrationV2ConversationMessage["createdBy"];
     readonly creationSource: OrchestrationV2ConversationMessage["creationSource"];
+    readonly author?: OrchestrationV2ConversationMessage["author"];
     readonly scheduledTaskId?: OrchestrationV2ConversationMessage["scheduledTaskId"];
     readonly senderThreadId?: OrchestrationV2ConversationMessage["senderThreadId"];
     readonly idleCompaction?: OrchestrationV2ConversationMessage["idleCompaction"];
@@ -4710,8 +4724,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         readonly providerInstanceId: ProviderInstanceId;
       }) {
         const message: OrchestrationV2ConversationMessage = {
-          createdBy: input.createdBy,
-          creationSource: input.creationSource,
+          ...creationFieldsOf(input),
           ...(input.delegatedCompletion === undefined
             ? {}
             : { delegatedCompletion: input.delegatedCompletion }),
@@ -4733,8 +4746,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           updatedAt: now,
         };
         const turnItem: OrchestrationV2TurnItem = {
-          createdBy: input.createdBy,
-          creationSource: input.creationSource,
+          ...creationFieldsOf(input),
           ...(input.scheduledTaskId === undefined
             ? {}
             : { scheduledTaskId: input.scheduledTaskId }),
@@ -5473,6 +5485,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       projection,
       command.dispatchMode,
       command.deliveryIntent,
+      command.author,
     );
     if (dispatchMode.type === "steer_active") {
       const targetRunId = dispatchMode.targetRunId;
@@ -5705,8 +5718,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         text: dispatchText,
         ...(command.context ? { context: command.context } : {}),
         attachments: command.attachments,
-        createdBy: command.createdBy,
-        creationSource: command.creationSource,
+        ...creationFieldsOf(command),
         ...(command.scheduledTaskId === undefined
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
@@ -5940,8 +5952,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         completedAt: null,
       };
       const message: OrchestrationV2ConversationMessage = {
-        createdBy: command.createdBy,
-        creationSource: command.creationSource,
+        ...creationFieldsOf(command),
         ...(command.scheduledTaskId === undefined
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
@@ -6287,8 +6298,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         completedAt: null,
       };
       const message: OrchestrationV2ConversationMessage = {
-        createdBy: command.createdBy,
-        creationSource: command.creationSource,
+        ...creationFieldsOf(command),
         ...(command.scheduledTaskId === undefined
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
@@ -6309,8 +6319,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.notification === undefined ? {} : { notification: command.notification }),
       };
       const turnItem: OrchestrationV2TurnItem = {
-        createdBy: command.createdBy,
-        creationSource: command.creationSource,
+        ...creationFieldsOf(command),
         ...(command.scheduledTaskId === undefined
           ? {}
           : { scheduledTaskId: command.scheduledTaskId }),
@@ -7038,8 +7047,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       completedAt: null,
     };
     const message: OrchestrationV2ConversationMessage = {
-      createdBy: command.createdBy,
-      creationSource: command.creationSource,
+      ...creationFieldsOf(command),
       ...(command.scheduledTaskId === undefined
         ? {}
         : { scheduledTaskId: command.scheduledTaskId }),
@@ -7060,8 +7068,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ...(command.notification === undefined ? {} : { notification: command.notification }),
     };
     const turnItem: OrchestrationV2TurnItem = {
-      createdBy: command.createdBy,
-      creationSource: command.creationSource,
+      ...creationFieldsOf(command),
       ...(command.scheduledTaskId === undefined
         ? {}
         : { scheduledTaskId: command.scheduledTaskId }),
@@ -7561,8 +7568,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           modelSelection: command.modelSelection,
           title: taskTitle,
           now,
-          createdBy: command.createdBy,
-          creationSource: command.creationSource,
+          ...creationFieldsOf(command),
         }),
         runtimeMode: command.runtimeMode,
         interactionMode: command.interactionMode,
@@ -7675,8 +7681,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
       const childMessageCommand = {
         type: "message.dispatch",
-        createdBy: command.createdBy,
-        creationSource: command.creationSource,
+        ...creationFieldsOf(command),
         commandId: command.commandId,
         threadId: childThreadId,
         senderThreadId: command.parentThreadId,
@@ -8956,6 +8961,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             streaming: false,
             createdBy: "user",
             creationSource: "server",
+            ...(command.actor === undefined ? {} : { author: command.actor }),
             createdAt: now,
             updatedAt: now,
           },
@@ -8995,6 +9001,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             attachments: [],
             createdBy: "user",
             creationSource: "server",
+            ...(command.actor === undefined ? {} : { author: command.actor }),
           },
         });
       }
@@ -9063,6 +9070,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   },
                 }
               : {}),
+            ...((approvalTurnItem.type === "approval_request" ||
+              approvalTurnItem.type === "user_input_request") &&
+            command.actor !== undefined
+              ? { respondedBy: command.actor }
+              : {}),
             status: resolvedNodeStatus,
             completedAt: now,
             updatedAt: now,
@@ -9113,6 +9125,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           attachments: [],
           createdBy: "user" as const,
           creationSource: "server" as const,
+          ...(command.actor === undefined ? {} : { author: command.actor }),
           dispatchMode,
         };
         yield* dispatchMessage(answer, events, effects);
@@ -9435,8 +9448,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       text: queuedMessage.text,
       attachments: queuedMessage.attachments,
       ...(queuedMessage.context ? { context: queuedMessage.context } : {}),
-      createdBy: queuedMessage.createdBy,
-      creationSource: queuedMessage.creationSource,
+      ...creationFieldsOf(queuedMessage),
       ...(queuedMessage.scheduledTaskId === undefined
         ? {}
         : { scheduledTaskId: queuedMessage.scheduledTaskId }),
@@ -10303,7 +10315,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     }
   });
 
-  const runInterruptReason = Effect.fnUntraced(function* (
+  const runInterruptRequest = Effect.fnUntraced(function* (
     command: Extract<
       OrchestrationV2ServerCommand,
       { readonly type: "run.interrupt" | "thread.background-work.settle" }
@@ -10318,14 +10330,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const pending = (yield* Ref.get(events))
       .flatMap((event) => (event.type === "turn-item.updated" ? [event.payload] : []))
       .findLast(isRequest);
-    if (pending !== undefined) return pending.message;
+    if (pending !== undefined) return pending;
     const { turnItems } = yield* projectionStore
       .getThreadRecords(command.threadId, ["turnItems"], {
         turnItemTypes: ["run_interrupt_request"],
         turnItemRunIds: [runId],
       })
       .pipe(mapDispatchError(command));
-    return turnItems.find(isRequest)?.message;
+    return turnItems.find(isRequest);
   });
 
   // A successful Stop may have no terminal event to ingest: the session or
@@ -10478,10 +10490,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           run,
           rootNode,
           providerThread,
-          reason:
-            (input.command.type === "thread.background-work.settle"
-              ? input.command.reason
-              : undefined) ?? (yield* runInterruptReason(input.command, input.events, run.id)),
+          request:
+            input.command.type === "thread.background-work.settle" &&
+            input.command.reason !== undefined
+              ? { message: input.command.reason }
+              : yield* runInterruptRequest(input.command, input.events, run.id),
           completedAt: input.now,
         }),
       });
@@ -10578,6 +10591,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         updatedAt: now,
         type: "run_interrupt_request",
         message: command.reason ?? RunExecutionService.USER_STOP_REASON,
+        ...(command.actor === undefined ? {} : { requestedBy: command.actor }),
       },
     });
   });
@@ -11156,6 +11170,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       updatedAt: now,
       type: "run_interrupt_request",
       message: command.reason ?? RunExecutionService.USER_STOP_REASON,
+      ...(command.actor === undefined ? {} : { requestedBy: command.actor }),
     };
 
     const otherProviderInterrupts: Array<PendingOrchestrationEffectV2> = [];
@@ -11241,6 +11256,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         updatedAt: now,
         type: "run_interrupt_result",
         message: "Run interrupted before provider start",
+        ...(command.actor === undefined ? {} : { requestedBy: command.actor }),
       };
       yield* emitEvent({
         type: "turn-item.updated",
@@ -11708,6 +11724,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             runId: target.id,
             holdQueue: true,
             ...(command.reason === undefined ? {} : { reason: command.reason }),
+            ...(command.actor === undefined ? {} : { actor: command.actor }),
           },
           interruptEvents,
           interruptEffects,

@@ -6,6 +6,7 @@ import {
   type EventId,
   type ModelSelection,
   type NodeId,
+  ORCHESTRATION_V2_USER_STOP_REASON,
   type OrchestrationV2AppThread,
   type OrchestrationV2CheckpointScope,
   type OrchestrationV2DomainEvent,
@@ -574,7 +575,7 @@ export interface RunExecutionServiceV2StartRootRunInput {
   readonly shouldStartProviderTurn?: () => Effect.Effect<boolean, ProjectionStoreV2Error>;
   readonly shouldFinalizeRun?: () => Effect.Effect<boolean, ProjectionStoreV2Error>;
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
-  readonly loadRunInterruptReason?: () => Effect.Effect<string | undefined, never>;
+  readonly loadRunInterruptRequest?: () => Effect.Effect<RunInterruptRequest | undefined, never>;
   readonly message: ProviderAdapter.ProviderAdapterV2TurnMessage;
   readonly modelSelection: ModelSelection;
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
@@ -625,7 +626,10 @@ export const layer: Layer.Layer<
         readonly attempt: OrchestrationV2RunAttempt;
         readonly shouldFinalizeRun?: () => Effect.Effect<boolean, ProjectionStoreV2Error>;
         readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
-        readonly loadRunInterruptReason?: () => Effect.Effect<string | undefined, never>;
+        readonly loadRunInterruptRequest?: () => Effect.Effect<
+          RunInterruptRequest | undefined,
+          never
+        >;
         readonly openRunOwnedSubagents?: OpenRunOwnedSubagentProjection;
         // Root turn snapshot written with the run when T3 ends the run itself.
         readonly abandonedProviderTurn?: OrchestrationV2ProviderTurn;
@@ -653,10 +657,10 @@ export const layer: Layer.Layer<
                 ? false
                 : yield* input.hasUnpairedRunInterruptRequest();
             if (hasUnpairedRequest) {
-              const reason =
-                input.loadRunInterruptReason === undefined
+              const request =
+                input.loadRunInterruptRequest === undefined
                   ? undefined
-                  : yield* input.loadRunInterruptReason();
+                  : yield* input.loadRunInterruptRequest();
               yield* eventSink.writeWithEffects({
                 effects: [],
                 events: [
@@ -673,7 +677,7 @@ export const layer: Layer.Layer<
                       run: input.run,
                       rootNode: input.rootNode,
                       providerThread: input.providerThread,
-                      reason,
+                      request,
                       completedAt,
                     }),
                   },
@@ -685,9 +689,9 @@ export const layer: Layer.Layer<
           return;
         }
         const allocateEventId = () => idAllocator.allocate.event({ threadId: input.run.threadId });
-        const reason =
-          input.terminal.status === "interrupted" && input.loadRunInterruptReason !== undefined
-            ? yield* input.loadRunInterruptReason()
+        const request =
+          input.terminal.status === "interrupted" && input.loadRunInterruptRequest !== undefined
+            ? yield* input.loadRunInterruptRequest()
             : undefined;
         const open = input.openRunOwnedSubagents ?? emptyOpenRunOwnedSubagentProjection();
         const hasOpenSubagentProjection =
@@ -794,7 +798,7 @@ export const layer: Layer.Layer<
                       run: input.run,
                       rootNode: input.rootNode,
                       providerThread: input.providerThread,
-                      reason,
+                      request,
                       completedAt,
                     }),
                   },
@@ -1074,9 +1078,9 @@ export const layer: Layer.Layer<
               : {
                   hasUnpairedRunInterruptRequest: input.hasUnpairedRunInterruptRequest,
                 }),
-            ...(input.loadRunInterruptReason === undefined
+            ...(input.loadRunInterruptRequest === undefined
               ? {}
-              : { loadRunInterruptReason: input.loadRunInterruptReason }),
+              : { loadRunInterruptRequest: input.loadRunInterruptRequest }),
             openRunOwnedSubagents: openSubagents,
             terminal,
             failureItemPersisted: terminal.status === "failed",
@@ -1764,19 +1768,20 @@ export const layer: Layer.Layer<
   }),
 );
 
-/**
- * Clients send Stop without a reason; server callers acting for an agent
- * always set one, so a missing reason means a person stopped the run.
- */
-export const USER_STOP_REASON = "Stopped by user";
+export const USER_STOP_REASON = ORCHESTRATION_V2_USER_STOP_REASON;
+
+export type RunInterruptRequest = Pick<
+  Extract<OrchestrationV2TurnItem, { readonly type: "run_interrupt_request" }>,
+  "message" | "requestedBy"
+>;
 
 export function makeInterruptResultTurnItem(input: {
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly run: OrchestrationV2Run;
   readonly rootNode: OrchestrationV2ExecutionNode;
   readonly providerThread: OrchestrationV2ProviderThread;
-  /** The Stop's own reason, from its run_interrupt_request item. */
-  readonly reason: string | undefined;
+  /** The Stop's run_interrupt_request item: its reason and who asked. */
+  readonly request: RunInterruptRequest | undefined;
   readonly completedAt: DateTime.Utc;
 }): OrchestrationV2TurnItem {
   return {
@@ -1801,6 +1806,7 @@ export function makeInterruptResultTurnItem(input: {
     completedAt: input.completedAt,
     updatedAt: input.completedAt,
     type: "run_interrupt_result",
-    message: input.reason ?? "Stopped by the provider",
+    message: input.request?.message ?? "Stopped by the provider",
+    ...(input.request?.requestedBy === undefined ? {} : { requestedBy: input.request.requestedBy }),
   };
 }

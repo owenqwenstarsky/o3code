@@ -183,6 +183,29 @@ describe("resolveUserMessagePresentation", () => {
     }
   });
 
+  it("attributes another member's message and keeps your own and guests' as before", () => {
+    const sam = { userId: "sam", name: "Sam" };
+    const message = { role: "user", text: "hello", createdBy: "user" as const, author: sam };
+    expect(resolveUserMessagePresentation(message, "alex")).toMatchObject({
+      attribution: "member",
+      author: sam,
+    });
+    expect(resolveUserMessagePresentation(message, "sam").attribution).toBeNull();
+    // A server with no members has no viewer, so every message is your own.
+    expect(resolveUserMessagePresentation(message, null).attribution).toBeNull();
+    const guest = {
+      ...message,
+      context: {
+        guest: { guestMessageId: GuestMessageId.make("guest"), name: "Visitor", text: "hi" },
+      },
+    };
+    expect(resolveUserMessagePresentation(guest, "alex").attribution).toBe("guest");
+    // Messages group only with the same sender's.
+    expect(
+      resolveUserMessageGrouping(message, { role: "user", text: "mine" }, message),
+    ).toMatchObject({ groupedWithPrevious: false, groupedWithNext: true });
+  });
+
   it("shows a guest's own words and name, not the attributed text the agent reads", () => {
     expect(
       resolveUserMessagePresentation({

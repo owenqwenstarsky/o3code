@@ -1489,6 +1489,7 @@ export function threadShellFromProjection(
   return {
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
+    ...(projection.thread.author === undefined ? {} : { author: projection.thread.author }),
     id: projection.thread.id,
     projectId: projection.thread.projectId,
     title: projection.thread.title,
@@ -1567,6 +1568,7 @@ export function threadShellFromProjection(
     settledOverride: projection.thread.settledOverride,
     settledAt: projection.thread.settledAt,
     unsettledAt: projection.thread.unsettledAt ?? null,
+    settledBy: projection.thread.settledBy ?? null,
     snoozedUntil: projection.thread.snoozedUntil ?? null,
     snoozedAt: projection.thread.snoozedAt ?? null,
     pinnedAt: projection.thread.pinnedAt ?? null,
@@ -1770,6 +1772,7 @@ function shellFromState(input: {
   return {
     createdBy: input.state.thread.createdBy,
     creationSource: input.state.thread.creationSource,
+    ...(input.state.thread.author === undefined ? {} : { author: input.state.thread.author }),
     id: input.state.thread.id,
     projectId: input.state.thread.projectId,
     title: input.state.thread.title,
@@ -1832,6 +1835,7 @@ function shellFromState(input: {
     settledOverride: input.state.thread.settledOverride,
     settledAt: input.state.thread.settledAt,
     unsettledAt: input.state.thread.unsettledAt ?? null,
+    settledBy: input.state.thread.settledBy ?? null,
     snoozedUntil: input.state.thread.snoozedUntil ?? null,
     snoozedAt: input.state.thread.snoozedAt ?? null,
     pinnedAt: input.state.thread.pinnedAt ?? null,

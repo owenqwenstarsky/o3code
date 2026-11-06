@@ -1,3 +1,4 @@
+import { presenceEnvironment } from "../../state/presence";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import type { Dispatch } from "react";
@@ -570,6 +571,12 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   // The relative times read the clock; nowMinute re-renders them on the minute.
   const snoozedUntil = activeThreadShell?.snoozedUntil ?? null;
   const settledAt = activeThreadShell?.settledAt ?? null;
+  const viewerUserId = useAtomValue(presenceEnvironment.viewerUserId(environmentId));
+  const settledBy = activeThreadShell?.settledBy ?? null;
+  const settledByLabel =
+    settledBy !== null && viewerUserId !== null && settledBy.userId !== viewerUserId
+      ? `Settled by ${settledBy.name}`
+      : "Settled";
   // Same rounding as the sidebar's snoozed shelf, so both read the same hour.
   const snoozeWake = snoozedUntil
     ? snoozeWakeLabel(snoozedUntil, { now: `${nowMinute}:00.000Z` })
@@ -586,7 +593,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   ) : activeThreadSettled ? (
     <ThreadStatusLine
       icon={<CheckCircle2Icon />}
-      label={settledAt ? `Settled ${formatRelativeTimeLabel(settledAt)}` : "Settled"}
+      label={settledAt ? `${settledByLabel} ${formatRelativeTimeLabel(settledAt)}` : settledByLabel}
       clockMinute={nowMinute}
       actionLabel={isUnsettling ? "Un-settling..." : "Un-settle"}
       actionDisabled={!canOperateThread || isUnsettling}

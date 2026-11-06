@@ -175,6 +175,10 @@ export interface EnvironmentThreadShell {
   readonly settledOverride: "settled" | "active" | null;
   readonly settledAt: string | null;
   readonly unsettledAt: string | null;
+  /** The shared-workspace member who settled it; null when it settled automatically. */
+  readonly settledBy?: import("@t3tools/contracts").OrchestrationV2Member | null;
+  /** The shared-workspace member who started the thread. */
+  readonly author?: import("@t3tools/contracts").OrchestrationV2Member | null;
   readonly snoozedUntil: string | null;
   readonly snoozedAt: string | null;
   readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecovery | null;
@@ -336,6 +340,8 @@ export function presentThreadShell(
     settledOverride: thread.settledOverride,
     settledAt: nullableIso(thread.settledAt),
     unsettledAt: nullableIso(thread.unsettledAt ?? null),
+    settledBy: thread.settledBy ?? null,
+    author: thread.author ?? null,
     snoozedUntil: nullableIso(thread.snoozedUntil ?? null),
     snoozedAt: nullableIso(thread.snoozedAt ?? null),
     limitRecovery: thread.limitRecovery ?? null,

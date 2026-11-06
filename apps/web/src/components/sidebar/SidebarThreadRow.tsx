@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
@@ -67,6 +68,8 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import { useNowSecond } from "../../hooks/useNowSecond";
 import { vcsEnvironment } from "../../state/vcs";
 import { useEnvironmentQuery } from "../../state/query";
+import { presenceEnvironment, useThreadPresence } from "../../state/presence";
+import { MemberAvatar, MemberAvatarStack } from "../MemberAvatar";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { formatRelativeTimeLabel, parseTimestampDate } from "../../timestampFormat";
 import type { SidebarThreadSummary } from "../../types";
@@ -263,6 +266,11 @@ function SidebarThreadTooltip({
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
+  const viewerUserId = useAtomValue(presenceEnvironment.viewerUserId(thread.environmentId));
+  const startedBy =
+    thread.author != null && viewerUserId !== null && thread.author.userId !== viewerUserId
+      ? thread.author
+      : null;
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -288,6 +296,12 @@ function SidebarThreadTooltip({
               className="size-3 shrink-0 stroke-muted-foreground"
             />
             <div className="min-w-0 truncate text-foreground/75">{environmentLabel}</div>
+          </div>
+        ) : null}
+        {startedBy ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <MemberAvatar member={startedBy} size="2xs" />
+            <div className="min-w-0 truncate text-foreground/75">Started by {startedBy.name}</div>
           </div>
         ) : null}
         {thread.branch ? (
@@ -1122,6 +1136,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     )
   ) : null;
 
+  const { viewers } = useThreadPresence(thread.environmentId, thread.id);
+  const viewerStack = viewers.length > 0 ? <MemberAvatarStack members={viewers} /> : null;
   const remoteMachineIcon =
     isRemote && !showsScratchMachine ? (
       <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
@@ -1169,6 +1185,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         aria-hidden
         className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
       >
+        {viewerStack}
         {remoteMachineIcon}
         <SidebarProviderStack
           thread={thread}
@@ -1179,6 +1196,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   );
   const titleLineIcons = metaLineEmpty ? (
     <span aria-hidden className="inline-flex shrink-0 items-center gap-1">
+      {viewerStack}
       {remoteMachineIcon}
       <SidebarProviderStack
         thread={thread}

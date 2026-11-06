@@ -4,6 +4,7 @@ import {
   type OrchestrationV2Command,
   OrchestrationV2ProviderCapabilities,
   type OrchestrationV2GoalCommand,
+  type OrchestrationV2Member,
   type OrchestrationV2ProviderGoalStatus,
   type OrchestrationV2Run,
   OrchestrationV2ThreadProjection,
@@ -93,8 +94,9 @@ export function resolveMessageDispatchIntent(
   projection: OrchestrationV2ThreadProjection,
   requestedMode: MessageDispatchMode,
   deliveryIntent?: "auto" | "steer" | "restart",
+  author?: OrchestrationV2Member,
 ): MessageDispatchMode {
-  const mode = resolveDeliveryIntent(projection, requestedMode, deliveryIntent);
+  const mode = resolveDeliveryIntent(projection, requestedMode, deliveryIntent, author);
   if (mode.type !== "steer_active") return mode;
   // Compaction and sign-out cannot accept steers; queue follow-ups.
   const target = projection.runs.find((run) => run.id === mode.targetRunId);
@@ -145,6 +147,7 @@ function resolveDeliveryIntent(
   projection: OrchestrationV2ThreadProjection,
   requestedMode: MessageDispatchMode,
   deliveryIntent?: "auto" | "steer" | "restart",
+  author?: OrchestrationV2Member,
 ): MessageDispatchMode {
   if (deliveryIntent === undefined) return requestedMode;
 
@@ -155,6 +158,13 @@ function resolveDeliveryIntent(
   }
   if (deliveryIntent === "restart") {
     return { type: "restart_active", targetRunId: activeRun.id };
+  }
+  // On a shared workspace, automatic delivery never redirects another member's turn.
+  const activeAuthor = projection.messages.find(
+    (message) => message.id === activeRun.userMessageId,
+  )?.author;
+  if (author !== undefined && activeAuthor !== undefined && activeAuthor.userId !== author.userId) {
+    return { type: "queue_after_active" };
   }
   // A run can be active before its provider turn starts or after it finishes.
   // Queue automatic input in those gaps so steering cannot reject the message.

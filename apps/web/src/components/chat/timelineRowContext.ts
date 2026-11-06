@@ -107,6 +107,7 @@ export interface TimelineRowActivityState {
   isPreparingWorktree: boolean;
   latestRunId: RunId | null;
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
+  turnOwner: { readonly userId: string; readonly name: string } | null;
 }
 
 export const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);
